@@ -73,7 +73,8 @@ class BaseDataset(Dataset):
     def build(self):
         self._build_from_config()
         self.processor = self._build_processor()
-        self.processor.build()
+        if self.processor is not None:
+            self.processor.build()
 
     def load_image(self, image_path: str, data_folder=None) -> Image.Image:
         if data_folder is not None:

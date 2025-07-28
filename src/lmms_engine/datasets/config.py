@@ -9,8 +9,8 @@ class DatasetConfig:
     dataset_type: Literal["vision", "vision_audio"]
     dataset_format: Literal["json", "jsonl", "yaml", "hf_dataset", "arrow"]
     dataset_path: str
-    processor_config: Union[dict, ProcessorConfig]
     shuffle: bool = True
+    processor_config: Optional[Union[dict, ProcessorConfig]] = None
     eval_dataset_path: Optional[str] = None
     object_storage: Optional[Literal["azure", "gcs", "none"]] = "none"
     bucket_name: Optional[str] = None
