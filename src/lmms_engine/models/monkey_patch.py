@@ -39,6 +39,11 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
 )
 
+from lmms_engine.models.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_world_size,
+    patch_vlm_for_ulysses_input_slicing,
+)
+
 transformer_version = version.parse(transformers.__version__)
 SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
@@ -122,6 +127,9 @@ def apply_liger_kernel_to_qwen2_5_vl(
             qwen2_ops_decoder_layer_forward
         )
         modeling_qwen2_5_vl.Qwen2_5_VLAttention.forward = qwen2_ops_attn_forward
+
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
 
     if model is not None:
         # The model instance already exists, so we need to additionally patch the

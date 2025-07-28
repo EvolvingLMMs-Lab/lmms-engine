@@ -14,6 +14,7 @@ class TrainingArguments(transformers.TrainingArguments):
     only_save_mm_adapter: Optional[bool] = False
     use_rmpad: Optional[bool] = False
     fsdp2: Optional[bool] = False
+    sp_ulysses_degree: Optional[int] = 1
 
 
 TrainingArgumentType = Union[TrainingArguments]

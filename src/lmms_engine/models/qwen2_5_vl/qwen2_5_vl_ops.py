@@ -24,6 +24,12 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
+from lmms_engine.models.sequence_parallel.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_group,
+    get_ulysses_sequence_parallel_world_size,
+)
 from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import (
@@ -494,6 +500,20 @@ def decoder_layer_forward(
     return outputs
 
 
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
+    seqlen, num_key_value_heads, head_dim) to (batch, seqlen, num_attention_heads, head_dim)
+    """
+    slen, num_key_value_heads, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :].expand(
+        slen, num_key_value_heads, n_rep, head_dim
+    )
+    return hidden_states.reshape(slen, num_key_value_heads * n_rep, head_dim)
+
+
 # The attn forward func for the LM
 def attn_forward(
     self: Qwen2_5_VLAttention,
@@ -508,6 +528,7 @@ def attn_forward(
     position_embeddings: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
     **kwargs,
 ):
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     bsz = hidden_states.shape[0]
     q_len = torch.max(position_ids).item() + 1
     kv_seq_len = q_len
@@ -607,6 +628,27 @@ def attn_forward(
 
     window_size = (-1, -1)
 
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        assert (
+            position_ids is not None
+        ), "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(1), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+
     attn_output = flash_attn_varlen_func(
         q=query_states,
         k=key_states,
@@ -620,6 +662,11 @@ def attn_forward(
         softmax_scale=self.head_dim**-0.5,
         dropout_p=0.0,
     )
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
     attn_output = attn_output.reshape(-1, self.hidden_size).contiguous()
 

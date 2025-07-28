@@ -2,7 +2,12 @@ import os
 import pathlib
 
 import torch
+import torch.distributed as dist
 from transformers import Trainer
+
+from lmms_engine.models.sequence_parallel.ulysses import (
+    set_ulysses_sequence_parallel_group,
+)
 
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
@@ -18,7 +23,36 @@ class Hf_Trainer(BaseTrainer):
 
     def build(self):
         super().build()
+        self.create_sp_dis_group()
         self.trainer = self._build_trainer()
+
+    def create_sp_dis_group(self):
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+        sp_ulysses_degree = self.config.trainer_args.sp_ulysses_degree
+        sp_degree = sp_ulysses_degree * 1  # ring attn always 1, kept for clarity
+
+        total_group_size = sp_degree * sp_ulysses_degree
+        assert (
+            world_size % total_group_size == 0
+        ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
+
+        dp_degree = world_size // total_group_size
+
+        for dp_idx in range(dp_degree):
+            for sp_idx in range(sp_degree):
+                # Each group contains sp_ulysses_degree ranks
+                group_ranks = []
+                for i in range(sp_ulysses_degree):
+                    global_rank = (
+                        dp_idx * total_group_size + sp_idx * sp_ulysses_degree + i
+                    )
+                    group_ranks.append(global_rank)
+
+                group = torch.distributed.new_group(group_ranks)
+
+                if rank in group_ranks:
+                    set_ulysses_sequence_parallel_group(group)
 
     def _build_trainer(self):
         if self.config.trainer_args_type == "sft":
