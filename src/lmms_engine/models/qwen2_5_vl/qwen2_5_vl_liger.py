@@ -14,7 +14,7 @@ from transformers.utils import (
 
 from lmms_engine.utils import Logging
 
-from .utils import calc_gpt_flops
+from ..utils import calc_gpt_flops
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (

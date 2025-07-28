@@ -43,7 +43,7 @@ transformer_version = version.parse(transformers.__version__)
 SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
-from ...utils.logging_utils import Logging
+from ..utils.logging_utils import Logging
 
 
 def apply_liger_kernel_to_qwen2_5_vl(
@@ -76,7 +76,7 @@ def apply_liger_kernel_to_qwen2_5_vl(
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
 
-    from .qwen2_5_vl_liger import lce_forward as qwen2_5_vl_lce_forward
+    from .qwen2_5_vl.qwen2_5_vl_liger import lce_forward as qwen2_5_vl_lce_forward
 
     if use_rmpad:
 
@@ -105,14 +105,16 @@ def apply_liger_kernel_to_qwen2_5_vl(
         modeling_qwen2_5_vl.Qwen2MLP = LigerSwiGLUMLP
 
     if use_rmpad:
-        from .rmpad.qwen2_5_vl_ops import attn_forward as qwen2_ops_attn_forward
-        from .rmpad.qwen2_5_vl_ops import (
+        from .qwen2_5_vl.qwen2_5_vl_ops import attn_forward as qwen2_ops_attn_forward
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
             decoder_layer_forward as qwen2_ops_decoder_layer_forward,
         )
-        from .rmpad.qwen2_5_vl_ops import (
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
             text_model_forward as qwen2_ops_text_model_forward,
         )
-        from .rmpad.qwen2_5_vl_ops import vl_model_forward as qwen2_ops_vl_model_forward
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
+            vl_model_forward as qwen2_ops_vl_model_forward,
+        )
 
         modeling_qwen2_5_vl.Qwen2_5_VLModel.forward = qwen2_ops_vl_model_forward
         modeling_qwen2_5_vl.Qwen2_5_VLTextModel.forward = qwen2_ops_text_model_forward
@@ -120,7 +122,6 @@ def apply_liger_kernel_to_qwen2_5_vl(
             qwen2_ops_decoder_layer_forward
         )
         modeling_qwen2_5_vl.Qwen2_5_VLAttention.forward = qwen2_ops_attn_forward
-    apply_liger_kernel_to_qwen2_audio(use_rmpad=use_rmpad)
 
     if model is not None:
         # The model instance already exists, so we need to additionally patch the
@@ -177,7 +178,7 @@ def apply_liger_kernel_to_aero(
     from transformers.models.qwen2 import modeling_qwen2
     from transformers.models.qwen2.modeling_qwen2 import Qwen2Model
 
-    from ..aero import modeling_aero
+    from .aero import modeling_aero
 
     if rope:
         modeling_qwen2.apply_rotary_pos_emb = liger_rotary_pos_emb
@@ -194,7 +195,7 @@ def apply_liger_kernel_to_aero(
             modeling_qwen2.CrossEntropyLoss = LigerCrossEntropyLoss
 
     if fused_linear_cross_entropy:
-        from .qwen2_liger import qwen2_lce_forward
+        from .qwen2.qwen2_liger import qwen2_lce_forward
 
         if use_rmpad:
 
@@ -213,12 +214,12 @@ def apply_liger_kernel_to_aero(
     apply_liger_kernel_to_qwen2_audio(use_rmpad=use_rmpad)
 
     if use_rmpad:
-        from .rmpad.aero_ops import forward as aero_ops_forward
-        from .rmpad.qwen2_ops import attn_forward as qwen2_ops_attn_forward
-        from .rmpad.qwen2_ops import (
+        from .aero.aero_ops import forward as aero_ops_forward
+        from .qwen2.qwen2_ops import attn_forward as qwen2_ops_attn_forward
+        from .qwen2.qwen2_ops import (
             decoder_layer_forward as qwen2_ops_decoder_layer_forward,
         )
-        from .rmpad.qwen2_ops import model_forward as qwen2_ops_model_forward
+        from .qwen2.qwen2_ops import model_forward as qwen2_ops_model_forward
 
         modeling_qwen2.Qwen2Model.forward = qwen2_ops_model_forward
         modeling_qwen2.Qwen2DecoderLayer.forward = qwen2_ops_decoder_layer_forward
@@ -263,13 +264,13 @@ def apply_liger_kernel_to_qwen2_audio(
     )
 
     if use_rmpad:
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             encoder_forward as qwen2_audio_encoder_forward,
         )
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             encoder_layer_forward as qwen2_audio_encoder_layer_forward,
         )
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             flash_attn_forward as qwen2_audio_flash_attn_forward,
         )
 

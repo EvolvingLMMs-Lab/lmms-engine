@@ -26,7 +26,11 @@ from transformers.utils import is_flash_attn_2_available, logging
 
 from lmms_engine.utils import Logging
 
-from .utils import BaseModelOutputWithPastAndRmpad, _get_unpad_data, _unpad_input
+from ..sequence_packing_utils import (
+    BaseModelOutputWithPastAndRmpad,
+    _get_unpad_data,
+    _unpad_input,
+)
 
 logger = logging.get_logger(__name__)
 

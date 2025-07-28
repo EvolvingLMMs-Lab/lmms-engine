@@ -10,7 +10,7 @@ from transformers.utils import is_flash_attn_2_available, logging
 
 logger = logging.get_logger(__name__)
 
-from .utils import _unpad_input
+from ..sequence_packing_utils import _unpad_input
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func

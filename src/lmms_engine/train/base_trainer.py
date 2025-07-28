@@ -15,8 +15,8 @@ from lmms_engine.mapping_func import (
     create_model_from_pretrained,
 )
 
-from ..models.kernels import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
-from ..models.kernels import (
+from ..models.monkey_patch import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
+from ..models.monkey_patch import (
     _apply_liger_kernel_to_instance as _apply_liger_kernel_to_custom_instance,
 )
 from ..utils import Logging

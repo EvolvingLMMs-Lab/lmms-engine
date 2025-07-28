@@ -2,7 +2,7 @@ from typing import List, Optional, Tuple, Union
 
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .rmpad.utils import BaseModelOutputWithPastAndRmpad
+from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
