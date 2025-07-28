@@ -326,34 +326,6 @@ def apply_liger_kernel_to_aero(
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
 
-def apply_liger_kernel_to_aero_omni(
-    rope: bool = True,
-    cross_entropy: bool = False,
-    fused_linear_cross_entropy: bool = True,
-    rms_norm: bool = True,
-    swiglu: bool = True,
-    model: PreTrainedModel = None,
-    use_rmpad: bool = False,
-):
-    apply_liger_kernel_to_aero(
-        rope=rope,
-        cross_entropy=cross_entropy,
-        fused_linear_cross_entropy=fused_linear_cross_entropy,
-        rms_norm=rms_norm,
-        swiglu=swiglu,
-        model=model,
-        use_rmpad=use_rmpad,
-    )
-
-    if use_rmpad:
-        from ..aero_omni import modeling_aero_omni
-        from .rmpad.aero_omni_ops import forward as aero_omni_ops_forward
-
-        modeling_aero_omni.AeroOmniForConditionalGeneration.forward = (
-            aero_omni_ops_forward
-        )
-
-
 def apply_liger_kernel_to_qwen2_audio(
     rope: bool = True,
     cross_entropy: bool = False,
@@ -387,7 +359,6 @@ def apply_liger_kernel_to_qwen2_audio(
 
 CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN = {
     "aero": apply_liger_kernel_to_aero,
-    "aero_omni": apply_liger_kernel_to_aero_omni,
     "qwen2_5_vl": apply_liger_kernel_to_qwen2_5_vl,
 }
 
