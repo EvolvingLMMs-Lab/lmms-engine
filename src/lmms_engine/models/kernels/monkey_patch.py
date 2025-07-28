@@ -15,6 +15,10 @@ try:
     from liger_kernel.transformers.model.qwen2 import (
         lce_forward_deprecated as qwen2_lce_forward_deprecated,
     )
+    from liger_kernel.transformers.monkey_patch import (
+        _patch_rms_norm_module,
+        _patch_swiglu_module,
+    )
     from liger_kernel.transformers.qwen2vl_mrope import liger_multimodal_rotary_pos_emb
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
     from liger_kernel.transformers.rope import liger_rotary_pos_emb
@@ -40,89 +44,6 @@ SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
 from ...utils.logging_utils import Logging
-
-try:
-    import peft
-
-    PEFT_AVAILABLE = True
-except ImportError:
-    PEFT_AVAILABLE = False
-
-
-def _bind_method_to_module(module, method_name: str, new_method: Callable):
-    # Binds a new method to a module instance so that self is passed as the first argument
-    module.__dict__[method_name] = new_method.__get__(module, module.__class__)
-
-
-def _patch_rms_norm_module(
-    module, offset=0.0, eps=1e-6, casting_mode="llama", in_place=True, row_mode=None
-):
-    # Check if the module is a PEFT ModulesToSaveWrapper
-    # If it is, we need to patch the modules_to_save.default and original_modules
-    if PEFT_AVAILABLE and isinstance(module, peft.utils.other.ModulesToSaveWrapper):
-        module.modules_to_save.default.offset = offset
-        module.modules_to_save.default.casting_mode = casting_mode
-        module.modules_to_save.default.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.modules_to_save.default.in_place = in_place
-        module.modules_to_save.default.row_mode = row_mode
-        module.original_module.offset = offset
-        module.original_module.casting_mode = casting_mode
-        module.original_module.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.original_module.in_place = in_place
-        module.original_module.row_mode = row_mode
-        _bind_method_to_module(
-            module.modules_to_save.default, "forward", LigerRMSNorm.forward
-        )
-        _bind_method_to_module(
-            module.modules_to_save.default, "extra_repr", LigerRMSNorm.extra_repr
-        )
-        _bind_method_to_module(module.original_module, "forward", LigerRMSNorm.forward)
-        _bind_method_to_module(
-            module.original_module, "extra_repr", LigerRMSNorm.extra_repr
-        )
-        module.modules_to_save.default.__class__.__name__ = LigerRMSNorm.__name__
-        module.original_module.__class__.__name__ = LigerRMSNorm.__name__
-    else:
-        module.offset = offset
-        module.casting_mode = casting_mode
-        module.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.in_place = in_place
-        module.row_mode = row_mode
-        _bind_method_to_module(module, "forward", LigerRMSNorm.forward)
-        _bind_method_to_module(module, "extra_repr", LigerRMSNorm.extra_repr)
-        module.__class__.__name__ = LigerRMSNorm.__name__
-
-
-def _patch_layer_norm_module(module, eps=1e-6):
-    module.variance_epsilon = (
-        getattr(module, "variance_epsilon", None) or getattr(module, "eps", None) or eps
-    )
-    module.hidden_size = module.normalized_shape
-    _bind_method_to_module(module, "forward", LigerLayerNorm.forward)
-    _bind_method_to_module(module, "extra_repr", LigerLayerNorm.extra_repr)
-    module.__class__.__name__ = LigerLayerNorm.__name__
-
-
-def _patch_swiglu_module(module, liger_module):
-    _bind_method_to_module(module, "forward", liger_module.forward)
-    module.__class__.__name__ = liger_module.__name__
-
-
-def _patch_geglu_module(module):
-    _bind_method_to_module(module, "forward", LigerGEGLUMLP.forward)
-    module.__class__.__name__ = LigerGEGLUMLP.__name__
 
 
 def apply_liger_kernel_to_qwen2_5_vl(
