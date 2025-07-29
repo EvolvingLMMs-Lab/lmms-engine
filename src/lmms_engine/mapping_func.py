@@ -52,6 +52,8 @@ def create_model_from_pretrained(load_from_pretrained_path):
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
         model_class = AutoModelForImageTextToText
+    else:
+        raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
     return model_class
 
 
