@@ -153,6 +153,7 @@ def vl_model_forward(
         return_dict if return_dict is not None else self.config.use_return_dict
     )
     batch_size, seq_length = input_ids.shape
+    original_input_ids = input_ids
 
     # Unpad the input ids here
     input_ids, indices, cu_seq_lens, _ = _unpad_input(
@@ -242,7 +243,7 @@ def vl_model_forward(
             cache_position is not None and cache_position[0] == 0
         ) or self.rope_deltas is None:
             position_ids, rope_deltas = self.get_rope_index(
-                input_ids,
+                original_input_ids,  # Here we use the padded input ids
                 image_grid_thw,
                 video_grid_thw,
                 second_per_grid_ts,

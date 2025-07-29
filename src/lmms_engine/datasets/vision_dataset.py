@@ -17,11 +17,23 @@ class VisionSFTDataset(BaseDataset):
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
         # TODO Write a protocol for vision openai input
         images_list = []
+        videos = []
+        kwargs = {}
         messages = data["messages"]
         for message in messages:
             for content in message["content"]:
                 if content["type"] == "image_url":
                     images_list.append(content["image_url"]["url"])
+                elif content["type"] == "video_url":
+                    # Loading videos with fps
+                    frames, sample_fps = self.load_videos(
+                        content["video_url"]["url"],
+                        data_folder=data_folder,
+                        fps=self.config.fps,
+                    )
+                    videos.append(frames)
+                    # Update kwargs
+                    kwargs["fps"] = sample_fps
 
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
         if data_folder is not None:
@@ -32,7 +44,11 @@ class VisionSFTDataset(BaseDataset):
             images = [Image.open(image) for image in images_list]
         if len(images) == 0:
             images = None
-        inputs = self.processor.process(images=images, hf_messages=hf_messages)
+        if len(videos) == 0:
+            videos = None
+        inputs = self.processor.process(
+            images=images, hf_messages=hf_messages, videos=videos, **kwargs
+        )
         return inputs
 
     def load_from_hf(self, data) -> Dict[str, torch.Tensor]:

@@ -21,4 +21,6 @@ class DatasetConfig:
     video_sampling_strategy: Optional[Literal["fps", "frame_num"]] = "fps"
     frame_num: Optional[int] = 64
     fps: Optional[int] = 1
-    video_backend: Optional[Literal["decord", "torchvision"]] = "decord"
+    video_backend: Optional[
+        Literal["decord", "torchvision", "qwen_vl_utils"]
+    ] = "qwen_vl_utils"
