@@ -9,7 +9,7 @@ from ..utils.train_utils import TrainUtilities
 from .base_trainer import BaseTrainer
 from .config import TrainerConfig
 from .custom import LLaVATrainer
-
+from transformers.trainer_pt_utils import AcceleratorConfig
 
 class Hf_Trainer(BaseTrainer):
     def __init__(self, config: TrainerConfig) -> None:
@@ -29,6 +29,23 @@ class Hf_Trainer(BaseTrainer):
                 train_dataset=self.train_dataset,
                 eval_dataset=self.eval_dataset,
                 processing_class=self.train_dataset.processor,
+            )
+        elif self.config.trainer_args_type == "pretrain":
+            # 这里主要是因为我在fineweb-edu dataset中已经split dataset by node了
+            # 所以这里需要关掉dispatch和split
+            # 我也尝试过在hf_trainer中关掉dispatch和split，但是发现报：
+            # RuntimeError: You can't use batches of different size with `dispatch_batches=True` or when using an `IterableDataset`.
+            # either pass `dispatch_batches=False` and have each process fetch its own batch  or pass `split_batches=True`. 
+            # By doing so, the main process will fetch a full batch and slice it into `num_processes` batches for each process
+            self.config.trainer_args.accelerator_config=AcceleratorConfig(
+                dispatch_batches=False, split_batches=False,
+            )
+            trainer = Trainer(
+                model=self.model,
+                args=self.config.trainer_args,
+                train_dataset=self.train_dataset.dataset,
+                eval_dataset=None,
+                data_collator=self.train_dataset.data_collator,
             )
         else:
             raise NotImplementedError(

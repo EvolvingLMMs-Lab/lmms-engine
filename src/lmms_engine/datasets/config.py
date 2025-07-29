@@ -21,3 +21,4 @@ class DatasetConfig:
     frame_num: Optional[int] = 64
     fps: Optional[int] = 1
     video_backend: Optional[Literal["decord", "torchvision"]] = "decord"
+    tokenizer: Optional[str] = None
