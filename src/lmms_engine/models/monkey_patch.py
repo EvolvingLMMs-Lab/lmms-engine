@@ -39,7 +39,7 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
 )
 
-from lmms_engine.models.sequence_parallel.ulysses import (
+from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     patch_vlm_for_ulysses_input_slicing,
 )

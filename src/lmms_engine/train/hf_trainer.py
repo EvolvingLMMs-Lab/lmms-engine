@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 from transformers import Trainer
 
-from lmms_engine.models.sequence_parallel.ulysses import (
+from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
 

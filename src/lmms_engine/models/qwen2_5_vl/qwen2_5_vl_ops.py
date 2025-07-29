@@ -24,7 +24,7 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
-from lmms_engine.models.sequence_parallel.ulysses import (
+from lmms_engine.parallel.sequence_parallel.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
     get_ulysses_sequence_parallel_group,
