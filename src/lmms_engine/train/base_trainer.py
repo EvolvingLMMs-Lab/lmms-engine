@@ -55,18 +55,48 @@ class BaseTrainer(ABC):
                 Logging.error(f"There is an error when applying liger kernel. Please note that Liger kernel is not supported for fla models currently. If you are using fla models, please set `use_liger_kernel` to `false`.")
 
     def _build_model(self):
-        pretrained_path = self.model_config.load_from_pretrained_path
+        load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
-        if pretrained_path is not None and load_from_config is not None:
+        if load_from_pretrained_path is not None and load_from_config is not None:
             Logging.warning("Both `load_from_pretrained_path` and `load_from_config` are provided. Use `load_from_pretrained_path` and the `load_from_config` would be ignored.")
         
-        if pretrained_path is not None:
-            model_class = create_model_from_pretrained(pretrained_path)
-            model = model_class.from_pretrained(
-                pretrained_path,
-                attn_implementation=self.model_config.attn_implementation,
-                torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
-            )
+        if load_from_pretrained_path is not None:
+            try:
+                Logging.info(f"Attempting to load model from HuggingFace: {load_from_pretrained_path}")
+                model_class = create_model_from_pretrained(load_from_pretrained_path)
+                model = model_class.from_pretrained(
+                        load_from_pretrained_path,
+                        attn_implementation=self.model_config.attn_implementation,
+                        torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+                    )
+                Logging.info(f"Successfully loaded model with standard HuggingFace transformers")
+    
+            except Exception as hf_error:
+                Logging.info(f"Standard HuggingFace loading failed.")
+        
+                # If HuggingFace loading fails, try importing fla and loading again
+                try:
+                    Logging.info("Attempting to import fla and reload...")
+                    import fla
+                    # Try loading with fla imported
+                    model_class = create_model_from_pretrained(load_from_pretrained_path)
+                    model = model_class.from_pretrained(
+                        load_from_pretrained_path,
+                        torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+                    )
+                
+                    Logging.info(f"Successfully loaded model with fla-enabled transformers")
+            
+                except ImportError:
+                    raise ImportError(
+                        f"(Error: {hf_error}). Attempted fallback to fla but fla is not installed. "
+                        f"Please install fla."
+                    )
+                except Exception as fla_error:
+                    raise ValueError(
+                        f"Failed to load model '{load_from_pretrained_path}' with both standard transformers "
+                        f"(Error: {hf_error}) and fla (Error: {fla_error}). Model is not supported."
+                    )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)
             init_config = load_from_config.get("config", None)
@@ -81,6 +111,7 @@ class BaseTrainer(ABC):
             for key, value in self.model_config.overwrite_config.items():
                 setattr(model.config, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
+
         Logging.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB")
         Logging.info(f"Model Structure: {model}")
         return model
