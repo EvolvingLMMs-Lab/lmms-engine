@@ -112,8 +112,8 @@ class BaseTrainer(ABC):
                 setattr(model.config, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
 
-        Logging.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB")
         Logging.info(f"Model Structure: {model}")
+        Logging.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB")
         return model
 
     def _apply_liger_kernel(self):
