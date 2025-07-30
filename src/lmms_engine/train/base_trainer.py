@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import yaml
 
-from lmms_engine.mapping_func import DATASET_MAPPING, create_model
+from lmms_engine.mapping_func import DATASET_MAPPING
 
 from ..models.kernels import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
 from ..models.kernels import (
@@ -18,6 +18,7 @@ from ..models.kernels import (
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
+from lmms_engine.mapping_func import create_model_from_pretrained, create_model_from_config
 
 
 class BaseTrainer(ABC):
@@ -52,16 +53,30 @@ class BaseTrainer(ABC):
             self.config.trainer_args.use_liger_kernel = False
 
     def _build_model(self):
-        model_class = create_model(self.model_config.model_name_or_path)
-        model = model_class.from_pretrained(
-            self.model_config.model_name_or_path,
-            attn_implementation=self.model_config.attn_implementation,
-            torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
-        )
+        load_from_pretrained_path = self.model_config.load_from_pretrained_path
+        load_from_config = self.model_config.load_from_config
+        if load_from_pretrained_path is not None:
+            model_class = create_model_from_pretrained(load_from_pretrained_path)
+            model = model_class.from_pretrained(
+                load_from_pretrained_path,
+                attn_implementation=self.model_config.attn_implementation,
+                torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+            )
+        elif load_from_config is not None:
+            model_type = load_from_config.get("model_type", None)
+            init_config = load_from_config.get("config", None)
+            model_class, m_config = create_model_from_config(model_type, init_config)
+            model = model_class.from_config(m_config)
+        else:
+            raise ValueError("No model name or pretrained path provided. Please provide one of them.")
+
         if self.model_config.overwrite_config:
             for key, value in self.model_config.overwrite_config.items():
                 setattr(model.config, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
+
+        Logging.info(f"Model Structure: {model}")
+        Logging.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB")
         return model
 
     def _apply_liger_kernel(self):

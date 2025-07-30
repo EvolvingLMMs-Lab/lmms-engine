@@ -1,14 +1,19 @@
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
-    AutoModelForVision2Seq,
+    # AutoModelForVision2Seq,
+    AutoModelForImageTextToText,
     PretrainedConfig,
 )
 from transformers.modeling_utils import PreTrainedModel
 
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
-
+from lmms_engine.utils import Logging
+try:
+    import fla
+except ImportError as e:
+    Logging.warning(f"Failed to import fla.")
 
 # A decorator class to register processors
 def register_processor(processor_type: str):
@@ -39,13 +44,24 @@ def register_model(
     AutoModelForCausalLM.register(model_config, model_class)
 
 
-def create_model(model_name, **kwargs):
-    config = AutoConfig.from_pretrained(model_name, **kwargs)
-
+def create_model_from_pretrained(load_from_pretrained_path):
+    # Handle both config object and model name/path
+    config = AutoConfig.from_pretrained(load_from_pretrained_path)
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
-    elif type(config) in AutoModelForVision2Seq._model_mapping.keys():
-        model_class = AutoModelForVision2Seq
-    else:
-        raise ValueError(f"Model {model_name} is not supported.")
+    elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
+        model_class = AutoModelForImageTextToText
     return model_class
+
+def create_model_from_config(model_type, config):
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    config_class = CONFIG_MAPPING[model_type]
+    m_config = config_class(**config)
+    if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
+        model_class = AutoModelForCausalLM
+    elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
+        model_class = AutoModelForImageTextToText
+    else:
+        raise ValueError(f"Model type '{model_type}' is not supported.")
+    return model_class, m_config
+    
