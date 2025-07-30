@@ -1,0 +1,36 @@
+{
+    "train_batch_size": "auto",
+    "gradient_accumulation_steps": "auto",
+    "optimizer": {
+        "type": "AdamW",
+        "params": {
+            "lr": "auto",
+            "betas": [
+                0.9,
+                0.999
+            ],
+            "eps": 1e-08,
+            "weight_decay": "auto"
+        }
+    },
+    "gradient_clipping": 1.0,
+    "scheduler": {
+        "type": "WarmupCosineLR",
+        "params": {
+            "warmup_num_steps": "auto",
+            "warmup_min_ratio": 0.001,
+            "cos_min_ratio": 0.01,
+            "total_num_steps": "auto"
+        }
+    },
+    "bf16": {
+        "enabled": true
+    },
+    "zero_optimization": {
+        "stage": 0,
+        "contiguous_gradients" : true,
+        "overlap_comm": false,
+        "stage3_max_live_parameters": 5e8,
+        "stage3_max_reuse_distance": 5e8
+    }
+}
