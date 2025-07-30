@@ -39,6 +39,7 @@ dependencies = [
     "decord",
     "torch",
     "torchvision",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]

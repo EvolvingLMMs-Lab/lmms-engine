@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -5,15 +6,11 @@ from packaging import version
 from torch.nn import CrossEntropyLoss
 from transformers import Qwen2_5_VLForConditionalGeneration
 from transformers import __version__ as transformers_version
+from transformers.modeling_outputs import ModelOutput
 from transformers.utils import (
     add_start_docstrings_to_model_forward,
     replace_return_docstrings,
 )
-
-from lmms_engine.models.qwen2_5_vl_audio.modeling_qwen2_5_vl import (
-    Qwen2_5_VLCausalLMOutputWithPast,
-)
-from lmms_engine.utils import Logging
 
 from .utils import calc_gpt_flops
 
@@ -23,6 +20,17 @@ try:
     )
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
+
+
+@dataclass
+class Qwen2_5_VLCausalLMOutputWithPast(ModelOutput):
+    loss: Optional[torch.FloatTensor] = None
+    logits: torch.FloatTensor = None
+    past_key_values: Optional[List[torch.FloatTensor]] = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None
+    rope_deltas: Optional[torch.LongTensor] = None
+    flops: Optional[float] = None
 
 
 def lce_forward(

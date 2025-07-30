@@ -125,7 +125,7 @@ def _patch_geglu_module(module):
     module.__class__.__name__ = LigerGEGLUMLP.__name__
 
 
-def apply_liger_kernel_to_kino_qwen2_5_vl(
+def apply_liger_kernel_to_qwen2_5_vl(
     rope: bool = True,
     cross_entropy: bool = False,
     fused_linear_cross_entropy: bool = True,
@@ -155,7 +155,6 @@ def apply_liger_kernel_to_kino_qwen2_5_vl(
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
 
-    from ..qwen2_5_vl_audio import modeling_qwen2_5_vl as kino_modeling_qwen2_5_vl
     from .qwen2_5_vl_liger import lce_forward as qwen2_5_vl_lce_forward
 
     if use_rmpad:
@@ -178,9 +177,6 @@ def apply_liger_kernel_to_kino_qwen2_5_vl(
     if cross_entropy:
         modeling_qwen2_5_vl.CrossEntropyLoss = LigerCrossEntropyLoss
     if fused_linear_cross_entropy:
-        kino_modeling_qwen2_5_vl.KinoQwen2_5_VLForConditionalGeneration.forward = (
-            qwen2_5_vl_lce_forward
-        )
         modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.forward = (
             qwen2_5_vl_lce_forward
         )
@@ -390,10 +386,9 @@ def apply_liger_kernel_to_qwen2_audio(
 
 
 CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN = {
-    "kino_qwen2_5_vl": apply_liger_kernel_to_kino_qwen2_5_vl,
     "aero": apply_liger_kernel_to_aero,
     "aero_omni": apply_liger_kernel_to_aero_omni,
-    "qwen2_5_vl": apply_liger_kernel_to_kino_qwen2_5_vl,
+    "qwen2_5_vl": apply_liger_kernel_to_qwen2_5_vl,
 }
 
 

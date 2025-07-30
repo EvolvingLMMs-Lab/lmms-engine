@@ -15,7 +15,27 @@
 
 ## Configuration System
 
-Training is configured via JSON files with this structure:
+Training is configured via YAML or JSON files. YAML is recommended for better readability and comment support.
+
+### YAML Configuration (Recommended)
+
+```yaml
+# Configuration supports comments in YAML
+- type: trainer
+  config:
+    trainer_type: hf_trainer
+    dataset_config:
+      # Dataset configuration
+      dataset_name: "example_dataset"
+    model_config:
+      # Model configuration  
+      model_name: "example_model"
+    # TrainingArguments parameters
+    output_dir: "./output"
+    num_train_epochs: 3
+```
+
+### JSON Configuration (Legacy)
 
 ```json
 [
@@ -43,11 +63,11 @@ Training is configured via JSON files with this structure:
 # Recommended: torchrun
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
   --master_addr="127.0.0.1" --master_port="8000" \
-  -m lmms_engine.launch.cli --config path/to/config.json
+  -m lmms_engine.launch.cli --config path/to/config.yaml
 
 # Alternative: accelerate
 accelerate launch --use_fsdp [options] \
-  -m lmms_engine.launch.cli --config path/to/config.json
+  -m lmms_engine.launch.cli --config path/to/config.yaml
 ```
 
 ### Development Setup

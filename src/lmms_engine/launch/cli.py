@@ -1,9 +1,9 @@
 import argparse
-import json
 
 from ..datasets import DatasetConfig
 from ..models import ModelConfig
 from ..train import Hf_Trainer, TrainerConfig, TrainingArguments
+from ..utils.config_loader import load_config
 
 
 def parse_argument():
@@ -36,8 +36,7 @@ def create_train_task(config):
 
 def main():
     args = parse_argument()
-    with open(args.config, "r") as f:
-        configs = json.load(f)
+    configs = load_config(args.config)
 
     for config in configs:
         task_type = config.pop("task_type", "trainer")

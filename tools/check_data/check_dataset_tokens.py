@@ -131,7 +131,7 @@ if __name__ == "__main__":
     with open(args.yaml_file, "r") as f:
         yaml_data = yaml.safe_load(f)
         datasets = yaml_data.get("datasets")
-        data_paths = [dataset.get("json_path") for dataset in datasets]
+        data_paths = [dataset.get("path") for dataset in datasets]
         data_folders = [dataset.get("data_folder") for dataset in datasets]
         data_types = [dataset.get("data_type") for dataset in datasets]
 

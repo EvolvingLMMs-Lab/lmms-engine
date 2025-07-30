@@ -235,9 +235,21 @@ class BaseDataset(Dataset):
             self.data_list_no_image = deepcopy(self.data_list)
             self.data_list_no_image = self.data_list_no_image.remove_columns("image")
         elif self.config.dataset_format == "yaml":
-            self.data_list, self.data_folder = DataUtilities.load_yaml(
-                self.config.dataset_path
-            )
+            # Handle both external YAML files and inline datasets
+            if self.config.datasets is not None:
+                # Use inline datasets defined in the config
+                self.data_list, self.data_folder = DataUtilities.load_inline_datasets(
+                    self.config.datasets
+                )
+            elif self.config.dataset_path is not None:
+                # Load from external YAML file
+                self.data_list, self.data_folder = DataUtilities.load_yaml(
+                    self.config.dataset_path
+                )
+            else:
+                raise ValueError(
+                    "For yaml format, either 'datasets' or 'dataset_path' must be provided"
+                )
         else:
             raise NotImplementedError
 

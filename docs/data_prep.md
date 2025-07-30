@@ -5,10 +5,10 @@ The recommended way to prepare the data is through yaml file and prepare your sf
 
 ```yaml
 datasets:
-- json_path: <path to the json/jsonl file>
+- path: <path to the json/jsonl file>
   data_folder: <path to the data folder>
   data_type: json/jsonl
-- json_path: <path to the json/jsonl file>
+- path: <path to the json/jsonl file>
   data_folder: <path to the data folder>
   data_type: json/jsonl
 ...
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     data_dict = {
         "datasets": [
             {
-                "json_path": str(data_path / DATA_PATH),
+                "path": str(data_path / DATA_PATH),
                 "data_folder": str(data_path),
                 "data_type": DATA_TYPE,
             }

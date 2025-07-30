@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from .processor import ProcessorConfig
 
@@ -8,7 +8,9 @@ from .processor import ProcessorConfig
 class DatasetConfig:
     dataset_type: Literal["vision", "vision_audio"]
     dataset_format: Literal["json", "jsonl", "yaml", "hf_dataset", "arrow"]
-    dataset_path: str
+    processor_config: Union[dict, ProcessorConfig]
+    dataset_path: Optional[str] = None  # Optional - used for external files
+    datasets: Optional[List[dict]] = None  # Optional - used for inline YAML definitions
     shuffle: bool = True
     processor_config: Optional[Union[dict, ProcessorConfig]] = None
     eval_dataset_path: Optional[str] = None
