@@ -2,7 +2,7 @@ import argparse
 
 from ..datasets import DatasetConfig
 from ..models import ModelConfig
-from ..train import Hf_Trainer, TrainerConfig, TrainingArguments
+from ..train import TrainerConfig, TrainingArguments, TrainRunner
 from ..utils.config_loader import load_config
 
 
@@ -21,7 +21,6 @@ def create_train_task(config):
 
     trainer_type = config.pop("trainer_type")
 
-    trainer_args_type = config.pop("trainer_args_type", "sft")
     trainer_args = TrainingArguments(**config)
 
     train_config = TrainerConfig(
@@ -29,9 +28,8 @@ def create_train_task(config):
         model_config=model_config,
         trainer_type=trainer_type,
         trainer_args=trainer_args,
-        trainer_args_type=trainer_args_type,
     )
-    return Hf_Trainer(config=train_config)
+    return TrainRunner(config=train_config)
 
 
 def main():

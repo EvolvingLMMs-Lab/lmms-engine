@@ -1,8 +1,10 @@
 from .config import TrainerConfig, TrainingArguments
-from .hf_trainer import Hf_Trainer
+from .runner import TrainRunner
+from .trainer import Trainer
 
 __all__ = [
     "TrainerConfig",
-    "Hf_Trainer",
+    "Trainer",
     "TrainingArguments",
+    "TrainRunner",
 ]

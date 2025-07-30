@@ -26,7 +26,6 @@ class TrainerConfig:
     dataset_config: DatasetConfig
     model_config: ModelConfig
     trainer_args: TrainingArgumentType
-    trainer_args_type: Literal["sft"] = "sft"
 
     def to_dict(self):
         trainer_args_dict = self.trainer_args.to_dict()

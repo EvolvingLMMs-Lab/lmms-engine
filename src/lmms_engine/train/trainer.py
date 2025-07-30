@@ -7,26 +7,18 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import datasets
 import torch
-import torch.distributed as dist
-import torch.nn as nn
 from accelerate import Accelerator, FullyShardedDataParallelPlugin
-from accelerate.state import AcceleratorState
 from accelerate.utils import DataLoaderConfiguration
 from packaging import version
 from peft import PeftModel
 from torch.utils.data import DataLoader, Dataset, RandomSampler, Sampler
-from transformers import Trainer
+from transformers import Trainer as HFTrainer
 from transformers.trainer import logger
 from transformers.trainer_pt_utils import LengthGroupedSampler, RandomSampler
 from transformers.trainer_utils import has_length
-from transformers.utils import (
-    is_accelerate_available,
-    is_datasets_available,
-    is_peft_available,
-    is_sagemaker_mp_enabled,
-)
+from transformers.utils import is_datasets_available, is_peft_available
 
-from ...utils.train_utils import TrainUtilities
+from ..utils.train_utils import TrainUtilities
 
 
 def _is_peft_model(model):
@@ -43,7 +35,7 @@ def _is_peft_model(model):
 TRAINER_STATE_NAME = "trainer_state.json"
 
 
-class LLaVATrainer(Trainer):
+class Trainer(HFTrainer):
     def create_accelerator_and_postprocess(self):
         if self.args.fsdp2:
             if self.args.bf16:
