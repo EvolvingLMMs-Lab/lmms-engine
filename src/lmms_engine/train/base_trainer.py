@@ -10,7 +10,6 @@ import torch
 import yaml
 
 from lmms_engine.mapping_func import DATASET_MAPPING, create_model_from_pretrained, create_model_from_config
-from lmms_engine import TRANSFORMERS_MODEL_REGISTERED, FLA_MODEL_REGISTERED
 
 from ..models.kernels import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
 from ..models.kernels import (
@@ -48,61 +47,23 @@ class BaseTrainer(ABC):
         if self.model_config.pretrain_mm_mlp_adapter is not None:
             self._load_mm_projector()
         if self.config.trainer_args.use_liger_kernel:
-            try:
-                self._apply_liger_kernel()
-                # Set to False as we already apply the liger kernel by ourselves
-                self.config.trainer_args.use_liger_kernel = False
-            except Exception as e:
-                Logging.error(f"There is an error when applying liger kernel. Please note that Liger kernel is not supported for fla models currently. If you are using fla models, please set `use_liger_kernel` to `false`.")
-
+            self._apply_liger_kernel()
+            # Set to False as we already apply the liger kernel by ourselves
+            self.config.trainer_args.use_liger_kernel = False
+            
     def _build_model(self):
         load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
-        if load_from_pretrained_path is not None and load_from_config is not None:
-            Logging.warning("Both `load_from_pretrained_path` and `load_from_config` are provided. Use `load_from_pretrained_path` and the `load_from_config` would be ignored.")
-        
         if load_from_pretrained_path is not None:
-            try:
-                Logging.info(f"Attempting to load model from HuggingFace: {load_from_pretrained_path}")
-                model_class = create_model_from_pretrained(load_from_pretrained_path)
-                model = model_class.from_pretrained(
-                        load_from_pretrained_path,
-                        attn_implementation=self.model_config.attn_implementation,
-                        torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
-                    )
-                Logging.info(f"Successfully loaded model with standard HuggingFace transformers")
-    
-            except Exception as hf_error:
-                Logging.info(f"Standard HuggingFace loading failed.")
-        
-                # If HuggingFace loading fails, try importing fla and loading again
-                try:
-                    Logging.info("Attempting to import fla and reload...")
-                    import fla
-                    # Try loading with fla imported
-                    model_class = create_model_from_pretrained(load_from_pretrained_path)
-                    model = model_class.from_pretrained(
-                        load_from_pretrained_path,
-                        torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
-                    )
-                
-                    Logging.info(f"Successfully loaded model with fla-enabled transformers")
-            
-                except ImportError:
-                    raise ImportError(
-                        f"(Error: {hf_error}). Attempted fallback to fla but fla is not installed. "
-                        f"Please install fla."
-                    )
-                except Exception as fla_error:
-                    raise ValueError(
-                        f"Failed to load model '{load_from_pretrained_path}' with both standard transformers "
-                        f"(Error: {hf_error}) and fla (Error: {fla_error}). Model is not supported."
-                    )
+            model_class = create_model_from_pretrained(load_from_pretrained_path)
+            model = model_class.from_pretrained(
+                load_from_pretrained_path,
+                attn_implementation=self.model_config.attn_implementation,
+                torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+            )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)
             init_config = load_from_config.get("config", None)
-            assert model_type is not None, "load_from_config.model_type is required in load_from_config"
-            assert init_config is not None, "load_from_config.config is required in load_from_config"
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class.from_config(m_config)
         else:
@@ -163,6 +124,7 @@ class BaseTrainer(ABC):
                 Logging.error(
                     f"Try to apply liger kernel on the language model of the model, but failed with exceptions : \n {e}"
                 )
+
 
     def _load_mm_projector(self):
         pretrain_mm_mlp_adapter = self.config.model_config.pretrain_mm_mlp_adapter

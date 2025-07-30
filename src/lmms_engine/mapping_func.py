@@ -9,8 +9,11 @@ from transformers.modeling_utils import PreTrainedModel
 
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
-from lmms_engine import TRANSFORMERS_MODEL_REGISTERED, FLA_MODEL_REGISTERED
-
+from lmms_engine.utils import Logging
+try:
+    import fla
+except ImportError as e:
+    Logging.error(f"Error importing fla: {e}")
 
 # A decorator class to register processors
 def register_processor(processor_type: str):
@@ -48,35 +51,16 @@ def create_model_from_pretrained(load_from_pretrained_path):
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
         model_class = AutoModelForImageTextToText
-    else:
-        raise ValueError(f"Model: '{load_from_pretrained_path}' is not supported.")
     return model_class
 
 def create_model_from_config(model_type, config):
-    if model_type.lower() in FLA_MODEL_REGISTERED:
-        try: 
-            import fla
-        except ImportError:
-            raise ImportError("`import fla` failed. Please install fla first to use this model.")
-        config_class = getattr(fla.models, FLA_MODEL_REGISTERED[model_type.lower()], None)
-        assert config_class is not None, f"We did not find the model type: {model_type} in fla.models."
-    elif model_type.lower() in TRANSFORMERS_MODEL_REGISTERED:
-        try:
-            import transformers
-        except ImportError:
-            raise ImportError("`import transformers` failed. Please install transformers first to use this model.")
-        config_class = getattr(transformers, TRANSFORMERS_MODEL_REGISTERED[model_type.lower()], None)
-        assert config_class is not None, f"We did not find the model type: {model_type} in transformers."
-    else:
-        raise ValueError(f"Currently, we only support these models: {FLA_MODEL_REGISTERED.keys()} and {TRANSFORMERS_MODEL_REGISTERED.keys()}")
-
-    try: 
-        m_config = config_class(**config)
-    except Exception as e:
-        raise ValueError(f"Error creating model from config: {e}. Please check the config is correct.")
-    
+    from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+    config_class = CONFIG_MAPPING[model_type]
+    m_config = config_class(**config)
     if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
+    elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
+        model_class = AutoModelForImageTextToText
     else:
         raise ValueError(f"Model type '{model_type}' is not supported.")
     return model_class, m_config
