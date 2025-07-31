@@ -9,7 +9,11 @@ import numpy as np
 import torch
 import yaml
 
-from lmms_engine.mapping_func import DATASET_MAPPING
+from lmms_engine.mapping_func import (
+    DATASET_MAPPING,
+    create_model_from_config,
+    create_model_from_pretrained,
+)
 
 from ..models.kernels import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
 from ..models.kernels import (
@@ -18,7 +22,6 @@ from ..models.kernels import (
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
-from lmms_engine.mapping_func import create_model_from_pretrained, create_model_from_config
 
 
 class BaseTrainer(ABC):
@@ -68,7 +71,9 @@ class BaseTrainer(ABC):
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class.from_config(m_config)
         else:
-            raise ValueError("No model name or pretrained path provided. Please provide one of them.")
+            raise ValueError(
+                "No model name or pretrained path provided. Please provide one of them."
+            )
 
         if self.model_config.overwrite_config:
             for key, value in self.model_config.overwrite_config.items():
@@ -76,7 +81,9 @@ class BaseTrainer(ABC):
                 Logging.info(f"Overwrite {key} to {value}")
 
         Logging.info(f"Model Structure: {model}")
-        Logging.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB")
+        Logging.info(
+            f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB"
+        )
         return model
 
     def _apply_liger_kernel(self):
