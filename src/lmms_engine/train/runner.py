@@ -49,6 +49,7 @@ class TrainRunner:
         self.config = config
 
     def build(self):
+        self.create_sp_dis_group()
         self.model = self._build_model()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
@@ -61,7 +62,6 @@ class TrainRunner:
             self._apply_liger_kernel()
             # Set to False as we already apply the liger kernel by ourselves
             self.config.trainer_args.use_liger_kernel = False
-        self.create_sp_dis_group()
         self.trainer = self._build_trainer()
 
     def _build_model(self):
@@ -217,7 +217,7 @@ class TrainRunner:
         sp_ulysses_degree = self.config.trainer_args.sp_ulysses_degree
         sp_degree = sp_ulysses_degree * 1  # ring attn always 1, kept for clarity
 
-        total_group_size = sp_degree * sp_ulysses_degree
+        total_group_size = sp_degree
         assert (
             world_size % total_group_size == 0
         ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
@@ -225,19 +225,16 @@ class TrainRunner:
         dp_degree = world_size // total_group_size
 
         for dp_idx in range(dp_degree):
+            # For each dp degree
+            group_ranks = []
             for sp_idx in range(sp_degree):
                 # Each group contains sp_ulysses_degree ranks
-                group_ranks = []
-                for i in range(sp_ulysses_degree):
-                    global_rank = (
-                        dp_idx * total_group_size + sp_idx * sp_ulysses_degree + i
-                    )
-                    group_ranks.append(global_rank)
-
-                group = torch.distributed.new_group(group_ranks)
-
-                if rank in group_ranks:
-                    set_ulysses_sequence_parallel_group(group)
+                cur_sp_rank = dp_idx * sp_degree + sp_idx
+                group_ranks.append(cur_sp_rank)
+            # Then the init the group ranks
+            group = torch.distributed.new_group(group_ranks)
+            if rank in group_ranks:
+                set_ulysses_sequence_parallel_group(group)
 
     def _build_trainer(self):
         trainer = Trainer(

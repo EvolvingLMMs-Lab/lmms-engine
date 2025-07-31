@@ -80,8 +80,11 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
                 and getattr(self, "_needs_initial_slice", True)
             )
             if slice_now:
+                # [bs, seq_len, hidden_dim] slice at second dim
+                # [total_seq_len, hidden_dim] slice at first dim
+                slice_dim = 1 if inputs_embeds.dim() == 3 else 0
                 call_kwargs["inputs_embeds"] = slice_input_tensor(
-                    inputs_embeds, dim=1, padding=False
+                    inputs_embeds, dim=slice_dim, padding=True
                 )
                 self._needs_initial_slice = False
             try:
