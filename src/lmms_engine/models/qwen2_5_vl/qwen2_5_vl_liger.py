@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Union
 import torch
 from packaging import version
 from torch.nn import CrossEntropyLoss
-from transformers import Qwen2_5_VLForConditionalGeneration
+from transformers import Qwen2_5_VLConfig, Qwen2_5_VLForConditionalGeneration
 from transformers import __version__ as transformers_version
 from transformers.modeling_outputs import ModelOutput
 from transformers.utils import (
@@ -12,7 +12,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
-from lmms_engine.utils import Logging
+from lmms_engine.utils import Logging, TrainUtilities
 
 from ..utils import calc_gpt_flops
 
@@ -22,6 +22,31 @@ try:
     )
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
+
+
+def calc_qwenvl_flops(
+    config: Qwen2_5_VLConfig, tokens_count: int, num_visual_tokens: int
+):
+    lm_flops = TrainUtilities.get_decoder_flops(
+        num_layers=config.text_config.num_hidden_layers,
+        hidden_size=config.text_config.hidden_size,
+        vocab_size=config.text_config.vocab_size,
+        seq_len=tokens_count,
+        ffn_hidden_size=config.text_config.intermediate_size,
+        num_key_value_heads=config.text_config.num_key_value_heads,
+        num_heads=config.text_config.num_attention_heads,
+        batch_size=1,
+    )
+    vision_encoder_flops = TrainUtilities.get_attn_flops(
+        num_layers=config.vision_config.depth,
+        hidden_size=config.vision_config.hidden_size,
+        num_heads=config.vision_config.num_heads,
+        seq_len=num_visual_tokens,
+        num_key_value_heads=None,
+        ffn_hidden_size=config.vision_config.intermediate_size,
+    )
+    flops = lm_flops + vision_encoder_flops
+    return flops
 
 
 @dataclass
@@ -72,8 +97,12 @@ def lce_forward(
     return_dict = (
         return_dict if return_dict is not None else self.config.use_return_dict
     )
+    tokens_count = attention_mask.sum().item()
+    n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
+    n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
+    visual_tokens = n_image_tokens + n_video_tokens
 
-    flops = calc_gpt_flops(attention_mask, config=self.config)
+    flops = calc_qwenvl_flops(self.config, tokens_count, visual_tokens)
     outputs = self.model(
         input_ids=input_ids,
         pixel_values=pixel_values,
