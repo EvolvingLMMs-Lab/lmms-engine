@@ -213,7 +213,7 @@ class Trainer(HFTrainer):
                 output_dir = os.path.join(run_dir, checkpoint_folder)
                 if self.processing_class is not None:
                     self.processing_class.save_pretrained(output_dir)
-            super(LLaVATrainer, self)._save_checkpoint(model, trial)
+            super(Trainer, self)._save_checkpoint(model, trial)
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
