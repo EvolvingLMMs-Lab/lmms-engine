@@ -1,4 +1,10 @@
 import argparse
+import datetime
+import os
+
+import torch.distributed as dist
+
+from lmms_engine.parallel.process_group_manager import setup_process_group_manager
 
 from ..datasets import DatasetConfig
 from ..models import ModelConfig
@@ -20,6 +26,26 @@ def create_train_task(config):
     model_config = ModelConfig(**model_config)
 
     trainer_type = config.pop("trainer_type")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    global_rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    sp_degree = config["sp_ulysses_degree"]
+    dp_size = world_size // sp_degree
+
+    # For now, we haven't implement the tp and pp
+    use_cpu = config.get("use_cpu", False)
+    backend = "gloo" if use_cpu else "nccl"
+    dist.init_process_group(
+        rank=global_rank,
+        world_size=world_size,
+        backend=backend,
+        init_method=f"env://",
+        timeout=datetime.timedelta(minutes=30),
+    )
+    setup_process_group_manager(
+        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
+    )
 
     trainer_args = TrainingArguments(**config)
 
