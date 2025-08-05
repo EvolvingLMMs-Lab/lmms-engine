@@ -45,6 +45,12 @@ logger = logging.get_logger(__name__)
 if is_flash_attn_2_available():
     try:
         from flash_attn import flash_attn_func, flash_attn_varlen_func
+        from flash_attn.bert_padding import (
+            index_first_axis,
+            pad_input,
+            rearrange,
+            unpad_input,
+        )
 
         _flash_supports_window_size = "window_size" in list(
             inspect.signature(flash_attn_func).parameters
@@ -161,6 +167,43 @@ def vl_model_forward(
         input_ids, attention_mask=attention_mask
     )
 
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(input_ids.device)
+
+    # if we get 4D attention mask we cannot calculate rope deltas anymore. TODO @raushan fixme
+    if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
+        # calculate RoPE index once per generation in the pre-fill stage only
+        if (
+            cache_position is not None and cache_position[0] == 0
+        ) or self.rope_deltas is None:
+            position_ids, rope_deltas = self.get_rope_index(
+                original_input_ids,  # Here we use the padded input ids
+                image_grid_thw,
+                video_grid_thw,
+                second_per_grid_ts,
+                attention_mask,
+            )
+            self.rope_deltas = rope_deltas
+        # then use the prev pre-calculated rope-deltas to get the correct position ids
+        else:
+            delta = (
+                (cache_position[0] + self.rope_deltas).to(input_ids.device)
+                if cache_position is not None
+                else 0
+            )
+            position_ids = torch.arange(seq_length, device=input_ids.device)
+            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
+            if cache_position is not None:  # otherwise `deltas` is an int `0`
+                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
+            position_ids = position_ids.add(delta)
+            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+    position_ids = (
+        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+        .transpose(0, 1)
+        .unsqueeze(1)
+    )
+
     if inputs_embeds is None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
 
@@ -233,37 +276,6 @@ def vl_model_forward(
         inputs_embeds = inputs_embeds.masked_scatter(
             audio_mask, unpadded_audio_features
         )
-
-    if attention_mask is not None:
-        attention_mask = attention_mask.to(inputs_embeds.device)
-
-    # if we get 4D attention mask we cannot calculate rope deltas anymore. TODO @raushan fixme
-    if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
-        # calculate RoPE index once per generation in the pre-fill stage only
-        if (
-            cache_position is not None and cache_position[0] == 0
-        ) or self.rope_deltas is None:
-            position_ids, rope_deltas = self.get_rope_index(
-                original_input_ids,  # Here we use the padded input ids
-                image_grid_thw,
-                video_grid_thw,
-                second_per_grid_ts,
-                attention_mask,
-            )
-            self.rope_deltas = rope_deltas
-        # then use the prev pre-calculated rope-deltas to get the correct position ids
-        else:
-            delta = (
-                (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
-                if cache_position is not None
-                else 0
-            )
-            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
-            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
-            if cache_position is not None:  # otherwise `deltas` is an int `0`
-                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
-            position_ids = position_ids.add(delta)
-            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
     kwargs = {"cache_position": cache_position}
     outputs = self.language_model(
@@ -558,31 +570,32 @@ def attn_forward(
         repeats = max(ulysses_sp_size // key_states.size(1), 1)
         key_states = repeat_kv(key_states, repeats)
         value_states = repeat_kv(value_states, repeats)
-        dim_size = position_ids.size(-1)
 
         # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
-        query_states = gather_seq_scatter_heads(
-            query_states, seq_dim=0, head_dim=1, unpadded_dim_size=dim_size
-        )
-        key_states = gather_seq_scatter_heads(
-            key_states, seq_dim=0, head_dim=1, unpadded_dim_size=dim_size
-        )
-        value_states = gather_seq_scatter_heads(
-            value_states, seq_dim=0, head_dim=1, unpadded_dim_size=dim_size
-        )
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+        # Pad cos and sin to match the sequence length
+        print(cos.shape, sin.shape, cu_seq_lens)
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb_unpad(
+    # Unsqueeze the first dim to apply pos embeds
+    query_states = query_states.unsqueeze(0).transpose(1, 2)
+    key_states = key_states.unsqueeze(0).transpose(1, 2)
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
         query_states,
         key_states,
         cos,
         sin,
         self.rope_scaling["mrope_section"],
-        attention_mask,
     )
 
     max_seqlen = (
         torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     )
+
+    # Reshape to the expected shape for Flash Attention
+    query_states = query_states.transpose(1, 2).squeeze(0)
+    key_states = key_states.transpose(1, 2).squeeze(0)
 
     window_size = (-1, -1)
 
