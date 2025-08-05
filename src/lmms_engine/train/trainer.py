@@ -3,20 +3,34 @@ import importlib.metadata
 import inspect
 import os
 import time
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import datasets
 import torch
 from accelerate import Accelerator, FullyShardedDataParallelPlugin
-from accelerate.utils import DataLoaderConfiguration
+from accelerate.data_loader import DataLoaderShard
+from accelerate.utils import DataLoaderConfiguration, send_to_device
 from packaging import version
 from peft import PeftModel
-from torch.utils.data import DataLoader, Dataset, RandomSampler, Sampler
+from torch.utils.data import (
+    DataLoader,
+    Dataset,
+    DistributedSampler,
+    RandomSampler,
+    Sampler,
+)
 from transformers import Trainer as HFTrainer
 from transformers.trainer import logger
-from transformers.trainer_pt_utils import LengthGroupedSampler, RandomSampler
-from transformers.trainer_utils import has_length
+from transformers.trainer_pt_utils import (
+    DistributedLengthGroupedSampler,
+    LengthGroupedSampler,
+    RandomSampler,
+)
+from transformers.trainer_utils import has_length, seed_worker
 from transformers.utils import is_datasets_available, is_peft_available
+
+import lmms_engine.parallel.process_group_manager as pgm
 
 from ..utils.train_utils import TrainUtilities
 
@@ -156,11 +170,15 @@ class Trainer(HFTrainer):
                 lengths = None
             # Hard code here because we use our own processing class
             model_input_name = None
-            # model_input_name = (
-            # self.processing_class.model_input_names[0]
-            # if self.processing_class is not None
-            # else None
-            # )
+            if self.args.sp_ulysses_degree > 1:
+                return DistributedLengthGroupedSampler(
+                    self.args.train_batch_size * self.args.gradient_accumulation_steps,
+                    dataset=self.train_dataset,
+                    lengths=self.train_dataset.modality_length,
+                    model_input_name=model_input_name,
+                    num_replicas=pgm.process_group_manager.dp_world_size,
+                    rank=pgm.process_group_manager.dp_rank,
+                )
             return LengthGroupedSampler(
                 self.args.train_batch_size * self.args.gradient_accumulation_steps,
                 dataset=self.train_dataset,
@@ -170,6 +188,117 @@ class Trainer(HFTrainer):
 
         else:
             return RandomSampler(self.train_dataset)
+
+    def _get_dataloader(
+        self,
+        dataset,
+        description,
+        batch_size,
+        sampler_fn=None,
+        is_training=False,
+        dataloader_key=None,
+    ):
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(dataset, datasets.Dataset):
+            dataset = self._remove_unused_columns(dataset, description=description)
+        else:
+            data_collator = self._get_collator_with_removed_columns(
+                self.data_collator, description=description
+            )
+
+        dataloader_params = {
+            "batch_size": batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(dataset, torch.utils.data.IterableDataset):
+            if sampler_fn is not None:
+                dataloader_params["sampler"] = sampler_fn(dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+            if is_training:
+                dataloader_params["worker_init_fn"] = partial(
+                    seed_worker,
+                    num_workers=self.args.dataloader_num_workers,
+                    rank=self.args.process_index,
+                )
+
+        dataloader = DataLoader(dataset, **dataloader_params)
+
+        # Accelerator.free_memory() will destroy the references, so
+        # we need to store the non-prepared version for eval dataloaders.
+        if dataloader_key is not None and self.args.dataloader_persistent_workers:
+            if hasattr(self, "_eval_dataloaders"):
+                self._eval_dataloaders[dataloader_key] = dataloader
+            else:
+                self._eval_dataloaders = {dataloader_key: dataloader}
+
+        # If using the Ulysses SP, we skip to prepare the dataloader
+        if self.args.sp_ulysses_degree > 1:
+            return dataloader
+        else:
+            return self.accelerator.prepare(dataloader)
+
+    def get_batch_samples(self, epoch_iterator, num_batches, device):
+        if self.args.sp_ulysses_degree > 1:
+            batch_samples = []
+            num_items_in_batch = None
+
+            for _ in range(num_batches):
+                try:
+                    # Because we use the original pytorch dataloader, send the data to the device manually
+                    data_sample = next(epoch_iterator)
+                    data_sample = send_to_device(
+                        data_sample,
+                        self.accelerator.device,
+                        non_blocking=self.accelerator.non_blocking,
+                    )
+                    batch_samples.append(data_sample)
+                except StopIteration:
+                    break
+
+            count_num_items_in_batch = (
+                len(batch_samples) > 0
+                and "labels" in batch_samples[0]
+                and (
+                    # num_items_in_batch is passed to model forward
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3757
+                    self.model_accepts_loss_kwargs
+                    # num_items_in_batch is passed to compute_loss_func
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3773
+                    or self.compute_loss_func is not None
+                    # num_items_in_batch is also verified if (self.model_accepts_loss_kwargs or self.compute_loss_func)
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3790
+                )
+            )
+
+            if count_num_items_in_batch:
+                # For now we don't support object detection
+                try:
+                    num_items_in_batch = sum(
+                        [(batch["labels"].ne(-100)).sum() for batch in batch_samples]
+                    )
+                except (TypeError, AttributeError):
+                    pass
+
+            if num_items_in_batch is not None:
+                if self.args.average_tokens_across_devices:
+                    num_items_in_batch = self.accelerator.gather(
+                        num_items_in_batch
+                    ).sum()
+
+                if torch.is_tensor(num_items_in_batch):
+                    num_items_in_batch = num_items_in_batch.to(device)
+
+                    if self.args.n_gpu > 1 and num_items_in_batch.dim() == 0:
+                        # In the DataParallel case, convert the scalar tensor into a 1-dim tensor
+                        num_items_in_batch = num_items_in_batch.unsqueeze(0)
+
+            return batch_samples, num_items_in_batch
+        return super().get_batch_samples(epoch_iterator, num_batches, device)
 
     def _get_eval_sampler(self, eval_dataset: Optional[Dataset] = None):
         if eval_dataset is None or not has_length(eval_dataset):

@@ -30,6 +30,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_rank,
     get_ulysses_sequence_parallel_world_size,
+    ulysses_pad,
 )
 from lmms_engine.utils import Logging
 
@@ -59,57 +60,6 @@ if is_flash_attn_2_available():
         raise ModuleNotFoundError(
             "flash_attn is not available. Please install it via `pip install flash_attn`."
         )
-
-
-def apply_multimodal_rotary_pos_emb_unpad(
-    q, k, cos, sin, mrope_section, attention_mask, unsqueeze_dim=1
-):
-    """Applies Rotary Position Embedding with Multimodal Sections to the query and key tensors (https://qwenlm.github.io/blog/qwen2-vl/).
-
-    Explanation:
-        Multimodal 3D rotary position embedding is an extension to 1D rotary position embedding. The input embedding
-        sequence contains vision (images / videos) embedding and text embedding or just contains text embedding. For
-        vision embedding part, we apply rotary position embedding on temporal, height and width dimension separately.
-        Here we split the channel dimension to 3 chunks for the temporal, height and width rotary position embedding.
-        For text embedding part, we just apply 1D rotary position embedding. The three rotary position index (temporal,
-        height and width) of text embedding is always the same, so the text embedding rotary position embedding has no
-        difference with modern LLMs.
-
-    Args:
-        q (`torch.Tensor`): The query tensor.
-        k (`torch.Tensor`): The key tensor.
-        cos (`torch.Tensor`): The cosine part of the rotary embedding.
-        sin (`torch.Tensor`): The sine part of the rotary embedding.
-        position_ids (`torch.Tensor`):
-            The position indices of the tokens corresponding to the query and key tensors. For example, this can be
-            used to pass offsetted position ids when working with a KV-cache.
-        mrope_section(`List(int)`):
-            Multimodal rope section is for channel dimension of temporal, height and width in rope calculation.
-        unsqueeze_dim (`int`, *optional*, defaults to 1):
-            The 'unsqueeze_dim' argument specifies the dimension along which to unsqueeze cos[position_ids] and
-            sin[position_ids] so that they can be properly broadcasted to the dimensions of q and k. For example, note
-            that cos[position_ids] and sin[position_ids] have the shape [batch_size, seq_len, head_dim]. Then, if q and
-            k have the shape [batch_size, heads, seq_len, head_dim], then setting unsqueeze_dim=1 makes
-            cos[position_ids] and sin[position_ids] broadcastable to the shapes of q and k. Similarly, if q and k have
-            the shape [batch_size, seq_len, heads, head_dim], then set unsqueeze_dim=2.
-    Returns:
-        `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
-    """
-    mrope_section = mrope_section * 2
-    cos = torch.cat(
-        [m[i % 3] for i, m in enumerate(cos.split(mrope_section, dim=-1))], dim=-1
-    )
-    sin = torch.cat(
-        [m[i % 3] for i, m in enumerate(sin.split(mrope_section, dim=-1))], dim=-1
-    )
-    cos, _, _, _ = _unpad_input(cos, attention_mask)
-    sin, _, _, _ = _unpad_input(sin, attention_mask)
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
-
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
 
 
 @dataclass
@@ -203,6 +153,15 @@ def vl_model_forward(
         .transpose(0, 1)
         .unsqueeze(1)
     )
+
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        # Pad the input ids and position ids if the sequence parallelism is used
+        input_ids, position_ids, pad_size = ulysses_pad(
+            input_ids.unsqueeze(0),
+            position_ids,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
+        input_ids = input_ids.squeeze(0)
 
     if inputs_embeds is None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
@@ -575,8 +534,6 @@ def attn_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-        # Pad cos and sin to match the sequence length
-        print(cos.shape, sin.shape, cu_seq_lens)
 
     # Unsqueeze the first dim to apply pos embeds
     query_states = query_states.unsqueeze(0).transpose(1, 2)

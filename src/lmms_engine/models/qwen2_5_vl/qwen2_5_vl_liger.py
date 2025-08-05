@@ -12,6 +12,13 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_group,
+    get_ulysses_sequence_parallel_rank,
+    get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
+    ulysses_pad,
+)
 from lmms_engine.utils import Logging, TrainUtilities
 
 from ..utils import calc_gpt_flops
@@ -147,6 +154,16 @@ def lce_forward(
                 shift_labels.append(cur_shift_labels)
             shift_hidden_states = torch.cat(shift_hidden_states, dim=0)
             shift_labels = torch.cat(shift_labels, dim=0)
+            # If the sp size is large than 1, then we slice the labels to calculate the loss
+            if get_ulysses_sequence_parallel_world_size() > 1:
+                # Pad the labels if the sequence parallelism is used
+                shift_labels, _, pad_size = ulysses_pad(
+                    shift_labels.unsqueeze(0),
+                    sp_size=get_ulysses_sequence_parallel_world_size(),
+                )
+                shift_labels = slice_input_tensor(shift_labels, dim=1, padding=True)
+                # Because labels is full, after shifting and slicing, it might be longer than shift hidden states
+                shift_labels = shift_labels.squeeze(0)[: shift_hidden_states.shape[0]]
         else:
             # We do the same thing as ForCausalLMLoss but using Liger FLCE
 

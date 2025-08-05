@@ -11,6 +11,7 @@ import torch.distributed as dist
 import yaml
 from transformers import Trainer
 
+import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
     DATASET_MAPPING,
     create_model_from_config,
@@ -222,19 +223,7 @@ class TrainRunner:
             world_size % total_group_size == 0
         ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
 
-        dp_degree = world_size // total_group_size
-
-        for dp_idx in range(dp_degree):
-            # For each dp degree
-            group_ranks = []
-            for sp_idx in range(sp_degree):
-                # Each group contains sp_ulysses_degree ranks
-                cur_sp_rank = dp_idx * sp_degree + sp_idx
-                group_ranks.append(cur_sp_rank)
-            # Then the init the group ranks
-            group = torch.distributed.new_group(group_ranks)
-            if rank in group_ranks:
-                set_ulysses_sequence_parallel_group(group)
+        set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
 
     def _build_trainer(self):
         trainer = Trainer(
