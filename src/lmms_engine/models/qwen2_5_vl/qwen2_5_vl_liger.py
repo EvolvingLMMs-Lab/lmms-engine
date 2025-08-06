@@ -13,6 +13,7 @@ from transformers.utils import (
 )
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
+    calculate_seq_len_per_rank,
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_rank,
     get_ulysses_sequence_parallel_world_size,
@@ -21,6 +22,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
 )
 from lmms_engine.utils import Logging, TrainUtilities
 
+from ..sequence_packing_utils import _unpad_input
 from ..utils import calc_gpt_flops
 
 try:
@@ -136,11 +138,20 @@ def lce_forward(
 
     loss = None
     logits = None
+    # if we are using sequence parallel, we need to slice the hidden states and labels
+    labels_unpad = labels.view(-1)[word_idx.long()]
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        seq_lens = (
+            calculate_seq_len_per_rank(seq_lens.tolist())
+            if seq_lens is not None
+            else None
+        )
+        labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
+    labels = labels_unpad
 
     # if in training mode, don't materialize logits
     if labels is not None:
         if use_rmpad:
-            labels = labels.view(-1)[word_idx.long()]
             # We need to shift the tokens according to seq lens
             # Otherwise, the first labels of the next seq will be the last labels of the current seq
             shift_hidden_states = []
@@ -154,16 +165,6 @@ def lce_forward(
                 shift_labels.append(cur_shift_labels)
             shift_hidden_states = torch.cat(shift_hidden_states, dim=0)
             shift_labels = torch.cat(shift_labels, dim=0)
-            # If the sp size is large than 1, then we slice the labels to calculate the loss
-            if get_ulysses_sequence_parallel_world_size() > 1:
-                # Pad the labels if the sequence parallelism is used
-                shift_labels, _, pad_size = ulysses_pad(
-                    shift_labels.unsqueeze(0),
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
-                shift_labels = slice_input_tensor(shift_labels, dim=1, padding=True)
-                # Because labels is full, after shifting and slicing, it might be longer than shift hidden states
-                shift_labels = shift_labels.squeeze(0)[: shift_hidden_states.shape[0]]
         else:
             # We do the same thing as ForCausalLMLoss but using Liger FLCE
 

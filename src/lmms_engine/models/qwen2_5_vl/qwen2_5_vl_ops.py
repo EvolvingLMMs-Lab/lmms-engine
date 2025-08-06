@@ -534,6 +534,18 @@ def attn_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+        # Cat the cu_seq_lens to the max seq len if padding is used
+        if cu_seq_lens.max().item() < query_states.shape[0]:
+            cu_seq_lens = torch.cat(
+                [
+                    cu_seq_lens,
+                    torch.tensor(
+                        [query_states.shape[0]],
+                        device=cu_seq_lens.device,
+                        dtype=cu_seq_lens.dtype,
+                    ),
+                ]
+            )
 
     # Unsqueeze the first dim to apply pos embeds
     query_states = query_states.unsqueeze(0).transpose(1, 2)

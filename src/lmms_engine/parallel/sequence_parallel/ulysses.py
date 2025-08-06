@@ -17,7 +17,7 @@ DeepSpeed Ulysses Paper: https://arxiv.org/abs/2309.14509
 Inspired from: https://github.com/deepspeedai/DeepSpeed/blob/master/deepspeed/sequence/layer.py
 """
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 import torch.distributed as dist
@@ -407,3 +407,23 @@ def validate_ulysses_config(num_heads, ulysses_sequence_size):
         assert (
             num_heads % ulysses_sequence_size == 0
         ), f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+
+
+def calculate_seq_len_per_rank(seq_len: List[int]):
+    # The seq len is the largest val
+    total_seq_len = max(seq_len)
+    sp_size = get_ulysses_sequence_parallel_world_size()
+    pad_size = (sp_size - total_seq_len % sp_size) % sp_size
+    per_seq_len = (total_seq_len + pad_size) // sp_size
+    start_from = per_seq_len * get_ulysses_sequence_parallel_rank()
+    end_at = start_from + per_seq_len
+    cur_seq_len = []
+    for sl in seq_len:
+        if sl <= start_from and len(cur_seq_len) == 0:
+            cur_seq_len.append(0)
+        elif sl <= end_at and sl > start_from:
+            cur_seq_len.append(sl - start_from)
+    # If the last seq len is not equal to per_seq_len, we need to add it
+    if cur_seq_len[-1] != per_seq_len:
+        cur_seq_len.append(per_seq_len)
+    return cur_seq_len

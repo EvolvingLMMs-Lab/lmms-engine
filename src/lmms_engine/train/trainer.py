@@ -362,10 +362,14 @@ class Trainer(HFTrainer):
             torch.distributed.all_reduce(
                 flops_tensor, op=torch.distributed.ReduceOp.SUM
             )
+            # Divide by the number of processes and the number of sequence parallel processes
+            # Thus the mfu is within every dp group
+            sp_size = pgm.process_group_manager.cp_world_size
             self.mfu = (
                 flops_tensor.item()
                 / (self.cur_time - prev_time)
                 / self.args.world_size
+                / sp_size
                 / TrainUtilities.get_device_flops("B")
             )
             self.log({"mfu": round(self.mfu, 2)})
