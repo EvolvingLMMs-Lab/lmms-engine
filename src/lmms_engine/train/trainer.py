@@ -31,6 +31,9 @@ from transformers.trainer_utils import has_length, seed_worker
 from transformers.utils import is_datasets_available, is_peft_available
 
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_world_size,
+)
 
 from ..utils.train_utils import TrainUtilities
 
@@ -380,5 +383,7 @@ class Trainer(HFTrainer):
             num_items_in_batch=num_items_in_batch,
             return_outputs=True,
         )
+        # Hf avg across every process, we scale the loss first such that the mean is over dp group
+        loss = loss * get_ulysses_sequence_parallel_world_size()
         self.flops += outputs.get("flops", 0)
         return (loss, outputs) if return_outputs else loss
