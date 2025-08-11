@@ -67,10 +67,9 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             num_image_tokens = None
 
         if videos is not None:
-            videos_inputs = self.processor.image_processor(
-                images=None,
+            videos_inputs = self.processor.video_processor(
                 videos=videos,
-                **output_kwargs["images_kwargs"],
+                **output_kwargs["videos_kwargs"],
                 return_tensors="pt",
             )
             video_grid_thw = videos_inputs["video_grid_thw"]
@@ -78,11 +77,11 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             fps = output_kwargs["videos_kwargs"].pop("fps", 2.0)
             if isinstance(fps, (int, float)):
                 second_per_grid_ts = [
-                    self.processor.image_processor.temporal_patch_size / fps
+                    self.processor.video_processor.temporal_patch_size / fps
                 ] * len(video_grid_thw)
             elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
                 second_per_grid_ts = [
-                    self.processor.image_processor.temporal_patch_size / tmp
+                    self.processor.video_processor.temporal_patch_size / tmp
                     for tmp in fps
                 ]
             else:
@@ -92,7 +91,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             videos_inputs.update(
                 {"second_per_grid_ts": torch.tensor(second_per_grid_ts)}
             )
-            merge_length = self.processor.image_processor.merge_size**2
+            merge_length = self.processor.video_processor.merge_size**2
             num_video_tokens = [
                 (video_grid_thw[index].prod() // merge_length)
                 for index in range(len(video_grid_thw))

@@ -1,18 +1,8 @@
-from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
-import torch
-from packaging import version
-from torch.nn import CrossEntropyLoss
-from transformers import Qwen2_5_VLForConditionalGeneration
-from transformers import __version__ as transformers_version
-from transformers.modeling_outputs import ModelOutput
-from transformers.utils import (
-    add_start_docstrings_to_model_forward,
-    replace_return_docstrings,
-)
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from .utils import calc_gpt_flops
+from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
@@ -20,21 +10,11 @@ try:
     )
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
+import torch
 
 
-@dataclass
-class Qwen2_5_VLCausalLMOutputWithPast(ModelOutput):
-    loss: Optional[torch.FloatTensor] = None
-    logits: torch.FloatTensor = None
-    past_key_values: Optional[List[torch.FloatTensor]] = None
-    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
-    attentions: Optional[Tuple[torch.FloatTensor]] = None
-    rope_deltas: Optional[torch.LongTensor] = None
-    flops: Optional[float] = None
-
-
-def lce_forward(
-    self: Qwen2_5_VLForConditionalGeneration,
+def qwen2_lce_forward(
+    self,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
@@ -45,18 +25,44 @@ def lce_forward(
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
-    pixel_values: Optional[torch.Tensor] = None,
-    pixel_values_videos: Optional[torch.FloatTensor] = None,
-    audio_values: Optional[torch.FloatTensor] = None,
-    audio_attention_mask: Optional[torch.Tensor] = None,
-    image_grid_thw: Optional[torch.LongTensor] = None,
-    video_grid_thw: Optional[torch.LongTensor] = None,
-    rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    second_per_grid_ts: Optional[torch.Tensor] = None,
-    use_rmpad: Optional[bool] = False,
-    **kwargs,
-) -> Union[Tuple, Qwen2_5_VLCausalLMOutputWithPast]:
+    num_logits_to_keep: int = 0,
+    use_rmpad: bool = False,
+    cu_seq_lens: Optional[torch.IntTensor] = None,
+    indices: Optional[torch.IntTensor] = None,
+    **loss_kwargs,
+) -> Union[Tuple, CausalLMOutputWithPast]:
+    r"""
+    Args:
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
+            config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
+            (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
+
+        num_logits_to_keep (`int`, *optional*):
+            Calculate logits for the last `num_logits_to_keep` tokens. If `0`, calculate logits for all
+            `input_ids` (special case). Only last token logits are needed for generation, and calculating them only for that
+            token can save memory, which becomes pretty significant for long sequences or large vocabulary size.
+
+    Returns:
+
+    Example:
+
+    ```python
+    >>> from transformers import AutoTokenizer, Qwen2ForCausalLM
+
+    >>> model = Qwen2ForCausalLM.from_pretrained(PATH_TO_CONVERTED_WEIGHTS)
+    >>> tokenizer = AutoTokenizer.from_pretrained(PATH_TO_CONVERTED_TOKENIZER)
+
+    >>> prompt = "Hey, are you conscious? Can you talk to me?"
+    >>> inputs = tokenizer(prompt, return_tensors="pt")
+
+    >>> # Generate
+    >>> generate_ids = model.generate(inputs.input_ids, max_length=30)
+    >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+    "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
+    ```"""
+
     output_attentions = (
         output_attentions
         if output_attentions is not None
@@ -71,16 +77,11 @@ def lce_forward(
         return_dict if return_dict is not None else self.config.use_return_dict
     )
 
-    flops = calc_gpt_flops(attention_mask, config=self.config)
+    # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
     outputs = self.model(
         input_ids=input_ids,
-        pixel_values=pixel_values,
-        pixel_values_videos=pixel_values_videos,
-        image_grid_thw=image_grid_thw,
-        video_grid_thw=video_grid_thw,
-        second_per_grid_ts=second_per_grid_ts,
-        position_ids=position_ids,
         attention_mask=attention_mask,
+        position_ids=position_ids,
         past_key_values=past_key_values,
         inputs_embeds=inputs_embeds,
         use_cache=use_cache,
@@ -88,19 +89,18 @@ def lce_forward(
         output_hidden_states=output_hidden_states,
         return_dict=return_dict,
         cache_position=cache_position,
-        audio_values=audio_values,
-        audio_attention_mask=audio_attention_mask,
+        cu_seq_lens=cu_seq_lens,
+        indices=indices,
     )
     seq_lens = outputs.get("seq_lens", None)
     word_idx = outputs.get("word_idx", None)
 
     hidden_states = outputs[0]
 
-    loss = None
     logits = None
-
+    loss = None
     # if in training mode, don't materialize logits
-    if labels is not None:
+    if self.training and (labels is not None):
         if use_rmpad:
             labels = labels.view(-1)[word_idx.long()]
             # We need to shift the tokens according to seq lens
@@ -126,12 +126,12 @@ def lce_forward(
         shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
         shift_labels = shift_labels.view(-1)
 
-        reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
+        reduction = "sum" if "num_items_in_batch" in loss_kwargs else "mean"
         lce = LigerFusedLinearCrossEntropyLoss(reduction=reduction)
 
         loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)
         if reduction == "sum":
-            loss /= kwargs["num_items_in_batch"]
+            loss /= loss_kwargs["num_items_in_batch"]
 
     else:  # if in inference mode materialize logits
         logits = self.lm_head(hidden_states)
@@ -140,19 +140,13 @@ def lce_forward(
                 logits=logits,
                 labels=labels,
                 vocab_size=self.config.vocab_size,
-                **kwargs,
+                **loss_kwargs,
             )
 
-    if not return_dict:
-        output = (logits,) + outputs[1:]
-        return (loss,) + output if loss is not None else output
-
-    return Qwen2_5_VLCausalLMOutputWithPast(
+    return CausalLMOutputWithPast(
         loss=loss,
         logits=logits,
         past_key_values=outputs.past_key_values,
-        hidden_states=outputs.hidden_states,
+        hidden_states=hidden_states,
         attentions=outputs.attentions,
-        rope_deltas=rope_deltas,
-        flops=flops,
     )

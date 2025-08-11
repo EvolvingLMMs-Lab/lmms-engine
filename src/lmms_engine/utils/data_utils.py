@@ -53,9 +53,16 @@ class DataUtilities:
     ) -> Union[List[Dict[str, List]], Dataset]:
         if data_type == "arrow":
             dataset = load_from_disk(path)
-            return dataset
+        elif data_type == "parquet":
+            dataset = Dataset.from_parquet(path)
         else:
-            return DataUtilities.maybe_load_json_or_jsonlines(path, data_type)
+            dataset = DataUtilities.maybe_load_json_or_jsonlines(path, data_type)
+
+        # Force to load in Dataset format if load in yaml
+        # For better streaming data
+        if not isinstance(dataset, Dataset):
+            dataset = Dataset.from_list(dataset)
+        return dataset
 
     @staticmethod
     def wrap_func(args):
@@ -72,39 +79,25 @@ class DataUtilities:
             data_paths = [dataset.get("path") for dataset in datasets]
             data_folders = [dataset.get("data_folder") for dataset in datasets]
             data_types = [dataset.get("data_type") for dataset in datasets]
-            force_arrow = any([d_type == "arrow" for d_type in data_types])
             with Pool(cpu_count()) as p:
                 Logging.info("Loading data with multiprocess...")
                 nested_data_list = list(
                     p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
                 )
 
-            if force_arrow:
-                Logging.info(
-                    "Detecting arrow dataset, force everything to be loaded in arrow..."
-                )
-                for data, data_folder, data_path in zip(
-                    nested_data_list, data_folders, data_paths
-                ):
-                    Logging.info(f"Data : {data_path}")
-                    if isinstance(data, Dataset):
-                        data_list.append(data)
-                    else:
-                        Logging.info(f"Convert to arrow dataset")
-                        data = Dataset.from_list(data)
-                        data_list.append(data)
-                    Logging.info(f"Dataset size: {len(data)}")
-                    data_folder_list.extend([data_folder] * len(data))
-                data_list = concatenate_datasets(data_list)
-                return data_list, data_folder_list
-
             for data, data_folder, data_path in zip(
                 nested_data_list, data_folders, data_paths
             ):
                 Logging.info(f"Data : {data_path}")
-                data_list.extend(data)
-                data_folder_list.extend([data_folder] * len(data))
+                if isinstance(data, Dataset):
+                    data_list.append(data)
+                else:
+                    Logging.info(f"Convert to hf dataset")
+                    data = Dataset.from_list(data)
+                    data_list.append(data)
                 Logging.info(f"Dataset size: {len(data)}")
+                data_folder_list.extend([data_folder] * len(data))
+            data_list = concatenate_datasets(data_list)
         return data_list, data_folder_list
 
     @staticmethod
@@ -217,7 +210,6 @@ class DataUtilities:
         data_paths = [dataset.get("path") for dataset in datasets]
         data_folders = [dataset.get("data_folder", "") for dataset in datasets]
         data_types = [dataset.get("data_type", "json") for dataset in datasets]
-        force_arrow = any([d_type == "arrow" for d_type in data_types])
 
         with Pool(cpu_count()) as p:
             Logging.info("Loading data with multiprocess...")
@@ -225,31 +217,18 @@ class DataUtilities:
                 p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
             )
 
-        if force_arrow:
-            Logging.info(
-                "Detecting arrow dataset, force everything to be loaded in arrow..."
-            )
-            for data, data_folder, data_path in zip(
-                nested_data_list, data_folders, data_paths
-            ):
-                Logging.info(f"Data : {data_path}")
-                if isinstance(data, Dataset):
-                    data_list.append(data)
-                else:
-                    Logging.info(f"Convert to arrow dataset")
-                    data = Dataset.from_list(data)
-                    data_list.append(data)
-                Logging.info(f"Dataset size: {len(data)}")
-                data_folder_list.extend([data_folder] * len(data))
-            data_list = concatenate_datasets(data_list)
-            return data_list, data_folder_list
-
         for data, data_folder, data_path in zip(
             nested_data_list, data_folders, data_paths
         ):
             Logging.info(f"Data : {data_path}")
-            data_list.extend(data)
-            data_folder_list.extend([data_folder] * len(data))
+            if isinstance(data, Dataset):
+                data_list.append(data)
+            else:
+                Logging.info(f"Convert to hf dataset")
+                data = Dataset.from_list(data)
+                data_list.append(data)
             Logging.info(f"Dataset size: {len(data)}")
+            data_folder_list.extend([data_folder] * len(data))
+        data_list = concatenate_datasets(data_list)
 
         return data_list, data_folder_list

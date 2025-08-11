@@ -16,6 +16,7 @@ from datasets import Dataset as HFDataset
 from datasets import Sequence, load_dataset, load_from_disk
 from decord import VideoReader, cpu
 from PIL import Image, PngImagePlugin
+from qwen_vl_utils import fetch_video
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -141,6 +142,8 @@ class BaseDataset(Dataset):
             return self.load_video_decord(video_path, fps)
         elif self.config.video_backend == "torchvision":
             return self.load_video_torchvision(video_path, fps)
+        elif self.config.video_backend == "qwen_vl_utils":
+            return self.load_video_qwen_vl_utils(video_path, fps)
         else:
             raise ValueError(f"Video backend {self.config.video_backend} not supported")
 
@@ -150,9 +153,9 @@ class BaseDataset(Dataset):
         fps: int,
     ) -> Tuple[np.ndarray, float]:
         if isinstance(video_path, str) or isinstance(video_path, BytesIO):
-            vr = VideoReader(video_path, ctx=cpu(0))
+            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
         elif isinstance(video_path, list):
-            vr = VideoReader(video_path[0], ctx=cpu(0))
+            vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
 
         total_frames, video_fps = len(vr), vr.get_avg_fps()
         if self.config.video_sampling_strategy == "fps":
@@ -196,6 +199,29 @@ class BaseDataset(Dataset):
         video = video[idx]
         return video, sample_fps
 
+    def load_video_qwen_vl_utils(
+        self,
+        video_path: str,
+        fps: int,
+    ) -> Tuple[np.ndarray, float]:
+        """
+        Load video using Qwen VL utils.
+        This is a placeholder for the actual implementation.
+        """
+        video_dict = {
+            "type": "video",
+            "video": f"file://{video_path}",
+            "fps": fps,
+            "min_frames": 1,
+            "max_frames": self.config.frame_num,
+            "max_pixels": self.processor_config.max_pixels,
+        }
+        if self.config.video_sampling_strategy == "frame_num":
+            video_dict.pop("fps", None)
+        frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
+        frames = frames.numpy()
+        return frames, sample_fps
+
     def filter_overlong(self):
         if self.config.packing:
             Logging.info(
@@ -230,6 +256,8 @@ class BaseDataset(Dataset):
             self.data_list = DataUtilities.load_jsonlines(self.config.dataset_path)
         elif self.config.dataset_format == "arrow":
             self.data_list = load_from_disk(self.config.dataset_path)
+        elif self.config.dataset_format == "parquet":
+            self.data_list = HFDataset.from_parquet(self.config.dataset_path)
         elif self.config.dataset_format == "hf_dataset":
             self.data_list = load_dataset(self.config.dataset_path, split="train")
             self.data_list_no_image = deepcopy(self.data_list)

@@ -6,7 +6,7 @@ import torch.distributed.checkpoint as dist_cp
 from accelerate import init_empty_weights
 from transformers import AutoProcessor
 
-from lmms_engine.mapping_func import create_model
+from lmms_engine.mapping_func import create_model_from_pretrained
 
 
 def parse_args():
@@ -19,26 +19,22 @@ def parse_args():
         required=True,
         help="Directory containing the FSDP shards to merge.",
     )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        required=True,
-        help="Output file for the merged checkpoint.",
-    )
     parser.add_argument("--model_name_or_class", type=str, default="")
     return parser.parse_args()
 
 
 def main(args):
     model_path = args.model_name_or_class
-    model_cls = create_model(model_path)
-    try:
-        input_dir = Path(args.input_dir)
-        processor_path = str(input_dir.parent)
-        processor = AutoProcessor.from_pretrained(processor_path)
-        processor.save_pretrained(args.output_dir)
-    except Exception as e:
-        print(f"Failed to save processor: {e}")
+    model_cls = create_model_from_pretrained(model_path)
+    input_path = Path(args.input_dir)
+    checkpoint_folder = list(input_path.glob("checkpoint-*"))
+    # Find the latest checkpoint with the highest index
+    if not checkpoint_folder:
+        raise ValueError(f"No checkpoint found in {args.input_dir}")
+    checkpoint_folder.sort(key=lambda x: int(x.name.split("-")[-1]))
+    latest_checkpoint = checkpoint_folder[-1]
+    print(f"Using latest checkpoint: {latest_checkpoint}")
+    shard_state_dict = latest_checkpoint / "pytorch_model_fsdp_0"
     model = model_cls.from_pretrained(
         model_path,
         attn_implementation="sdpa",
@@ -47,11 +43,11 @@ def main(args):
     state_dict = {"model": model.state_dict()}
     dist_cp.load(
         state_dict=state_dict,
-        storage_reader=dist_cp.FileSystemReader(args.input_dir),
+        storage_reader=dist_cp.FileSystemReader(shard_state_dict),
         no_dist=True,
     )
     model.load_state_dict(state_dict["model"])
-    model.save_pretrained(args.output_dir)
+    model.save_pretrained(str(input_path))
 
 
 if __name__ == "__main__":

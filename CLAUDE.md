@@ -4,18 +4,9 @@
 
 **LMMs Engine** is a training framework for Large Multimodal Models (LMMs) developed by LMMs-Lab. This is a Python package focused on highly efficient training of multimodal models with support for various architectures and training paradigms.
 
-## Key Information
-
-- **Package**: `lmms_engine`
-- **Primary Language**: Python ( >= 3.12)
-- **License**: MIT
-- **Main Entry Point**: `src/lmms_engine/launch/cli.py`
-- **Installation**: `python3 -m pip install -e .`
-- **Launch Command**: `lmms_launch` or `python -m lmms_engine.launch.cli`
-
 ## Configuration System
 
-Training is configured via YAML or JSON files. YAML is recommended for better readability and comment support.
+Training is configured via YAML files. YAML is recommended for better readability and comment support.
 
 ### YAML Configuration (Recommended)
 
@@ -33,26 +24,6 @@ Training is configured via YAML or JSON files. YAML is recommended for better re
     # TrainingArguments parameters
     output_dir: "./output"
     num_train_epochs: 3
-```
-
-### JSON Configuration (Legacy)
-
-```json
-[
-	{
-		"type": "trainer",
-		"config": {
-			"trainer_type": "hf_trainer",
-			"dataset_config": {
-				/* Dataset configuration */
-			},
-			"model_config": {
-				/* Model configuration */
-			}
-			/* TrainingArguments parameters */
-		}
-	}
-]
 ```
 
 ## Development Commands
@@ -74,20 +45,12 @@ accelerate launch --use_fsdp [options] \
 
 ```bash
 # Install with development dependencies
-pip install -e ".[all]"  # Includes preference learning and storage
+uv pip install -e ".[all]"  # Includes preference learning and storage
 
 # Performance optimizations
-pip install flash-attn --no-build-isolation
-pip install liger-kernel
+uv pip install flash-attn --no-build-isolation
+uv pip install liger-kernel
 ```
-
-## Architecture & Design Principles
-
-The framework follows three main design patterns:
-
-1. **Factory Pattern**: Used for creating components (models, trainers, datasets, processors)
-2. **Builder Pattern**: Components are built on-demand during training initialization
-3. **MVC-like Structure**: Controller manages pipeline execution (missing View component)
 
 ## Development Philosophy
 

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from lmms_engine.models.aero.modeling_aero import AeroCausalLMOutputWithPast
 
-from .utils import _unpad_input
+from ..sequence_packing_utils import _unpad_input
 
 
 def forward(

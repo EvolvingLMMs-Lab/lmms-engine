@@ -1,9 +1,4 @@
 from .aero import AeroConfig, AeroForConditionalGeneration, AeroProcessor
-from .aero_omni import (
-    AeroOmniConfig,
-    AeroOmniForConditionalGeneration,
-    AeroOmniProcessor,
-)
 from .config import ModelConfig
 
 __all__ = [
@@ -11,7 +6,4 @@ __all__ = [
     "AeroForConditionalGeneration",
     "AeroConfig",
     "AeroProcessor",
-    "AeroOmniForConditionalGeneration",
-    "AeroOmniConfig",
-    "AeroOmniProcessor",
 ]

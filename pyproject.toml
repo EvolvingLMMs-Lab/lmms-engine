@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmms_engine"
-version = "0.1.2"
+version = "0.1.0"
 authors = [
     { name = "Kaichen Zhang", email = "kaichenzhang358@outlook.com" },
     { name = "Fanyi Pu", email = "FPU001@e.ntu.edu.sg" },

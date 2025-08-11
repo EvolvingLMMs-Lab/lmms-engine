@@ -15,6 +15,10 @@ try:
     from liger_kernel.transformers.model.qwen2 import (
         lce_forward_deprecated as qwen2_lce_forward_deprecated,
     )
+    from liger_kernel.transformers.monkey_patch import (
+        _patch_rms_norm_module,
+        _patch_swiglu_module,
+    )
     from liger_kernel.transformers.qwen2vl_mrope import liger_multimodal_rotary_pos_emb
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
     from liger_kernel.transformers.rope import liger_rotary_pos_emb
@@ -35,94 +39,16 @@ from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VisionTransformerPretrainedModel,
 )
 
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_world_size,
+    patch_vlm_for_ulysses_input_slicing,
+)
+
 transformer_version = version.parse(transformers.__version__)
 SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
-from ...utils.logging_utils import Logging
-
-try:
-    import peft
-
-    PEFT_AVAILABLE = True
-except ImportError:
-    PEFT_AVAILABLE = False
-
-
-def _bind_method_to_module(module, method_name: str, new_method: Callable):
-    # Binds a new method to a module instance so that self is passed as the first argument
-    module.__dict__[method_name] = new_method.__get__(module, module.__class__)
-
-
-def _patch_rms_norm_module(
-    module, offset=0.0, eps=1e-6, casting_mode="llama", in_place=True, row_mode=None
-):
-    # Check if the module is a PEFT ModulesToSaveWrapper
-    # If it is, we need to patch the modules_to_save.default and original_modules
-    if PEFT_AVAILABLE and isinstance(module, peft.utils.other.ModulesToSaveWrapper):
-        module.modules_to_save.default.offset = offset
-        module.modules_to_save.default.casting_mode = casting_mode
-        module.modules_to_save.default.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.modules_to_save.default.in_place = in_place
-        module.modules_to_save.default.row_mode = row_mode
-        module.original_module.offset = offset
-        module.original_module.casting_mode = casting_mode
-        module.original_module.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.original_module.in_place = in_place
-        module.original_module.row_mode = row_mode
-        _bind_method_to_module(
-            module.modules_to_save.default, "forward", LigerRMSNorm.forward
-        )
-        _bind_method_to_module(
-            module.modules_to_save.default, "extra_repr", LigerRMSNorm.extra_repr
-        )
-        _bind_method_to_module(module.original_module, "forward", LigerRMSNorm.forward)
-        _bind_method_to_module(
-            module.original_module, "extra_repr", LigerRMSNorm.extra_repr
-        )
-        module.modules_to_save.default.__class__.__name__ = LigerRMSNorm.__name__
-        module.original_module.__class__.__name__ = LigerRMSNorm.__name__
-    else:
-        module.offset = offset
-        module.casting_mode = casting_mode
-        module.variance_epsilon = (
-            getattr(module, "variance_epsilon", None)
-            or getattr(module, "eps", None)
-            or eps
-        )
-        module.in_place = in_place
-        module.row_mode = row_mode
-        _bind_method_to_module(module, "forward", LigerRMSNorm.forward)
-        _bind_method_to_module(module, "extra_repr", LigerRMSNorm.extra_repr)
-        module.__class__.__name__ = LigerRMSNorm.__name__
-
-
-def _patch_layer_norm_module(module, eps=1e-6):
-    module.variance_epsilon = (
-        getattr(module, "variance_epsilon", None) or getattr(module, "eps", None) or eps
-    )
-    module.hidden_size = module.normalized_shape
-    _bind_method_to_module(module, "forward", LigerLayerNorm.forward)
-    _bind_method_to_module(module, "extra_repr", LigerLayerNorm.extra_repr)
-    module.__class__.__name__ = LigerLayerNorm.__name__
-
-
-def _patch_swiglu_module(module, liger_module):
-    _bind_method_to_module(module, "forward", liger_module.forward)
-    module.__class__.__name__ = liger_module.__name__
-
-
-def _patch_geglu_module(module):
-    _bind_method_to_module(module, "forward", LigerGEGLUMLP.forward)
-    module.__class__.__name__ = LigerGEGLUMLP.__name__
+from ..utils.logging_utils import Logging
 
 
 def apply_liger_kernel_to_qwen2_5_vl(
@@ -155,7 +81,7 @@ def apply_liger_kernel_to_qwen2_5_vl(
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
 
-    from .qwen2_5_vl_liger import lce_forward as qwen2_5_vl_lce_forward
+    from .qwen2_5_vl.qwen2_5_vl_liger import lce_forward as qwen2_5_vl_lce_forward
 
     if use_rmpad:
 
@@ -184,14 +110,16 @@ def apply_liger_kernel_to_qwen2_5_vl(
         modeling_qwen2_5_vl.Qwen2MLP = LigerSwiGLUMLP
 
     if use_rmpad:
-        from .rmpad.qwen2_5_vl_ops import attn_forward as qwen2_ops_attn_forward
-        from .rmpad.qwen2_5_vl_ops import (
+        from .qwen2_5_vl.qwen2_5_vl_ops import attn_forward as qwen2_ops_attn_forward
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
             decoder_layer_forward as qwen2_ops_decoder_layer_forward,
         )
-        from .rmpad.qwen2_5_vl_ops import (
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
             text_model_forward as qwen2_ops_text_model_forward,
         )
-        from .rmpad.qwen2_5_vl_ops import vl_model_forward as qwen2_ops_vl_model_forward
+        from .qwen2_5_vl.qwen2_5_vl_ops import (
+            vl_model_forward as qwen2_ops_vl_model_forward,
+        )
 
         modeling_qwen2_5_vl.Qwen2_5_VLModel.forward = qwen2_ops_vl_model_forward
         modeling_qwen2_5_vl.Qwen2_5_VLTextModel.forward = qwen2_ops_text_model_forward
@@ -199,7 +127,9 @@ def apply_liger_kernel_to_qwen2_5_vl(
             qwen2_ops_decoder_layer_forward
         )
         modeling_qwen2_5_vl.Qwen2_5_VLAttention.forward = qwen2_ops_attn_forward
-    apply_liger_kernel_to_qwen2_audio(use_rmpad=use_rmpad)
+
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        patch_vlm_for_ulysses_input_slicing(Qwen2_5_VLTextModel)
 
     if model is not None:
         # The model instance already exists, so we need to additionally patch the
@@ -256,7 +186,7 @@ def apply_liger_kernel_to_aero(
     from transformers.models.qwen2 import modeling_qwen2
     from transformers.models.qwen2.modeling_qwen2 import Qwen2Model
 
-    from ..aero import modeling_aero
+    from .aero import modeling_aero
 
     if rope:
         modeling_qwen2.apply_rotary_pos_emb = liger_rotary_pos_emb
@@ -273,7 +203,7 @@ def apply_liger_kernel_to_aero(
             modeling_qwen2.CrossEntropyLoss = LigerCrossEntropyLoss
 
     if fused_linear_cross_entropy:
-        from .qwen2_liger import qwen2_lce_forward
+        from .qwen2.qwen2_liger import qwen2_lce_forward
 
         if use_rmpad:
 
@@ -292,12 +222,12 @@ def apply_liger_kernel_to_aero(
     apply_liger_kernel_to_qwen2_audio(use_rmpad=use_rmpad)
 
     if use_rmpad:
-        from .rmpad.aero_ops import forward as aero_ops_forward
-        from .rmpad.qwen2_ops import attn_forward as qwen2_ops_attn_forward
-        from .rmpad.qwen2_ops import (
+        from .aero.aero_ops import forward as aero_ops_forward
+        from .qwen2.qwen2_ops import attn_forward as qwen2_ops_attn_forward
+        from .qwen2.qwen2_ops import (
             decoder_layer_forward as qwen2_ops_decoder_layer_forward,
         )
-        from .rmpad.qwen2_ops import model_forward as qwen2_ops_model_forward
+        from .qwen2.qwen2_ops import model_forward as qwen2_ops_model_forward
 
         modeling_qwen2.Qwen2Model.forward = qwen2_ops_model_forward
         modeling_qwen2.Qwen2DecoderLayer.forward = qwen2_ops_decoder_layer_forward
@@ -326,34 +256,6 @@ def apply_liger_kernel_to_aero(
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
 
-def apply_liger_kernel_to_aero_omni(
-    rope: bool = True,
-    cross_entropy: bool = False,
-    fused_linear_cross_entropy: bool = True,
-    rms_norm: bool = True,
-    swiglu: bool = True,
-    model: PreTrainedModel = None,
-    use_rmpad: bool = False,
-):
-    apply_liger_kernel_to_aero(
-        rope=rope,
-        cross_entropy=cross_entropy,
-        fused_linear_cross_entropy=fused_linear_cross_entropy,
-        rms_norm=rms_norm,
-        swiglu=swiglu,
-        model=model,
-        use_rmpad=use_rmpad,
-    )
-
-    if use_rmpad:
-        from ..aero_omni import modeling_aero_omni
-        from .rmpad.aero_omni_ops import forward as aero_omni_ops_forward
-
-        modeling_aero_omni.AeroOmniForConditionalGeneration.forward = (
-            aero_omni_ops_forward
-        )
-
-
 def apply_liger_kernel_to_qwen2_audio(
     rope: bool = True,
     cross_entropy: bool = False,
@@ -370,13 +272,13 @@ def apply_liger_kernel_to_qwen2_audio(
     )
 
     if use_rmpad:
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             encoder_forward as qwen2_audio_encoder_forward,
         )
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             encoder_layer_forward as qwen2_audio_encoder_layer_forward,
         )
-        from .rmpad.qwen2_audio_ops import (
+        from .qwen2_audio.qwen2_audio_ops import (
             flash_attn_forward as qwen2_audio_flash_attn_forward,
         )
 
@@ -387,7 +289,6 @@ def apply_liger_kernel_to_qwen2_audio(
 
 CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN = {
     "aero": apply_liger_kernel_to_aero,
-    "aero_omni": apply_liger_kernel_to_aero_omni,
     "qwen2_5_vl": apply_liger_kernel_to_qwen2_5_vl,
 }
 

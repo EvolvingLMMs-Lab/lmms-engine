@@ -1,7 +1,6 @@
-from transformers import (
+from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
     AutoModelForCausalLM,
-    # AutoModelForVision2Seq,
     AutoModelForImageTextToText,
     PretrainedConfig,
 )
@@ -10,10 +9,11 @@ from transformers.modeling_utils import PreTrainedModel
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
 from lmms_engine.utils import Logging
+
 try:
     import fla
 except ImportError as e:
-    Logging.error(f"Error importing fla: {e}")
+    Logging.warning(f"Failed to import fla.")
 
 # A decorator class to register processors
 def register_processor(processor_type: str):
@@ -51,7 +51,10 @@ def create_model_from_pretrained(load_from_pretrained_path):
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
         model_class = AutoModelForImageTextToText
+    else:
+        raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
     return model_class
+
 
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING

@@ -1,0 +1,59 @@
+- type: trainer
+  config:
+    trainer_type: hf_trainer
+    
+    # Dataset configuration - now includes the actual dataset definitions
+    dataset_config:
+      dataset_type: vision
+      dataset_format: yaml  # Uses 'yaml' format for both external files and inline definitions
+      
+      # Inline dataset definitions (no dataset_path needed)
+      datasets:
+        - path: data/open_thoughts_debug
+          data_folder: ""
+          data_type: arrow
+      
+      # Processor configuration
+      processor_config:
+        processor_name: "Qwen/Qwen2.5-VL-7B-Instruct"
+        processor_type: "qwen2_5_vl"
+      
+      # Packing configuration
+      packing: true
+      packing_strategy: first_fit
+      packing_length: 20480
+    
+    # Model configuration
+    model_config:
+      load_from_config: 
+        model_type : "gated_deltanet"
+        config : 
+            vocab_size : 151936
+            hidden_size : 1024
+            intermediate_size : 4096
+            num_hidden_layers: 24
+      attn_implementation: "eager"
+    
+    # Training arguments, mostly compatible with HuggingFace Trainer
+    per_device_train_batch_size: 1
+    learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+    weight_decay: 0.0
+    gradient_accumulation_steps: 1
+    gradient_checkpointing: true
+    num_train_epochs: 1
+    save_steps: 100
+    save_total_limit: 1
+    report_to: "wandb"
+    output_dir: "./output/debug6"
+    warmup_ratio: 0.0
+    run_name: "gated_deltanet_test"
+    eval_strategy: "no"
+    logging_steps: 1
+    group_by_length: true
+    dataloader_num_workers: 8
+    bf16: true
+    lr_scheduler_type: "cosine"
+    freeze_modules: ["visual"]
+    use_liger_kernel: false
+    use_rmpad: true
+    deepspeed: "lmms-engine-mini/examples/ds_config/default_config.json"

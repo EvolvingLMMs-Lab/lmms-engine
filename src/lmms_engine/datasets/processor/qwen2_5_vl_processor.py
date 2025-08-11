@@ -15,8 +15,10 @@ class Qwen2_5_VLDataProcessor(BaseQwen2_5_DataProcessor):
         processor = Qwen2_5_VLProcessor.from_pretrained(self.config.processor_name)
         if self.config.max_pixels:
             processor.image_processor.max_pixels = self.config.max_pixels
+            processor.video_processor.max_pixels = self.config.max_pixels
         if self.config.min_pixels:
             processor.image_processor.min_pixels = self.config.min_pixels
+            processor.video_processor.min_pixels = self.config.min_pixels
         return processor
 
     def process(

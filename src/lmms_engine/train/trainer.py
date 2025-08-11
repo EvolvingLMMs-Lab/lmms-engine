@@ -3,30 +3,40 @@ import importlib.metadata
 import inspect
 import os
 import time
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import datasets
 import torch
-import torch.distributed as dist
-import torch.nn as nn
 from accelerate import Accelerator, FullyShardedDataParallelPlugin
-from accelerate.state import AcceleratorState
-from accelerate.utils import DataLoaderConfiguration
+from accelerate.data_loader import DataLoaderShard
+from accelerate.utils import DataLoaderConfiguration, send_to_device
 from packaging import version
 from peft import PeftModel
-from torch.utils.data import DataLoader, Dataset, RandomSampler, Sampler
-from transformers import Trainer
+from torch.utils.data import (
+    DataLoader,
+    Dataset,
+    DistributedSampler,
+    RandomSampler,
+    Sampler,
+)
+from transformers import Trainer as HFTrainer
 from transformers.trainer import logger
-from transformers.trainer_pt_utils import LengthGroupedSampler, RandomSampler
-from transformers.trainer_utils import has_length
-from transformers.utils import (
-    is_accelerate_available,
-    is_datasets_available,
-    is_peft_available,
-    is_sagemaker_mp_enabled,
+from transformers.trainer_pt_utils import (
+    DistributedLengthGroupedSampler,
+    LengthGroupedSampler,
+    RandomSampler,
+)
+from transformers.trainer_utils import has_length, seed_worker
+from transformers.utils import is_datasets_available, is_peft_available
+
+import lmms_engine.models.utils as model_utils
+import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_world_size,
 )
 
-from ...utils.train_utils import TrainUtilities
+from ..utils.train_utils import TrainUtilities
 
 
 def _is_peft_model(model):
@@ -43,7 +53,7 @@ def _is_peft_model(model):
 TRAINER_STATE_NAME = "trainer_state.json"
 
 
-class LLaVATrainer(Trainer):
+class Trainer(HFTrainer):
     def create_accelerator_and_postprocess(self):
         if self.args.fsdp2:
             if self.args.bf16:
@@ -164,11 +174,15 @@ class LLaVATrainer(Trainer):
                 lengths = None
             # Hard code here because we use our own processing class
             model_input_name = None
-            # model_input_name = (
-            # self.processing_class.model_input_names[0]
-            # if self.processing_class is not None
-            # else None
-            # )
+            if self.args.sp_ulysses_degree > 1:
+                return DistributedLengthGroupedSampler(
+                    self.args.train_batch_size * self.args.gradient_accumulation_steps,
+                    dataset=self.train_dataset,
+                    lengths=self.train_dataset.modality_length,
+                    model_input_name=model_input_name,
+                    num_replicas=pgm.process_group_manager.dp_world_size,
+                    rank=pgm.process_group_manager.dp_rank,
+                )
             return LengthGroupedSampler(
                 self.args.train_batch_size * self.args.gradient_accumulation_steps,
                 dataset=self.train_dataset,
@@ -177,7 +191,125 @@ class LLaVATrainer(Trainer):
             )
 
         else:
-            return RandomSampler(self.train_dataset)
+            if self.args.sp_ulysses_degree > 1:
+                return DistributedSampler(
+                    self.train_dataset,
+                    num_replicas=pgm.process_group_manager.dp_world_size,
+                    rank=pgm.process_group_manager.dp_rank,
+                )
+            else:
+                return RandomSampler(self.train_dataset)
+
+    def _get_dataloader(
+        self,
+        dataset,
+        description,
+        batch_size,
+        sampler_fn=None,
+        is_training=False,
+        dataloader_key=None,
+    ):
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(dataset, datasets.Dataset):
+            dataset = self._remove_unused_columns(dataset, description=description)
+        else:
+            data_collator = self._get_collator_with_removed_columns(
+                self.data_collator, description=description
+            )
+
+        dataloader_params = {
+            "batch_size": batch_size,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(dataset, torch.utils.data.IterableDataset):
+            if sampler_fn is not None:
+                dataloader_params["sampler"] = sampler_fn(dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+            if is_training:
+                dataloader_params["worker_init_fn"] = partial(
+                    seed_worker,
+                    num_workers=self.args.dataloader_num_workers,
+                    rank=self.args.process_index,
+                )
+
+        dataloader = DataLoader(dataset, **dataloader_params)
+
+        # Accelerator.free_memory() will destroy the references, so
+        # we need to store the non-prepared version for eval dataloaders.
+        if dataloader_key is not None and self.args.dataloader_persistent_workers:
+            if hasattr(self, "_eval_dataloaders"):
+                self._eval_dataloaders[dataloader_key] = dataloader
+            else:
+                self._eval_dataloaders = {dataloader_key: dataloader}
+
+        # If using the Ulysses SP, we skip to prepare the dataloader
+        if self.args.sp_ulysses_degree > 1:
+            return dataloader
+        else:
+            return self.accelerator.prepare(dataloader)
+
+    def get_batch_samples(self, epoch_iterator, num_batches, device):
+        if self.args.sp_ulysses_degree > 1:
+            batch_samples = []
+            num_items_in_batch = None
+
+            for _ in range(num_batches):
+                try:
+                    # Because we use the original pytorch dataloader, send the data to the device manually
+                    data_sample = next(epoch_iterator)
+                    data_sample = send_to_device(
+                        data_sample,
+                        self.accelerator.device,
+                        non_blocking=self.accelerator.non_blocking,
+                    )
+                    batch_samples.append(data_sample)
+                except StopIteration:
+                    break
+
+            count_num_items_in_batch = (
+                len(batch_samples) > 0
+                and "labels" in batch_samples[0]
+                and (
+                    # num_items_in_batch is passed to model forward
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3757
+                    self.model_accepts_loss_kwargs
+                    # num_items_in_batch is passed to compute_loss_func
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3773
+                    or self.compute_loss_func is not None
+                    # num_items_in_batch is also verified if (self.model_accepts_loss_kwargs or self.compute_loss_func)
+                    # https://github.com/huggingface/transformers/blob/v4.49.0/src/transformers/trainer.py#L3790
+                )
+            )
+
+            if count_num_items_in_batch:
+                # For now we don't support object detection
+                try:
+                    num_items_in_batch = sum(
+                        [(batch["labels"].ne(-100)).sum() for batch in batch_samples]
+                    )
+                except (TypeError, AttributeError):
+                    pass
+
+            if num_items_in_batch is not None:
+                if self.args.average_tokens_across_devices:
+                    num_items_in_batch = self.accelerator.gather(
+                        num_items_in_batch
+                    ).sum()
+
+                if torch.is_tensor(num_items_in_batch):
+                    num_items_in_batch = num_items_in_batch.to(device)
+
+                    if self.args.n_gpu > 1 and num_items_in_batch.dim() == 0:
+                        # In the DataParallel case, convert the scalar tensor into a 1-dim tensor
+                        num_items_in_batch = num_items_in_batch.unsqueeze(0)
+
+            return batch_samples, num_items_in_batch
+        return super().get_batch_samples(epoch_iterator, num_batches, device)
 
     def _get_eval_sampler(self, eval_dataset: Optional[Dataset] = None):
         if eval_dataset is None or not has_length(eval_dataset):
@@ -221,7 +353,7 @@ class LLaVATrainer(Trainer):
                 output_dir = os.path.join(run_dir, checkpoint_folder)
                 if self.processing_class is not None:
                     self.processing_class.save_pretrained(output_dir)
-            super(LLaVATrainer, self)._save_checkpoint(model, trial)
+            super(Trainer, self)._save_checkpoint(model, trial)
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
@@ -229,31 +361,42 @@ class LLaVATrainer(Trainer):
         if self.state.global_step == 0 or getattr(self, "cur_time", None) is None:
             self.cur_time = time.perf_counter()
             self.mfu = 0.0
-            self.flops = 0
-        if (
-            self.state.global_step % 10 == 0
-            and self.flops > 0  # No flops logging for this model
-        ):
+            self.total_seq_len = []
+        if self.state.global_step % 10 == 0 and self.state.global_step > 0:
             prev_time = self.cur_time
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
-            flops_tensor = torch.tensor(self.flops, device=device)
+            flops, promised_flops = model_utils.flops_counter.estimate_flops(
+                self.total_seq_len, delta_time=self.cur_time - prev_time
+            )
+            flops_tensor = torch.tensor(flops, device=device)
             torch.distributed.all_reduce(
                 flops_tensor, op=torch.distributed.ReduceOp.SUM
             )
+            # Divide by the number of processes and the number of sequence parallel processes
+            # Thus the mfu is within every dp group
+            sp_size = pgm.process_group_manager.cp_world_size
             self.mfu = (
-                flops_tensor.item()
-                / (self.cur_time - prev_time)
-                / self.args.world_size
-                / TrainUtilities.get_device_flops("B")
+                flops_tensor.item() / self.args.world_size / sp_size / promised_flops
             )
             self.log({"mfu": round(self.mfu, 2)})
             self.flops = 0
+            self.total_seq_len.clear()
+
+        # Calculate the total number of tokens, sum at the row dimension
+        self.total_seq_len.extend(
+            inputs.get("attention_mask", torch.tensor(0))
+            .sum(dim=1)
+            .detach()
+            .cpu()
+            .tolist()
+        )
         loss, outputs = super().compute_loss(
             model=model,
             inputs=inputs,
             num_items_in_batch=num_items_in_batch,
             return_outputs=True,
         )
-        self.flops += outputs.get("flops", 0)
+        # Hf avg across every process, we scale the loss first such that the mean is over dp group
+        loss = loss * get_ulysses_sequence_parallel_world_size()
         return (loss, outputs) if return_outputs else loss
