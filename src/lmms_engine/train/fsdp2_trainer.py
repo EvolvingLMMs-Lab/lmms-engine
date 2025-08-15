@@ -1,13 +1,17 @@
 import os
+import random
+import shutil
 import time
 from functools import partial
 
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 from accelerate.utils import send_to_device
 from torch.distributed.fsdp import MixedPrecisionPolicy
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 from transformers.trainer_pt_utils import DistributedLengthGroupedSampler
 from transformers.trainer_utils import seed_worker
@@ -78,7 +82,7 @@ class FSDP2SFTTrainer:
                 num_workers=self.args.dataloader_num_workers,
                 rank=pgm.process_group_manager.dp_rank,
             )
-        dataloader = DataLoader(dataset, **dataloader_params)
+        dataloader = StatefulDataLoader(dataset, **dataloader_params)
         return dataloader
 
     def prepare_model(self):
@@ -194,6 +198,7 @@ class FSDP2SFTTrainer:
     def train(self, resume_from_checkpoint: bool = False):
         self.prepare_model()
         train_dataloader = self.prepare_dataloader(self.train_dataset, is_training=True)
+        self.train_dataloader = train_dataloader
         if self.eval_dataset is not None:
             raise NotImplementedError("Evaluation is not implemented")
         self.prepare_optimizer()
@@ -209,20 +214,37 @@ class FSDP2SFTTrainer:
             )
 
         if resume_from_checkpoint:
-            raise NotImplementedError("Resume from checkpoint is not implemented")
+            # Search for the latest checkpoint in the output_dir
+            checkpoints = [
+                f
+                for f in os.listdir(self.args.output_dir)
+                if f.startswith("checkpoint")
+            ]
+            checkpoints.sort(key=lambda x: int(x.split("-")[1]))
+            latest_checkpoint = checkpoints[-1]
+            self.load_checkpoints(
+                os.path.join(self.args.output_dir, latest_checkpoint),
+                int(latest_checkpoint.split("-")[1]),
+            )
+            start_epoch = int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
+            # start_epoch is a float, we need to convert it to an integer
+            start_epoch = int(start_epoch)
+            self.global_step = int(latest_checkpoint.split("-")[1])
+        else:
+            start_epoch = 0
+            self.global_step = 0
 
         Logging.info(f"Training with {self.args.num_train_epochs} epochs")
 
-        start_epoch = 0
-
         for epoch in range(start_epoch, self.args.num_train_epochs):
-            train_dataloader.sampler.set_epoch(epoch)
+            self.train_dataloader.sampler.set_epoch(epoch)
             pbar = tqdm(
-                train_dataloader,
+                total=self.steps_per_epoch,
                 desc=f"Epoch {epoch + 1}",
                 disable=dist.get_rank() != 0,
             )
-            for step, batch in enumerate(pbar):
+            pbar.update(self.global_step)
+            for step, batch in enumerate(self.train_dataloader):
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
                 start_time = time.perf_counter()
@@ -253,13 +275,152 @@ class FSDP2SFTTrainer:
                 )
                 train_metrics["mfu"] = round(mfu, 2)
 
-                epoch_progress = f"{step / len(train_dataloader):.2f}"
+                epoch_progress = f"{self.global_step / self.total_steps:.2f}"
                 train_metrics["epoch"] = epoch_progress
                 if rank == 0:
                     self.tracking.log(train_metrics)
+                self.global_step += 1
+                if self.should_save:
+                    output_dir = os.path.join(
+                        self.args.output_dir, f"checkpoint-{self.global_step}"
+                    )
+                    self.save_checkpoints(
+                        output_dir,
+                        self.global_step,
+                        total_limit=self.args.save_total_limit,
+                    )
+                pbar.update(1)
+            pbar.close()
 
             if self.eval_dataset is not None:
                 raise NotImplementedError("Evaluation is not implemented")
 
+        # End of the training, save the final checkpoint
+        if rank == 0:
+            output_dir = os.path.join(
+                self.args.output_dir, f"checkpoint-{self.global_step}"
+            )
+            self.save_checkpoints(
+                output_dir, self.global_step, total_limit=self.args.save_total_limit
+            )
+
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
+
+    def remove_old_checkpoints(self, output_path: str, total_limit: int = None):
+        if total_limit is None:
+            return
+        # get all checkpoints in output_path
+        checkpoints = [f for f in os.listdir(output_path) if f.startswith("checkpoint")]
+        checkpoints.sort(key=lambda x: int(x.split("-")[1]))
+        if len(checkpoints) > total_limit:
+            for checkpoint in checkpoints[:-total_limit]:
+                Logging.info(f"Removing checkpoint {checkpoint}")
+                shutil.rmtree(os.path.join(output_path, checkpoint))
+
+    def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        if rank == 0:
+            os.makedirs(output_path, exist_ok=True)
+
+        dist.barrier()
+        model_path = os.path.join(
+            output_path,
+            "pytorch_model_fsdp_0",
+            f"model_world_size_{world_size}_rank_{rank}.pt",
+        )
+        optim_path = os.path.join(
+            output_path,
+            "optimizer",
+            f"optimizer_world_size_{world_size}_rank_{rank}.pt",
+        )
+        extra_state_path = os.path.join(
+            output_path,
+            "extra_state",
+            f"extra_state_world_size_{world_size}_rank_{rank}.pt",
+        )
+        dataloader_state_path = os.path.join(
+            output_path,
+            "dataloader_state",
+            f"dataloader_state_world_size_{world_size}_rank_{rank}.pt",
+        )
+        if rank == 0:
+            os.makedirs(
+                os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True
+            )
+            os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
+            os.makedirs(os.path.join(output_path, "extra_state"), exist_ok=True)
+            os.makedirs(os.path.join(output_path, "dataloader_state"), exist_ok=True)
+
+        dist.barrier()
+
+        torch.save(self.fsdp2_model.state_dict(), model_path)
+        torch.save(self.optimizer.state_dict(), optim_path)
+        extra_state = {
+            "lr_scheduler_state": self.scheduler.state_dict(),
+            "rng": self.get_rng_state(),
+        }
+        torch.save(extra_state, extra_state_path)
+        torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
+        Logging.info(f"Saved checkpoint to {output_path} at step {step}")
+
+        if rank == 0:
+            self.processing_class.save_pretrained(output_path)
+            self.model.config.save_pretrained(output_path)
+            self.remove_old_checkpoints(
+                self.args.output_dir, total_limit=self.args.save_total_limit
+            )
+
+        dist.barrier()
+
+    @property
+    def should_save(self):
+        return self.global_step % self.args.save_steps == 0
+
+    def load_checkpoints(self, output_path: str, step: int):
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        model_path = os.path.join(
+            output_path,
+            "pytorch_model_fsdp_0",
+            f"model_world_size_{world_size}_rank_{rank}.pt",
+        )
+        optim_path = os.path.join(
+            output_path,
+            "optimizer",
+            f"optimizer_world_size_{world_size}_rank_{rank}.pt",
+        )
+        extra_state_path = os.path.join(
+            output_path,
+            "extra_state",
+            f"extra_state_world_size_{world_size}_rank_{rank}.pt",
+        )
+        dataloader_state_path = os.path.join(
+            output_path,
+            "dataloader_state",
+            f"dataloader_state_world_size_{world_size}_rank_{rank}.pt",
+        )
+
+        model_state_dict = torch.load(model_path, weights_only=False)
+        self.fsdp2_model.load_state_dict(model_state_dict)
+        self.optimizer.load_state_dict(torch.load(optim_path, weights_only=False))
+        extra_state = torch.load(extra_state_path, weights_only=False)
+        self.load_rng_state(extra_state["rng"])
+        self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
+        self.train_dataloader.load_state_dict(
+            torch.load(dataloader_state_path, weights_only=False)
+        )
+        Logging.info(f"Loaded checkpoint from {output_path} at step {step}")
+
+    def get_rng_state(self):
+        return {
+            "cpu": torch.get_rng_state(),
+            "numpy": np.random.get_state(),
+            "random": random.getstate(),
+        }
+
+    def load_rng_state(self, rng_state):
+        torch.set_rng_state(rng_state["cpu"])
+        np.random.set_state(rng_state["numpy"])
+        random.setstate(rng_state["random"])
