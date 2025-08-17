@@ -62,7 +62,7 @@ To use it is simple, you need to first install it using `uv pip install liger-ke
 The recommended way to launch is always use torchrun as it is the most native way to launch torch and in most of the settings this should work. Most of the debug and development should be based on this as we might not always use accelerate in our later framework.
 
 ```bash
-torchrun --nproc_per_node=4 --nnodes=1 --node_rank=0 --master_addr=127.0.0.1 --master_port=12355 -m lmms_engine.launch.cli --config /opt/tiger/lmms-engine-mini/examples/load_from_pretrained_example.yaml
+torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 --master_addr=127.0.0.1 --master_port=12355 -m lmms_engine.launch.cli --config /opt/tiger/lmms-engine-mini/examples/load_from_pretrained_example.yaml
 ```
 
 ## Examples
