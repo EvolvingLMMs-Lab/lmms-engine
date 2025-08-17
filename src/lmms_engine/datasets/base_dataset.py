@@ -223,7 +223,9 @@ class BaseDataset(Dataset):
             video_dict.pop("fps", None)
 
         if not hasattr(self, "fetch_video"):
-            raise ImportError("qwen_vl_utils not installed. Please install it using `pip install qwen-vl-utils`")
+            raise ImportError(
+                "qwen_vl_utils not installed. Please install it using `pip install qwen-vl-utils`"
+            )
 
         frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
         frames = frames.numpy()
