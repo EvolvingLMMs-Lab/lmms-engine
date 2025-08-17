@@ -16,6 +16,7 @@ try:
 except ImportError as e:
     Logging.warning(f"Failed to import fla.")
 
+
 # A decorator class to register processors
 def register_processor(processor_type: str):
     def decorator(cls):
@@ -39,7 +40,10 @@ def register_dataset(dataset_type: str):
 
 
 def register_model(
-    model_type: str, model_config: PretrainedConfig, model_class: PreTrainedModel, is_masked_lm: bool = False
+    model_type: str,
+    model_config: PretrainedConfig,
+    model_class: PreTrainedModel,
+    is_masked_lm: bool = False,
 ):
     AutoConfig.register(model_type, model_config)
     if is_masked_lm:
@@ -64,6 +68,7 @@ def create_model_from_pretrained(load_from_pretrained_path):
 
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
     config_class = CONFIG_MAPPING[model_type]
     m_config = config_class(**config)
     if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
@@ -75,4 +80,3 @@ def create_model_from_config(model_type, config):
     else:
         raise ValueError(f"Model type '{model_type}' is not supported.")
     return model_class, m_config
-    

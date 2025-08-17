@@ -28,10 +28,12 @@ from ..models.monkey_patch import (
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
-from .fsdp2_trainer import FSDP2SFTTrainer
 from .dllm_trainer import DLLMTrainer
-# from .trainer import Trainer
-from transformers import Trainer
+from .fsdp2_trainer import FSDP2SFTTrainer
+from .trainer import Trainer
+
+# from transformers import Trainer
+
 
 class TrainRunner:
     """
@@ -81,7 +83,9 @@ class TrainRunner:
             model_type = load_from_config.get("model_type", None)
             init_config = load_from_config.get("config", None)
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class.from_config(m_config, attn_implementation=self.model_config.attn_implementation)
+            model = model_class.from_config(
+                m_config, attn_implementation=self.model_config.attn_implementation
+            )
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."
@@ -240,9 +244,11 @@ class TrainRunner:
                 f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"
             )
         from transformers.trainer_pt_utils import AcceleratorConfig
-        self.config.trainer_args.accelerator_config=AcceleratorConfig(
-                dispatch_batches=False, split_batches=False,
-            )
+
+        self.config.trainer_args.accelerator_config = AcceleratorConfig(
+            dispatch_batches=False,
+            split_batches=False,
+        )
         trainer = trainer_cls(
             model=self.model,
             args=self.config.trainer_args,
