@@ -78,7 +78,7 @@ We provide two examples here to demonstrate how to use the training engine in mo
 You will need to process the dataset in OpenAI chat messages format. We prepare an example for you to reference. You can get the data by using
 
 ```bash
-huggingface-cli download kcz358/open-thoughts-debug --local-dir data/open_thoughts_debug --repo-type dataset
+hf download kcz358/open-thoughts-debug --local-dir data/open_thoughts_debug --repo-type dataset
 ```
 
 ### 2. Prepare dataset yaml
