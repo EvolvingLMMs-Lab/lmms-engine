@@ -26,7 +26,6 @@ def create_train_task(config):
     model_config = ModelConfig(**model_config)
 
     trainer_type = config.pop("trainer_type")
-    local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = int(os.environ["RANK"])
     world_size = int(os.environ["WORLD_SIZE"])
 

@@ -21,7 +21,7 @@
       # Packing configuration
       packing: true
       packing_strategy: first_fit
-      packing_length: 20480
+      packing_length: 16384
 
     # Model configuration
     model_config:
