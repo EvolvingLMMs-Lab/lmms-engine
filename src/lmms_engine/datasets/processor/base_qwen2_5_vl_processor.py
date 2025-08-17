@@ -157,7 +157,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
         image_start_from = 0
         audio_start_from = 0
         video_start_from = 0
-        if add_system_prompt:
+        if add_system_prompt and hf_messages[0]["role"] != "system":
             input_id += self.processor.tokenizer.apply_chat_template(
                 [{"role": "system", "content": system_message}],
             )

@@ -19,7 +19,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "datasets",
@@ -40,6 +40,11 @@ dependencies = [
     "torch",
     "torchvision",
     "pyyaml",
+    "wandb",
+    "torchdata",
+    "flash-attn>=2.8.3",
+    "liger-kernel>=0.6.1",
+    "qwen-vl-utils",
 ]
 
 [project.optional-dependencies]
@@ -76,5 +81,5 @@ lmms_launch="lmms_engine.launch.cli:main"
 
 
 [project.urls]
-Homepage = "https://lmms-lab.framer.ai/"
+Homepage = "https://lmms-lab.com/"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms_engine"

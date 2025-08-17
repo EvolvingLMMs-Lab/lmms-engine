@@ -20,6 +20,18 @@ def load_config(config_path: str) -> List[Dict[str, Any]]:
     """
     config_path = Path(config_path)
 
+    # If path doesn't exist and it's a relative path, try from the project root
+    if not config_path.exists() and not config_path.is_absolute():
+        # Try to find the project root (where pyproject.toml is)
+        current_dir = Path.cwd()
+        while current_dir != current_dir.parent:
+            if (current_dir / "pyproject.toml").exists():
+                alternative_path = current_dir / config_path
+                if alternative_path.exists():
+                    config_path = alternative_path
+                    break
+            current_dir = current_dir.parent
+
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
