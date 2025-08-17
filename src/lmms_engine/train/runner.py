@@ -52,7 +52,7 @@ class TrainRunner:
         self.config = config
 
     def build(self):
-        # self.create_sp_dis_group()
+        self.create_sp_dis_group()
         self.model = self._build_model()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
