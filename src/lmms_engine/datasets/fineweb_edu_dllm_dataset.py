@@ -12,18 +12,38 @@ from lmms_engine.mapping_func import register_dataset
 from .config import DatasetConfig
 
 from ..utils.train_utils import TrainUtilities
-from .collator import VisionCollator
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling
 from accelerate.state import PartialState
 from datasets.distributed import split_dataset_by_node
 from ..utils import Logging
+from .collator.text_dllm_collator import TextDllmCollator
 
-@register_dataset("fineweb_edu")
-class FinewebEduPretrainDataset(Dataset):
+@register_dataset("fineweb_edu_dllm")
+class FinewebEduDllmDataset(Dataset):
     def __init__(self, config: DatasetConfig) -> None:
         super().__init__()
         self.config = config
         self.tokenizer_id = config.tokenizer
+        self.processor = None
+        self.p_min = 0.01
+        self.p_max = 0.99
+
+    def get_collator(self):
+        if self.tokenizer.mask_token is None:
+            self.tokenizer.add_special_tokens({'mask_token': '[MASK]'})
+        '''
+        Strictly speaking, the shape of the embedding needs to be resized. 
+        However, in most models, a portion of the embedding dim is reserved for newly added tokens, 
+        so resize is omitted here
+        '''
+        collator = TextDllmCollator(
+            p_min=self.p_min,
+            p_max=self.p_max,
+            tokenizer=self.tokenizer,
+            pad_to_multiple_of=8,
+            return_tensors="pt",
+        )
+        return collator
 
     def build(self):
         try:
@@ -40,23 +60,19 @@ class FinewebEduPretrainDataset(Dataset):
                 split="train",
                 streaming=True,
             )
-            raw_train_dataset = split_dataset_by_node(
-                raw_train_dataset, rank=state.process_index, world_size=state.num_processes,
-            )
+
+        raw_train_dataset = split_dataset_by_node(
+            raw_train_dataset, rank=state.process_index, world_size=state.num_processes,
+        )
 
         self.dataset = raw_train_dataset.map(
-            self.tokenize_function, 
+            self._tokenize_function, 
             batched=True,     
             remove_columns=raw_train_dataset.column_names
         )
-        self.data_collator = DataCollatorForLanguageModeling(
-                tokenizer=self.tokenizer,
-                mlm=False,
-                pad_to_multiple_of=8,
-                return_tensors="pt",
-            )
 
-    def tokenize_function(self,examples):
+
+    def _tokenize_function(self,examples):
         texts = examples["text"]
         return self.tokenizer(
             texts,
@@ -66,10 +82,3 @@ class FinewebEduPretrainDataset(Dataset):
             return_attention_mask=True,
             return_special_tokens_mask=False,
         )
-    # def __getitem__(self, index):
-    #     if self.config.dataset_format == "hf_dataset":
-    #         data_dict = self.load_from_hf(self.data_list[index])
-    #     else:
-    #         raise NotImplementedError
-    #     return data_dict
-    # Apply tokenization

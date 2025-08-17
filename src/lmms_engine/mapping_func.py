@@ -2,6 +2,7 @@ from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
+    AutoModelForMaskedLM,
     PretrainedConfig,
 )
 from transformers.modeling_utils import PreTrainedModel
@@ -38,10 +39,13 @@ def register_dataset(dataset_type: str):
 
 
 def register_model(
-    model_type: str, model_config: PretrainedConfig, model_class: PreTrainedModel
+    model_type: str, model_config: PretrainedConfig, model_class: PreTrainedModel, is_masked_lm: bool = False
 ):
     AutoConfig.register(model_type, model_config)
-    AutoModelForCausalLM.register(model_config, model_class)
+    if is_masked_lm:
+        AutoModelForMaskedLM.register(model_config, model_class)
+    else:
+        AutoModelForCausalLM.register(model_config, model_class)
 
 
 def create_model_from_pretrained(load_from_pretrained_path):
@@ -51,6 +55,8 @@ def create_model_from_pretrained(load_from_pretrained_path):
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
         model_class = AutoModelForImageTextToText
+    elif type(config) in AutoModelForMaskedLM._model_mapping.keys():
+        model_class = AutoModelForMaskedLM
     else:
         raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
     return model_class
@@ -62,8 +68,10 @@ def create_model_from_config(model_type, config):
     m_config = config_class(**config)
     if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
-    elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
+    elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
         model_class = AutoModelForImageTextToText
+    elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
+        model_class = AutoModelForMaskedLM
     else:
         raise ValueError(f"Model type '{model_type}' is not supported.")
     return model_class, m_config

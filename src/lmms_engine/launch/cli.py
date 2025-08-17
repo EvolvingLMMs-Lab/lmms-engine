@@ -36,16 +36,16 @@ def create_train_task(config):
     # For now, we haven't implement the tp and pp
     use_cpu = config.get("use_cpu", False)
     backend = "gloo" if use_cpu else "nccl"
-    dist.init_process_group(
-        rank=global_rank,
-        world_size=world_size,
-        backend=backend,
-        init_method=f"env://",
-        timeout=datetime.timedelta(minutes=30),
-    )
-    setup_process_group_manager(
-        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
-    )
+    # dist.init_process_group(
+    #     rank=global_rank,
+    #     world_size=world_size,
+    #     backend=backend,
+    #     init_method=f"env://",
+    #     timeout=datetime.timedelta(minutes=30),
+    # )
+    # setup_process_group_manager(
+    #     tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
+    # )
 
     trainer_args = TrainingArguments(**config)
 
