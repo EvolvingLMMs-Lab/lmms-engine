@@ -16,7 +16,6 @@ from datasets import Dataset as HFDataset
 from datasets import Sequence, load_dataset, load_from_disk
 from decord import VideoReader, cpu
 from PIL import Image, PngImagePlugin
-from qwen_vl_utils import fetch_video
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -45,6 +44,11 @@ try:
     SAS_URL = os.environ.get("AZURE_STORAGE_SAS_URL", "YOUR_SAS_URL")
 except ImportError:
     Logging.info("Azure SDK not installed. Skipping import.")
+
+try:
+    from qwen_vl_utils import fetch_video
+except ImportError:
+    Logging.info("qwen_vl_utils not installed. Skipping import.")
 
 LARGE_ENOUGH_NUMBER = 1000
 PngImagePlugin.MAX_TEXT_CHUNK = LARGE_ENOUGH_NUMBER * (1024**2)
@@ -217,6 +221,10 @@ class BaseDataset(Dataset):
         }
         if self.config.video_sampling_strategy == "frame_num":
             video_dict.pop("fps", None)
+
+        if not hasattr(self, "fetch_video"):
+            raise ImportError("qwen_vl_utils not installed. Please install it using `pip install qwen-vl-utils`")
+
         frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
         frames = frames.numpy()
         return frames, sample_fps
