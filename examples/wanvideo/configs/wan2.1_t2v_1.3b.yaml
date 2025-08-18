@@ -1,7 +1,7 @@
 # WanVideo 2.1 T2V 1.3B Training Configuration
 # Text-to-Video generation model configuration
 
-- type: trainer
+- task_type: trainer
   config:
     trainer_type: hf_trainer
     
@@ -106,7 +106,7 @@
       adam_epsilon: 1.0e-8
       
       # Evaluation
-      evaluation_strategy: "steps"
+      eval_strategy: "steps"
       eval_steps: 500
       
       # Checkpointing
@@ -116,7 +116,7 @@
       max_grad_norm: 1.0
       
       # FSDP settings (if using multi-GPU)
-      fsdp: null
+      # fsdp: null
       
       # DeepSpeed settings (alternative to FSDP)
-      deepspeed: null
+      # deepspeed: null

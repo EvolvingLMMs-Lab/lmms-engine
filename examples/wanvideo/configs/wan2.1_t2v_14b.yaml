@@ -1,7 +1,7 @@
 # WanVideo 2.1 T2V 14B Training Configuration
 # Large-scale Text-to-Video generation model
 
-- type: trainer
+- task_type: trainer
   config:
     trainer_type: hf_trainer
     
@@ -111,7 +111,7 @@
       adam_epsilon: 1.0e-8
       
       # Evaluation
-      evaluation_strategy: "steps"
+      eval_strategy: "steps"
       eval_steps: 250
       
       # Gradient clipping

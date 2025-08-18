@@ -4,6 +4,7 @@ from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
 from .qwen2_5_vl_processor import Qwen2_5_VLDataProcessor
 from .qwen2_vl_processor import Qwen2VLDataProcessor
+from .wanvideo_processor import WanVideoDataProcessor
 
 __all__ = [
     "ProcessorConfig",
@@ -12,4 +13,5 @@ __all__ = [
     "LLaVADataProcessor",
     "Qwen2_5_VLDataProcessor",
     "Qwen2VLDataProcessor",
+    "WanVideoDataProcessor",
 ]

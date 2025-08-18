@@ -7,7 +7,7 @@ export TOKENIZERS_PARALLELISM=false
 
 # Example 1: Train T2V 1.3B model on a single GPU
 echo "Training WanVideo T2V 1.3B model..."
-python -m lmms_engine.launch.cli \
+torchrun --nproc_per_node=1 --nnodes=1 --node_rank=0 --master_addr=127.0.0.1 --master_port=12355 -m lmms_engine.launch.cli \
     --config examples/wanvideo/configs/wan2.1_t2v_1.3b.yaml
 
 # Example 2: Train T2V 14B model with multiple GPUs using torchrun
