@@ -14,10 +14,13 @@ from .collator import VisionCollator
 
 @register_dataset("vision")
 class VisionSFTDataset(BaseDataset):
-    def transform_csv_to_messages(self, data) -> Dict:
-        """Transform simple CSV format to OpenAI message format for video training."""
-        # Convert CSV format {video: "video1.mp4", prompt: "..."} 
-        # to OpenAI format with video_url
+    def load_from_csv(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
+        """Load from CSV data directly without intermediate transformation."""
+        images_list = []
+        videos = []
+        kwargs = {}
+        
+        # Build messages directly from CSV data
         messages = [
             {
                 "role": "user",
@@ -33,14 +36,36 @@ class VisionSFTDataset(BaseDataset):
                 ]
             }
         ]
-        return {"messages": messages}
+        
+        # Process video content directly
+        for message in messages:
+            for content in message["content"]:
+                if content["type"] == "image_url":
+                    images_list.append(content["image_url"]["url"])
+                elif content["type"] == "video_url":
+                    frames, sample_fps = self.load_videos(
+                        content["video_url"]["url"],
+                        data_folder=data_folder,
+                        fps=self.config.fps,
+                    )
+                    videos.append(frames)
+                    kwargs["fps"] = sample_fps
 
-    def load_from_csv(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
-        """Load from CSV data by transforming to OpenAI message format."""
-        # Transform CSV format to OpenAI message format
-        transformed_data = self.transform_csv_to_messages(data)
-        # Then use the existing JSON loading logic
-        return self.load_from_json(transformed_data, data_folder)
+        hf_messages = TrainUtilities.convert_open_to_hf(messages)
+        if data_folder is not None:
+            images = [
+                Image.open(os.path.join(data_folder, image)) for image in images_list
+            ]
+        else:
+            images = [Image.open(image) for image in images_list]
+        if len(images) == 0:
+            images = None
+        if len(videos) == 0:
+            videos = None
+        inputs = self.processor.process(
+            images=images, hf_messages=hf_messages, videos=videos, **kwargs
+        )
+        return inputs
 
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
         # TODO Write a protocol for vision openai input
