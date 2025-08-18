@@ -12,7 +12,6 @@ class DatasetConfig:
     dataset_path: Optional[str] = None  # Optional - used for external files
     datasets: Optional[List[dict]] = None  # Optional - used for inline YAML definitions
     shuffle: bool = True
-    processor_config: Optional[Union[dict, ProcessorConfig]] = None
     eval_dataset_path: Optional[str] = None
     object_storage: Optional[Literal["azure", "gcs", "none"]] = "none"
     bucket_name: Optional[str] = None

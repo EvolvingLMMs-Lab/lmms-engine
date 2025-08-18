@@ -32,7 +32,7 @@ def dllm_loss(
     loss = nn.functional.cross_entropy(
         logits, labels, ignore_index=ignore_index, reduction="none"
     )
-    nll = loss
+    nll = loss.detach()
     d_loss = loss.view(B, seq_len) * reciprocal_t.view(-1).unsqueeze(-1)
 
     reduction = "sum" if num_items_in_batch is not None else "mean"
@@ -47,7 +47,7 @@ def dllm_loss(
     else:
         d_loss = d_loss.mean()
         nll = nll.mean()
-    return d_loss, nll.detach().item()
+    return d_loss, nll
 
 
 class DLLMTrainer(Trainer):
