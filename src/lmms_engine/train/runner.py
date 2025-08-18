@@ -83,7 +83,9 @@ class TrainRunner:
             init_config = load_from_config.get("config", None)
             if init_config is None:
                 # If no nested config, use the load_from_config dict directly (excluding model_type)
-                init_config = {k: v for k, v in load_from_config.items() if k != "model_type"}
+                init_config = {
+                    k: v for k, v in load_from_config.items() if k != "model_type"
+                }
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class(m_config)
         else:

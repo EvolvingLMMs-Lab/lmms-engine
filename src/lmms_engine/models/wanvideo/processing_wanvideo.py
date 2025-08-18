@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import warnings
-from typing import List, Optional, Union, Dict, Any
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -31,7 +31,7 @@ logger = logging.get_logger(__name__)
 class WanVideoImageProcessor(BaseImageProcessor):
     """
     Image/Video processor for WanVideo models.
-    
+
     Args:
         do_resize: Whether to resize the image/video frames.
         size: Target size for resizing.
@@ -42,9 +42,9 @@ class WanVideoImageProcessor(BaseImageProcessor):
         image_std: Standard deviation values for normalization.
         do_convert_rgb: Whether to convert to RGB.
     """
-    
+
     model_input_names = ["pixel_values"]
-    
+
     def __init__(
         self,
         do_resize: bool = True,
@@ -58,7 +58,7 @@ class WanVideoImageProcessor(BaseImageProcessor):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        
+
         self.do_resize = do_resize
         self.size = size or {"height": 480, "width": 832}
         self.do_center_crop = do_center_crop
@@ -67,7 +67,7 @@ class WanVideoImageProcessor(BaseImageProcessor):
         self.image_mean = image_mean or [0.5, 0.5, 0.5]
         self.image_std = image_std or [0.5, 0.5, 0.5]
         self.do_convert_rgb = do_convert_rgb
-        
+
     def resize(
         self,
         image: np.ndarray,
@@ -76,13 +76,13 @@ class WanVideoImageProcessor(BaseImageProcessor):
     ) -> np.ndarray:
         """Resize image or video frame."""
         from PIL import Image as PILImage
-        
+
         if isinstance(image, np.ndarray):
             image = PILImage.fromarray(image)
-            
+
         image = image.resize((size["width"], size["height"]), PILImage.LANCZOS)
         return np.array(image)
-        
+
     def center_crop(
         self,
         image: np.ndarray,
@@ -92,12 +92,12 @@ class WanVideoImageProcessor(BaseImageProcessor):
         """Center crop image or video frame."""
         h, w = image.shape[:2]
         crop_h, crop_w = crop_size["height"], crop_size["width"]
-        
+
         top = (h - crop_h) // 2
         left = (w - crop_w) // 2
-        
-        return image[top:top + crop_h, left:left + crop_w]
-        
+
+        return image[top : top + crop_h, left : left + crop_w]
+
     def normalize(
         self,
         image: np.ndarray,
@@ -110,7 +110,7 @@ class WanVideoImageProcessor(BaseImageProcessor):
         mean = np.array(mean).reshape(1, 1, -1)
         std = np.array(std).reshape(1, 1, -1)
         return (image - mean) / std
-        
+
     def preprocess(
         self,
         images: ImageInput,
@@ -127,56 +127,60 @@ class WanVideoImageProcessor(BaseImageProcessor):
     ) -> Dict[str, Any]:
         """
         Preprocess images or video frames.
-        
+
         Args:
             images: Input images or video frames.
             return_tensors: Type of tensors to return ("pt" for PyTorch).
-        
+
         Returns:
             Dictionary with preprocessed pixel values.
         """
         do_resize = do_resize if do_resize is not None else self.do_resize
         size = size if size is not None else self.size
-        do_center_crop = do_center_crop if do_center_crop is not None else self.do_center_crop
+        do_center_crop = (
+            do_center_crop if do_center_crop is not None else self.do_center_crop
+        )
         crop_size = crop_size if crop_size is not None else self.crop_size
         do_normalize = do_normalize if do_normalize is not None else self.do_normalize
         image_mean = image_mean if image_mean is not None else self.image_mean
         image_std = image_std if image_std is not None else self.image_std
-        do_convert_rgb = do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
-        
+        do_convert_rgb = (
+            do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
+        )
+
         # Handle single image or list of images (video frames)
         if not isinstance(images, list):
             images = [images]
-            
+
         processed_images = []
         for image in images:
             if isinstance(image, Image.Image):
                 image = np.array(image)
-                
+
             # Convert to RGB if needed
             if do_convert_rgb and image.shape[-1] != 3:
                 if len(image.shape) == 2:  # Grayscale
                     image = np.stack([image] * 3, axis=-1)
                 elif image.shape[-1] == 4:  # RGBA
                     image = image[..., :3]
-                    
+
             # Resize
             if do_resize:
                 image = self.resize(image, size)
-                
+
             # Center crop
             if do_center_crop:
                 image = self.center_crop(image, crop_size)
-                
+
             # Normalize
             if do_normalize:
                 image = self.normalize(image, image_mean, image_std)
-                
+
             processed_images.append(image)
-            
+
         # Stack frames for video
         processed_images = np.stack(processed_images, axis=0)
-        
+
         # Convert to tensor if requested
         if return_tensors == "pt":
             processed_images = torch.from_numpy(processed_images)
@@ -185,19 +189,19 @@ class WanVideoImageProcessor(BaseImageProcessor):
                 processed_images = processed_images.permute(3, 0, 1, 2)
             # Add batch dimension
             processed_images = processed_images.unsqueeze(0)
-            
+
         return {"pixel_values": processed_images}
 
 
 class WanVideoProcessor:
     """
     Processor for WanVideo models, combining image/video processing and text tokenization.
-    
+
     Args:
         image_processor: Image/video processor instance.
         tokenizer: Text tokenizer instance.
     """
-    
+
     def __init__(self, image_processor=None, tokenizer=None):
         if image_processor is None:
             image_processor = WanVideoImageProcessor()
@@ -208,13 +212,17 @@ class WanVideoProcessor:
             except:
                 logger.warning("Could not load default tokenizer, using None")
                 tokenizer = None
-                
+
         self.image_processor = image_processor
         self.tokenizer = tokenizer
-        
+
     def __call__(
         self,
-        text: Optional[Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]]] = None,
+        text: Optional[
+            Union[
+                TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]
+            ]
+        ] = None,
         images: Optional[ImageInput] = None,
         videos: Optional[ImageInput] = None,
         return_tensors: Optional[Union[str, TensorType]] = None,
@@ -222,21 +230,21 @@ class WanVideoProcessor:
     ) -> Dict[str, Any]:
         """
         Process text and image/video inputs.
-        
+
         Args:
             text: Text input(s) to tokenize.
             images: Image input(s) to process.
             videos: Video frames to process.
             return_tensors: Type of tensors to return.
-        
+
         Returns:
             Dictionary with processed inputs.
         """
         if text is None and images is None and videos is None:
             raise ValueError("You must provide either text, images, or videos.")
-            
+
         data = {}
-        
+
         # Process text
         if text is not None and self.tokenizer is not None:
             text_inputs = self.tokenizer(
@@ -248,7 +256,7 @@ class WanVideoProcessor:
                 **kwargs,
             )
             data.update(text_inputs)
-            
+
         # Process images or video
         if images is not None or videos is not None:
             image_inputs = self.image_processor(
@@ -257,24 +265,26 @@ class WanVideoProcessor:
                 **kwargs,
             )
             data.update(image_inputs)
-            
+
         return data
-        
+
     def batch_decode(self, *args, **kwargs):
         """Delegate to tokenizer's batch_decode method."""
         if self.tokenizer is None:
             raise ValueError("No tokenizer available for decoding.")
         return self.tokenizer.batch_decode(*args, **kwargs)
-        
+
     def decode(self, *args, **kwargs):
         """Delegate to tokenizer's decode method."""
         if self.tokenizer is None:
             raise ValueError("No tokenizer available for decoding.")
         return self.tokenizer.decode(*args, **kwargs)
-        
+
     @property
     def model_input_names(self):
         """Get model input names from components."""
-        tokenizer_input_names = self.tokenizer.model_input_names if self.tokenizer else []
+        tokenizer_input_names = (
+            self.tokenizer.model_input_names if self.tokenizer else []
+        )
         image_processor_input_names = self.image_processor.model_input_names
         return list(set(tokenizer_input_names + image_processor_input_names))

@@ -54,13 +54,17 @@ def create_model_from_pretrained(load_from_pretrained_path):
 
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
-    
+
     # Special handling for WanVideo model
     if model_type == "wanvideo":
-        from lmms_engine.models.wanvideo import WanVideoConfig, WanVideoForConditionalGeneration
+        from lmms_engine.models.wanvideo import (
+            WanVideoConfig,
+            WanVideoForConditionalGeneration,
+        )
+
         m_config = WanVideoConfig(**config)
         return WanVideoForConditionalGeneration, m_config
-    
+
     # Handle other models through AutoModel
     if model_type in CONFIG_MAPPING:
         config_class = CONFIG_MAPPING[model_type]

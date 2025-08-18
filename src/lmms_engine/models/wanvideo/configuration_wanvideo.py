@@ -14,7 +14,8 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils import logging
 
@@ -24,7 +25,7 @@ logger = logging.get_logger(__name__)
 @dataclass
 class WanVideoConfig(PretrainedConfig):
     model_type = "wanvideo"
-    
+
     def __init__(
         self,
         # DiT model parameters
@@ -39,7 +40,6 @@ class WanVideoConfig(PretrainedConfig):
         dit_enable_flash_attn: bool = True,
         dit_rope_scaling_factor: float = 2.0,
         dit_temporal_rope_scaling_factor: float = 2.0,
-        
         # VAE parameters
         vae_in_channels: int = 3,
         vae_out_channels: int = 3,
@@ -47,7 +47,6 @@ class WanVideoConfig(PretrainedConfig):
         vae_block_out_channels: List[int] = None,
         vae_layers_per_block: int = 2,
         vae_scaling_factor: float = 0.33208,
-        
         # Text encoder parameters
         text_encoder_model: str = "umt5-xxl-enc",
         text_encoder_hidden_size: int = 4096,
@@ -56,12 +55,10 @@ class WanVideoConfig(PretrainedConfig):
         text_encoder_num_heads: int = 64,
         text_encoder_head_dim: int = 64,
         max_text_length: int = 256,
-        
         # Image encoder parameters (for I2V)
         image_encoder_model: Optional[str] = "clip-vit-large-patch14",
         image_encoder_hidden_size: Optional[int] = 768,
         use_image_encoder: bool = False,
-        
         # Training parameters
         num_train_timesteps: int = 1000,
         scheduler_type: str = "flow_match",
@@ -71,7 +68,6 @@ class WanVideoConfig(PretrainedConfig):
         use_lora: bool = False,
         lora_rank: int = 32,
         lora_target_modules: List[str] = None,
-        
         # Generation parameters
         num_frames: int = 49,
         height: int = 480,
@@ -79,16 +75,14 @@ class WanVideoConfig(PretrainedConfig):
         fps: int = 15,
         guidance_scale: float = 5.0,
         num_inference_steps: int = 20,
-        
         # Model variants
         model_variant: str = "Wan2.1-T2V-1.3B",  # T2V, I2V, VACE, Fun, etc.
         model_size: str = "1.3B",  # 1.3B, 5B, 14B
-        
         tie_word_embeddings: bool = False,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
-        
+
         # DiT configuration
         self.dit_hidden_size = dit_hidden_size
         self.dit_num_layers = dit_num_layers
@@ -101,7 +95,7 @@ class WanVideoConfig(PretrainedConfig):
         self.dit_enable_flash_attn = dit_enable_flash_attn
         self.dit_rope_scaling_factor = dit_rope_scaling_factor
         self.dit_temporal_rope_scaling_factor = dit_temporal_rope_scaling_factor
-        
+
         # VAE configuration
         self.vae_in_channels = vae_in_channels
         self.vae_out_channels = vae_out_channels
@@ -109,7 +103,7 @@ class WanVideoConfig(PretrainedConfig):
         self.vae_block_out_channels = vae_block_out_channels or [128, 256, 512, 512]
         self.vae_layers_per_block = vae_layers_per_block
         self.vae_scaling_factor = vae_scaling_factor
-        
+
         # Text encoder configuration
         self.text_encoder_model = text_encoder_model
         self.text_encoder_hidden_size = text_encoder_hidden_size
@@ -118,12 +112,12 @@ class WanVideoConfig(PretrainedConfig):
         self.text_encoder_num_heads = text_encoder_num_heads
         self.text_encoder_head_dim = text_encoder_head_dim
         self.max_text_length = max_text_length
-        
+
         # Image encoder configuration
         self.image_encoder_model = image_encoder_model
         self.image_encoder_hidden_size = image_encoder_hidden_size
         self.use_image_encoder = use_image_encoder
-        
+
         # Training configuration
         self.num_train_timesteps = num_train_timesteps
         self.scheduler_type = scheduler_type
@@ -132,8 +126,15 @@ class WanVideoConfig(PretrainedConfig):
         self.gradient_checkpointing = gradient_checkpointing
         self.use_lora = use_lora
         self.lora_rank = lora_rank
-        self.lora_target_modules = lora_target_modules or ["q", "k", "v", "o", "ffn.0", "ffn.2"]
-        
+        self.lora_target_modules = lora_target_modules or [
+            "q",
+            "k",
+            "v",
+            "o",
+            "ffn.0",
+            "ffn.2",
+        ]
+
         # Generation configuration
         self.num_frames = num_frames
         self.height = height
@@ -141,11 +142,11 @@ class WanVideoConfig(PretrainedConfig):
         self.fps = fps
         self.guidance_scale = guidance_scale
         self.num_inference_steps = num_inference_steps
-        
+
         # Model variants
         self.model_variant = model_variant
         self.model_size = model_size
-        
+
         self.tie_word_embeddings = tie_word_embeddings
 
     def get_model_size_config(self):

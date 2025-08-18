@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import torch
 from PIL import Image
-import numpy as np
 
 from lmms_engine.mapping_func import register_processor
 from lmms_engine.models.wanvideo import WanVideoProcessor as WanVideoModelProcessor
@@ -15,12 +15,12 @@ class WanVideoDataProcessor:
         self.model_id = model_id
         # Initialize the WanVideo processor
         self.processor = WanVideoModelProcessor()
-        
+
     def apply_prompt_template(self, prompt: str) -> str:
         """Apply prompt template for WanVideo."""
         # WanVideo uses direct prompts without special formatting
         return prompt
-    
+
     def process_one(
         self,
         prompt: str = None,
@@ -31,23 +31,23 @@ class WanVideoDataProcessor:
     ) -> Dict[str, Any]:
         """
         Process a single sample for WanVideo training.
-        
+
         Args:
             prompt: Text prompt/caption for the video
             images: List of images (for I2V mode)
             videos: List of video frames
             audios: Not used for WanVideo
             video_kwargs: Additional video parameters (fps, etc.)
-        
+
         Returns:
             Dictionary with processed inputs for training
         """
         if prompt is None:
             prompt = ""
-            
+
         # Apply prompt template
         formatted_prompt = self.apply_prompt_template(prompt)
-        
+
         # Process text
         if self.processor.tokenizer is not None:
             text_inputs = self.processor.tokenizer(
@@ -63,12 +63,12 @@ class WanVideoDataProcessor:
                 "input_ids": torch.zeros((1, 256), dtype=torch.long),
                 "attention_mask": torch.ones((1, 256), dtype=torch.long),
             }
-        
+
         # Process video frames
         if videos is not None and len(videos) > 0:
             # Videos is a list of frame lists
             video_frames = videos[0] if isinstance(videos[0], list) else videos
-            
+
             # Process frames using the image processor
             video_inputs = self.processor.image_processor.preprocess(
                 video_frames,
@@ -85,7 +85,7 @@ class WanVideoDataProcessor:
         else:
             # Dummy pixel values if no visual input
             pixel_values = torch.zeros((1, 3, 8, 480, 832))
-        
+
         # Prepare output dictionary
         output = {
             "input_ids": text_inputs["input_ids"].squeeze(0),
@@ -93,9 +93,9 @@ class WanVideoDataProcessor:
             "pixel_values": pixel_values.squeeze(0),
             "labels": text_inputs["input_ids"].squeeze(0).clone(),  # For training
         }
-        
+
         # Add video-specific kwargs if provided
         if video_kwargs:
             output.update(video_kwargs)
-        
+
         return output

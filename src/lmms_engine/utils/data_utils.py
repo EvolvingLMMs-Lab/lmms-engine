@@ -42,7 +42,7 @@ class DataUtilities:
         """Load CSV file and convert to list of dictionaries."""
         df = pd.read_csv(path)
         # Convert DataFrame to list of dictionaries
-        data_list = df.to_dict('records')
+        data_list = df.to_dict("records")
         return data_list
 
     @staticmethod

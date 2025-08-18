@@ -13,21 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-from typing import Optional, Tuple, List, Union, Dict, Any
-from dataclasses import dataclass
-
-from transformers import PreTrainedModel
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.utils import logging, ModelOutput
-from transformers.cache_utils import Cache
-
 from einops import rearrange, repeat
-import numpy as np
 from PIL import Image
+from transformers import PreTrainedModel
+from transformers.cache_utils import Cache
+from transformers.modeling_outputs import BaseModelOutputWithPast
+from transformers.utils import ModelOutput, logging
 
 from .configuration_wanvideo import WanVideoConfig
 
@@ -36,6 +35,7 @@ logger = logging.get_logger(__name__)
 # Try to import flash attention
 try:
     from flash_attn import flash_attn_func
+
     FLASH_ATTN_AVAILABLE = True
 except ImportError:
     FLASH_ATTN_AVAILABLE = False
@@ -59,7 +59,12 @@ def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor):
 def sinusoidal_embedding_1d(dim, position):
     sinusoid = torch.outer(
         position.type(torch.float64),
-        torch.pow(10000, -torch.arange(dim//2, dtype=torch.float64, device=position.device).div(dim//2))
+        torch.pow(
+            10000,
+            -torch.arange(dim // 2, dtype=torch.float64, device=position.device).div(
+                dim // 2
+            ),
+        ),
     )
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
     return x.to(position.dtype)
@@ -85,21 +90,21 @@ class WanAttention(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = hidden_size // num_heads
-        
+
         self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-        
+
         if config.dit_qk_norm:
             self.q_norm = RMSNorm(self.head_dim)
             self.k_norm = RMSNorm(self.head_dim)
         else:
             self.q_norm = None
             self.k_norm = None
-            
+
         self.use_flash_attn = config.dit_enable_flash_attn and FLASH_ATTN_AVAILABLE
-        
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -108,25 +113,25 @@ class WanAttention(nn.Module):
         freqs_cis: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         batch_size, seq_len, _ = hidden_states.shape
-        
+
         q = self.q_proj(hidden_states)
         k = self.k_proj(hidden_states)
         v = self.v_proj(hidden_states)
-        
+
         q = rearrange(q, "b s (n d) -> b s n d", n=self.num_heads)
         k = rearrange(k, "b s (n d) -> b s n d", n=self.num_heads)
         v = rearrange(v, "b s (n d) -> b s n d", n=self.num_heads)
-        
+
         # Apply RoPE if frequency embeddings provided
         if freqs_cis is not None:
             # Apply RoPE here if needed
             pass
-        
+
         # Apply normalization if configured
         if self.q_norm is not None:
             q = self.q_norm(q)
             k = self.k_norm(k)
-        
+
         # Apply attention
         if self.use_flash_attn:
             attn_output = flash_attn_func(q, k, v)
@@ -137,7 +142,7 @@ class WanAttention(nn.Module):
             v = rearrange(v, "b s n d -> b n s d")
             attn_output = F.scaled_dot_product_attention(q, k, v, attention_mask)
             attn_output = rearrange(attn_output, "b n s d -> b s (n d)")
-        
+
         attn_output = self.o_proj(attn_output)
         return attn_output
 
@@ -149,7 +154,7 @@ class WanMLP(nn.Module):
         self.fc1 = nn.Linear(hidden_size, mlp_hidden_size, bias=False)
         self.fc2 = nn.Linear(mlp_hidden_size, hidden_size, bias=False)
         self.act = nn.SiLU()
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc2(self.act(self.fc1(x)))
 
@@ -160,18 +165,18 @@ class WanDiTBlock(nn.Module):
         self.layer_idx = layer_idx
         self.gradient_checkpointing = False
         hidden_size = config.dit_hidden_size
-        
+
         self.norm1 = RMSNorm(hidden_size)
         self.attn = WanAttention(config, hidden_size, config.dit_num_heads)
         self.norm2 = RMSNorm(hidden_size)
         self.mlp = WanMLP(config, hidden_size)
-        
+
         # Adaptive layer norm for conditioning
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(hidden_size, 6 * hidden_size, bias=False),
         )
-        
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -184,56 +189,70 @@ class WanDiTBlock(nn.Module):
             conditioning = timestep_emb + text_emb
         else:
             conditioning = timestep_emb
-            
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = \
-            self.adaLN_modulation(conditioning).chunk(6, dim=-1)
-        
+
+        (
+            shift_msa,
+            scale_msa,
+            gate_msa,
+            shift_mlp,
+            scale_mlp,
+            gate_mlp,
+        ) = self.adaLN_modulation(conditioning).chunk(6, dim=-1)
+
         # Self-attention with adaptive layer norm
         normed = self.norm1(hidden_states)
         normed = modulate(normed, shift_msa, scale_msa)
         attn_output = self.attn(normed, freqs_cis=freqs_cis)
         hidden_states = hidden_states + gate_msa * attn_output
-        
+
         # MLP with adaptive layer norm
         normed = self.norm2(hidden_states)
         normed = modulate(normed, shift_mlp, scale_mlp)
         mlp_output = self.mlp(normed)
         hidden_states = hidden_states + gate_mlp * mlp_output
-        
+
         return hidden_states
 
 
 class WanDiT(nn.Module):
     """Diffusion Transformer for WanVideo"""
-    
+
     def __init__(self, config: WanVideoConfig):
         super().__init__()
         self.config = config
         self.gradient_checkpointing = False
-        
+
         # Patch embedding
         self.patch_embed = nn.Conv3d(
             config.dit_in_channels,
             config.dit_hidden_size,
-            kernel_size=(config.dit_patch_size_t, config.dit_patch_size, config.dit_patch_size),
-            stride=(config.dit_patch_size_t, config.dit_patch_size, config.dit_patch_size),
+            kernel_size=(
+                config.dit_patch_size_t,
+                config.dit_patch_size,
+                config.dit_patch_size,
+            ),
+            stride=(
+                config.dit_patch_size_t,
+                config.dit_patch_size,
+                config.dit_patch_size,
+            ),
         )
-        
+
         # Position embedding will be computed dynamically
         self.pos_embed_type = "rope"  # Can be "rope" or "sinusoidal"
-        
+
         # Timestep embedding
         self.time_embed = nn.Sequential(
             nn.Linear(config.dit_hidden_size, config.dit_hidden_size * 4),
             nn.SiLU(),
             nn.Linear(config.dit_hidden_size * 4, config.dit_hidden_size),
         )
-        
+
         # Transformer blocks
-        self.blocks = nn.ModuleList([
-            WanDiTBlock(config, idx) for idx in range(config.dit_num_layers)
-        ])
-        
+        self.blocks = nn.ModuleList(
+            [WanDiTBlock(config, idx) for idx in range(config.dit_num_layers)]
+        )
+
         # Text projection layer
         if config.text_encoder_hidden_size != config.dit_hidden_size:
             self.text_proj = nn.Linear(
@@ -243,18 +262,21 @@ class WanDiT(nn.Module):
             )
         else:
             self.text_proj = None
-        
+
         # Final layer
         self.norm_out = RMSNorm(config.dit_hidden_size)
         self.proj_out = nn.Linear(
             config.dit_hidden_size,
-            config.dit_patch_size_t * config.dit_patch_size * config.dit_patch_size * config.dit_in_channels,
+            config.dit_patch_size_t
+            * config.dit_patch_size
+            * config.dit_patch_size
+            * config.dit_in_channels,
             bias=False,
         )
-        
+
         # Initialize weights
         self.apply(self._init_weights)
-        
+
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -264,7 +286,7 @@ class WanDiT(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
-                
+
     def unpatchify(self, x: torch.Tensor, T: int, H: int, W: int) -> torch.Tensor:
         """
         x: (B, N, patch_size_t * patch_size * patch_size * C)
@@ -273,16 +295,16 @@ class WanDiT(nn.Module):
         c = self.config.dit_in_channels
         pt = self.config.dit_patch_size_t
         p = self.config.dit_patch_size
-        
+
         h = H // p
         w = W // p
         t = T // pt
-        
+
         x = x.reshape(x.shape[0], t, h, w, pt, p, p, c)
         x = x.permute(0, 7, 1, 4, 2, 5, 3, 6)  # (B, C, t, pt, h, p, w, p)
         x = x.reshape(x.shape[0], c, T, H, W)
         return x
-        
+
     def forward(
         self,
         latents: torch.Tensor,
@@ -292,16 +314,16 @@ class WanDiT(nn.Module):
         use_gradient_checkpointing: bool = False,
     ) -> torch.Tensor:
         B, C, T, H, W = latents.shape
-        
+
         # Patch embedding
         x = self.patch_embed(latents)
         x = rearrange(x, "b c t h w -> b (t h w) c")
-        
+
         # Get timestep embedding
         t_emb = sinusoidal_embedding_1d(self.config.dit_hidden_size, timestep)
         t_emb = t_emb.to(dtype=latents.dtype, device=latents.device)
         t_emb = self.time_embed(t_emb)
-        
+
         # Add text/image conditioning if available
         cond_emb = t_emb
         if text_embeddings is not None:
@@ -312,27 +334,27 @@ class WanDiT(nn.Module):
             if self.text_proj is not None:
                 text_embeddings = self.text_proj(text_embeddings)
             cond_emb = cond_emb + text_embeddings
-            
+
         if image_embeddings is not None:
             # Add image embeddings for I2V
             cond_emb = cond_emb + image_embeddings
-        
+
         # Apply transformer blocks
         for block in self.blocks:
-            if (use_gradient_checkpointing or self.gradient_checkpointing) and self.training:
-                x = torch.utils.checkpoint.checkpoint(
-                    block, x, cond_emb, None, None
-                )
+            if (
+                use_gradient_checkpointing or self.gradient_checkpointing
+            ) and self.training:
+                x = torch.utils.checkpoint.checkpoint(block, x, cond_emb, None, None)
             else:
                 x = block(x, cond_emb)
-        
+
         # Final projection
         x = self.norm_out(x)
         x = self.proj_out(x)
-        
+
         # Unpatchify
         x = self.unpatchify(x, T, H, W)
-        
+
         return x
 
 
@@ -342,50 +364,52 @@ class WanVideoPreTrainedModel(PreTrainedModel):
     supports_gradient_checkpointing = True
     _no_split_modules = ["WanDiTBlock"]
     _supports_gradient_checkpointing = True
-    
+
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Conv3d)):
             module.weight.data.normal_(mean=0.0, std=0.02)
             if module.bias is not None:
                 module.bias.data.zero_()
-                
-    def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func=None):
+
+    def _set_gradient_checkpointing(
+        self, enable: bool = True, gradient_checkpointing_func=None
+    ):
         if enable:
             self.gradient_checkpointing = True
             # Set gradient checkpointing for DiT module
-            if hasattr(self, 'dit'):
+            if hasattr(self, "dit"):
                 self.dit.gradient_checkpointing = True
         else:
             self.gradient_checkpointing = False
-            if hasattr(self, 'dit'):
+            if hasattr(self, "dit"):
                 self.dit.gradient_checkpointing = False
-                
+
 
 class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
     def __init__(self, config: WanVideoConfig):
         super().__init__(config)
         self.config = config
-        
+
         # Main DiT model
         self.dit = WanDiT(config)
-        
+
         # Placeholder for VAE - typically loaded separately
         self.vae = None
         self.text_encoder = None
         self.image_encoder = None
-        
+
         # Scheduler placeholder
         self.scheduler = None
-        
+
         # Initialize weights
         self.post_init()
-        
+
     def get_input_embeddings(self):
         return None  # No traditional input embeddings
-        
+
     def set_input_embeddings(self, value):
         pass  # No traditional input embeddings
-        
+
     def encode_prompt(
         self,
         prompt: Union[str, List[str]],
@@ -397,7 +421,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         if isinstance(prompt, str):
             prompt = [prompt]
         batch_size = len(prompt)
-        
+
         # Dummy text embeddings
         text_embeddings = torch.randn(
             batch_size,
@@ -407,7 +431,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             dtype=self.dtype,
         )
         return text_embeddings
-        
+
     def encode_video(self, video: torch.Tensor) -> torch.Tensor:
         """Encode video to latents using VAE"""
         if self.vae is None:
@@ -417,7 +441,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 B,
                 self.config.dit_in_channels,
                 T // 4,  # Temporal compression
-                H // 8,  # Spatial compression  
+                H // 8,  # Spatial compression
                 W // 8,
                 device=video.device,
                 dtype=video.dtype,
@@ -425,7 +449,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             return latents
         # Use actual VAE encoding when available
         return self.vae.encode(video)
-        
+
     def decode_latents(self, latents: torch.Tensor) -> torch.Tensor:
         """Decode latents to video using VAE"""
         if self.vae is None:
@@ -443,7 +467,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             return video
         # Use actual VAE decoding when available
         return self.vae.decode(latents)
-        
+
     def forward(
         self,
         pixel_values: Optional[torch.FloatTensor] = None,
@@ -459,7 +483,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
     ) -> Union[Tuple, WanVideoOutput]:
         """
         Forward pass for training or inference.
-        
+
         Args:
             pixel_values: Input video frames (B, T, C, H, W) or (B, C, T, H, W)
             input_ids: Text input IDs for prompt encoding
@@ -472,12 +496,15 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             return_dict: Whether to return ModelOutput
             use_gradient_checkpointing: Whether to use gradient checkpointing
         """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
         use_gradient_checkpointing = (
-            use_gradient_checkpointing if use_gradient_checkpointing is not None
+            use_gradient_checkpointing
+            if use_gradient_checkpointing is not None
             else self.config.gradient_checkpointing
         )
-        
+
         # Encode video to latents if needed
         if latents is None and pixel_values is not None:
             # Ensure correct shape (B, T, C, H, W)
@@ -485,35 +512,40 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 # (B, C, T, H, W) -> (B, T, C, H, W)
                 pixel_values = pixel_values.permute(0, 2, 1, 3, 4)
             latents = self.encode_video(pixel_values)
-            
+
         # Get text embeddings
         text_embeddings = None
         if prompt is not None:
-            text_embeddings = self.encode_prompt(prompt, device=latents.device if latents is not None else None)
+            text_embeddings = self.encode_prompt(
+                prompt, device=latents.device if latents is not None else None
+            )
         elif input_ids is not None and self.text_encoder is not None:
             # Use text encoder if available
-            text_embeddings = self.text_encoder(input_ids, attention_mask=attention_mask)[0]
-            
+            text_embeddings = self.text_encoder(
+                input_ids, attention_mask=attention_mask
+            )[0]
+
         # Training mode
         if labels is not None or noise is not None:
             if timesteps is None:
                 # Sample random timesteps for training
                 batch_size = latents.shape[0] if latents is not None else 1
                 timesteps = torch.randint(
-                    0, self.config.num_train_timesteps,
+                    0,
+                    self.config.num_train_timesteps,
                     (batch_size,),
                     device=latents.device if latents is not None else self.device,
                 )
-                
+
             # Add noise to latents for training
             if noise is None:
                 noise = torch.randn_like(latents)
-                
+
             # Simple noise scheduling (can be improved with proper scheduler)
             noise_level = timesteps.float() / self.config.num_train_timesteps
             noise_level = noise_level.view(-1, 1, 1, 1, 1)
             noisy_latents = latents * (1 - noise_level) + noise * noise_level
-            
+
             # Predict noise
             noise_pred = self.dit(
                 noisy_latents,
@@ -521,25 +553,25 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 text_embeddings=text_embeddings,
                 use_gradient_checkpointing=use_gradient_checkpointing,
             )
-            
+
             # Compute loss
             if labels is not None:
                 target = labels
             else:
                 target = noise
-                
+
             loss = F.mse_loss(noise_pred, target)
-            
+
             if not return_dict:
                 return (loss, noise_pred)
-                
+
             return WanVideoOutput(
                 loss=loss,
                 noise_pred=noise_pred,
                 latents=latents,
                 text_embeddings=text_embeddings,
             )
-            
+
         # Inference mode
         else:
             if timesteps is None:
@@ -547,7 +579,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                     (1,),
                     device=latents.device if latents is not None else self.device,
                 )
-                
+
             # Generate noise prediction
             noise_pred = self.dit(
                 latents,
@@ -555,16 +587,16 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 text_embeddings=text_embeddings,
                 use_gradient_checkpointing=use_gradient_checkpointing,
             )
-            
+
             if not return_dict:
                 return (noise_pred,)
-                
+
             return WanVideoOutput(
                 noise_pred=noise_pred,
                 latents=latents,
                 text_embeddings=text_embeddings,
             )
-            
+
     def generate(
         self,
         prompt: Union[str, List[str]],
@@ -578,7 +610,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
     ) -> torch.Tensor:
         """
         Generate video from text prompt.
-        
+
         Args:
             prompt: Text prompt(s)
             num_frames: Number of frames to generate
@@ -587,7 +619,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             num_inference_steps: Number of denoising steps
             guidance_scale: Guidance scale for CFG
             generator: Random generator for reproducibility
-        
+
         Returns:
             Generated video tensor
         """
@@ -597,16 +629,16 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         width = width or self.config.width
         num_inference_steps = num_inference_steps or self.config.num_inference_steps
         guidance_scale = guidance_scale or self.config.guidance_scale
-        
+
         # Encode prompt
         text_embeddings = self.encode_prompt(prompt, device=self.device)
         batch_size = text_embeddings.shape[0]
-        
+
         # Initialize latents
         latent_height = height // 8
         latent_width = width // 8
         latent_frames = num_frames // 4
-        
+
         latents = torch.randn(
             batch_size,
             self.config.dit_in_channels,
@@ -617,18 +649,18 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             device=self.device,
             dtype=self.dtype,
         )
-        
+
         # Simple denoising loop (placeholder - needs proper scheduler)
         for i in range(num_inference_steps):
             t = torch.tensor([i], device=self.device)
-            
+
             # Predict noise
             noise_pred = self.dit(latents, t, text_embeddings=text_embeddings)
-            
+
             # Simple denoising step (needs proper scheduler)
             latents = latents - noise_pred * (1.0 / num_inference_steps)
-            
+
         # Decode latents to video
         video = self.decode_latents(latents)
-        
+
         return video

@@ -19,24 +19,18 @@ class VisionSFTDataset(BaseDataset):
         images_list = []
         videos = []
         kwargs = {}
-        
+
         # Build messages directly from CSV data
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "video_url",
-                        "video_url": {"url": data["video"]}
-                    },
-                    {
-                        "type": "text", 
-                        "text": data["prompt"]
-                    }
-                ]
+                    {"type": "video_url", "video_url": {"url": data["video"]}},
+                    {"type": "text", "text": data["prompt"]},
+                ],
             }
         ]
-        
+
         # Process video content directly
         for message in messages:
             for content in message["content"]:
