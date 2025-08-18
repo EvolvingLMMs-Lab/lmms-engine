@@ -30,11 +30,14 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
         A wrapper method to process single data
         """
 
-        output_kwargs = self.processor._merge_kwargs(
-            Qwen2_5_VLProcessorKwargs,
-            tokenizer_init_kwargs=self.tokenizer.init_kwargs,
-            **kwargs,
-        )
+        if hasattr(self.processor, "_merge_kwargs"):
+            output_kwargs = self.processor._merge_kwargs(
+                Qwen2_5_VLProcessorKwargs,
+                tokenizer_init_kwargs=self.tokenizer.init_kwargs,
+                **kwargs,
+            )
+        else:
+            output_kwargs = kwargs
 
         image_inputs = {}
         videos_inputs = {}

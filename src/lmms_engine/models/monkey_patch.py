@@ -239,11 +239,14 @@ def apply_liger_kernel_to_aero(
         # instance variables that reference already-instantiated modules
 
         # get the base model from the model instance
-        base_model: Qwen2Model = getattr(
-            model.language_model,
-            model.language_model.base_model_prefix,
-            model.language_model,
-        )
+        if hasattr(model, "language_model"):
+            base_model: Qwen2Model = getattr(
+                model.language_model,
+                model.language_model.base_model_prefix,
+                model.language_model,
+            )
+        else:
+            base_model: Qwen2Model = model.model
 
         if rms_norm:
             _patch_rms_norm_module(base_model.norm)
@@ -289,6 +292,7 @@ def apply_liger_kernel_to_qwen2_audio(
 
 CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN = {
     "aero": apply_liger_kernel_to_aero,
+    "qwen2": apply_liger_kernel_to_aero,  # Qwen2 is the same as Aero on Language Model side
     "qwen2_5_vl": apply_liger_kernel_to_qwen2_5_vl,
 }
 

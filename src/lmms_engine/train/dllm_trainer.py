@@ -47,7 +47,7 @@ def dllm_loss(
     else:
         d_loss = d_loss.mean()
         nll = nll.mean()
-    return d_loss, nll
+    return d_loss, nll.detach().item()
 
 
 class DLLMTrainer(Trainer):

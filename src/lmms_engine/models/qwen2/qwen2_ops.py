@@ -4,9 +4,20 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from transformers.cache_utils import Cache, DynamicCache
+from transformers.masking_utils import (
+    create_causal_mask,
+    create_sliding_window_causal_mask,
+)
 from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
+)
+from transformers.modeling_outputs import BaseModelOutputWithPast
+from transformers.models.qwen2.modeling_qwen2 import (
+    Qwen2Attention,
+    Qwen2DecoderLayer,
+    Qwen2Model,
+    apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
@@ -16,7 +27,6 @@ from ..sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _get_unpad_data,
     _unpad_input,
-    apply_rotary_pos_emb_unpad,
 )
 
 logger = logging.get_logger(__name__)
@@ -24,6 +34,12 @@ logger = logging.get_logger(__name__)
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
+    from flash_attn.bert_padding import (
+        index_first_axis,
+        pad_input,
+        rearrange,
+        unpad_input,
+    )
 
 try:
     from flash_attn.layers.rotary import apply_rotary_emb_func
@@ -36,195 +52,95 @@ except:
 
 # The forward func for the base model of a LM
 def model_forward(
-    self,
+    self: Qwen2Model,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_values: Optional[List[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     use_cache: Optional[bool] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
+    cache_position: Optional[torch.LongTensor] = None,
     cu_seq_lens: Optional[torch.IntTensor] = None,
     indices: Optional[torch.IntTensor] = None,
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
-    # use_cache = use_cache if use_cache is not None else self.config.use_cache
-    # use_rmpad = use_rmpad if use_rmpad is not None else self.config.use_rmpad
+    if (input_ids is None) ^ (inputs_embeds is not None):
+        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
-
-    # retrieve input_ids and inputs_embeds
-    if input_ids is not None and inputs_embeds is not None:
-        raise ValueError(
-            "You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time"
+    original_input_ids = input_ids
+    if cu_seq_lens is None and input_ids is not None:
+        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
+            input_ids, attention_mask
         )
-    elif input_ids is not None:
-        batch_size, seq_length = input_ids.shape
-    elif inputs_embeds is not None:
-        if inputs_embeds.dim() == 3:
-            batch_size, seq_length, _ = inputs_embeds.shape
-        elif inputs_embeds.dim() == 2:
-            batch_size, seq_length = inputs_embeds.shape
-    else:
-        raise ValueError(
-            "You have to specify either decoder_input_ids or decoder_inputs_embeds"
-        )
-
-    if self.gradient_checkpointing and self.training:
-        if use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-            )
-            use_cache = False
-
-    past_key_values_length = 0
-
-    if use_cache:
-        use_legacy_cache = not isinstance(past_key_values, Cache)
-        if use_legacy_cache:
-            past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-        past_key_values_length = past_key_values.get_usable_length(seq_length)
-
-    if position_ids is None:
-        device = input_ids.device if input_ids is not None else inputs_embeds.device
-        position_ids = torch.arange(
-            past_key_values_length,
-            seq_length + past_key_values_length,
-            dtype=torch.long,
-            device=device,
-        )
-        # 1 * 5695(seq_len) [0,1,2,3,4,5,...... 5000, 5001,5002]
-        position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
-    else:
-        position_ids = position_ids.view(-1, seq_length).long()
 
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
 
-    position_embeddings = self.rotary_emb(inputs_embeds, position_ids)
-    if position_ids.shape[0] != inputs_embeds.shape[0]:
-        position_ids, _, _, _ = _unpad_input(
-            position_ids.view(1, position_ids.shape[-1], 1).repeat(
-                inputs_embeds.shape[0], 1, 1
-            ),
-            attention_mask,
-        )
-    else:
-        position_ids, _, _, _ = _unpad_input(position_ids.unsqueeze(-1), attention_mask)
+    if use_cache and past_key_values is None:
+        past_key_values = DynamicCache(config=self.config)
 
-    # If already handled in the outside to optimize scattered performance
-    # Then we do not unpad here
-    if cu_seq_lens is None:
-        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(
-            inputs_embeds.unsqueeze(-1), attention_mask
+    if cache_position is None:
+        past_seen_tokens = (
+            past_key_values.get_seq_length() if past_key_values is not None else 0
         )
-        inputs_embeds, position_ids = inputs_embeds.squeeze(-1), position_ids.squeeze(
-            -1
+        cache_position = torch.arange(
+            past_seen_tokens,
+            past_seen_tokens + original_input_ids.shape[1],
+            device=inputs_embeds.device,
         )
 
-    past_seen_tokens = (
-        past_key_values.get_seq_length() if past_key_values is not None else 0
-    )
-    cache_position = torch.arange(
-        past_seen_tokens,
-        past_seen_tokens + inputs_embeds.shape[1],
-        device=inputs_embeds.device,
-    )
+    if position_ids is None:
+        position_ids = cache_position.unsqueeze(0)
+    position_ids = position_ids.repeat_interleave(original_input_ids.shape[0], dim=0)
 
-    causal_mask = self._update_causal_mask(
-        attention_mask,
-        inputs_embeds,
-        cache_position,
-        past_key_values,
-        output_attentions,
-    )
-    attention_mask = causal_mask
+    position_ids = index_first_axis(
+        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+    ).transpose(0, 1)
+
+    # It may already have been prepared by e.g. `generate`
+    if not isinstance(causal_mask_mapping := attention_mask, dict):
+        # Prepare mask arguments
+        mask_kwargs = {
+            "config": self.config,
+            "input_embeds": original_input_ids,  # Use original input ids to prepare mask
+            "attention_mask": attention_mask,
+            "cache_position": cache_position,
+            "past_key_values": past_key_values,
+            "position_ids": position_ids,
+        }
+        # Create the masks
+        causal_mask_mapping = {
+            "full_attention": create_causal_mask(**mask_kwargs),
+        }
+        # The sliding window alternating layers are not always activated depending on the config
+        if self.has_sliding_layers:
+            causal_mask_mapping[
+                "sliding_attention"
+            ] = create_sliding_window_causal_mask(**mask_kwargs)
 
     hidden_states = inputs_embeds
 
-    # decoder layers
-    all_hidden_states = () if output_hidden_states else None
-    all_self_attns = () if output_attentions else None
-    next_decoder_cache = None
+    # create position embeddings to be shared across the decoder layers
+    position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-    for decoder_layer in self.layers:
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
-
-        if self.gradient_checkpointing and self.training:
-            layer_outputs = torch.utils.checkpoint.checkpoint(
-                decoder_layer.__call__,
-                hidden_states,
-                attention_mask,
-                position_ids,
-                None,
-                output_attentions,
-                use_cache,
-                cu_seq_lens,
-                indices,
-                position_embeddings,
-                use_reentrant=False,
-            )
-        else:
-            layer_outputs = decoder_layer(
-                hidden_states,
-                attention_mask,
-                position_ids,
-                None,
-                output_attentions,
-                indices=indices,
-                cu_seq_lens=cu_seq_lens,
-                use_cache=use_cache,
-                position_embeddings=position_embeddings,
-            )
-
-        hidden_states = layer_outputs[0]
-
-        if use_cache:
-            next_decoder_cache = layer_outputs[2 if output_attentions else 1]
-
-        if output_attentions:
-            all_self_attns += (layer_outputs[1],)
+    for decoder_layer in self.layers[: self.config.num_hidden_layers]:
+        hidden_states = decoder_layer(
+            hidden_states,
+            attention_mask=causal_mask_mapping[decoder_layer.attention_type],
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
+            cu_seq_lens=cu_seq_lens,
+            indices=indices,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        )
 
     hidden_states = self.norm(hidden_states)
-
-    # add hidden states from the last decoder layer
-    if output_hidden_states:
-        all_hidden_states += (hidden_states,)
-
-    next_cache = None
-    if use_cache:
-        next_cache = (
-            next_decoder_cache.to_legacy_cache()
-            if use_legacy_cache and next_decoder_cache is not None
-            else next_decoder_cache
-        )
-
-    if not return_dict:
-        return tuple(
-            v
-            for v in [hidden_states, next_cache, all_hidden_states, all_self_attns]
-            if v is not None
-        )
     return BaseModelOutputWithPastAndRmpad(
         last_hidden_state=hidden_states,
-        past_key_values=next_cache,
-        hidden_states=all_hidden_states,
-        attentions=all_self_attns,
+        past_key_values=past_key_values if use_cache else None,
         seq_lens=cu_seq_lens,
         word_idx=indices,
     )
@@ -268,15 +184,7 @@ def decoder_layer_forward(
     hidden_states = self.mlp(hidden_states)
     hidden_states = residual + hidden_states
 
-    outputs = (hidden_states,)
-
-    if output_attentions:
-        outputs += (self_attn_weights,)
-
-    if use_cache:
-        outputs += (present_key_value,)
-
-    return outputs
+    return hidden_states
 
 
 # The attn forward func for the LM
@@ -314,62 +222,15 @@ def attn_forward(
         -1, self.config.num_key_value_heads, self.head_dim
     )
     cos, sin = position_embeddings
+    query_states = query_states.unsqueeze(0).transpose(1, 2)
+    key_states = key_states.unsqueeze(0).transpose(1, 2)
 
-    if apply_rotary_emb_func is not None:
-        cos = cos.squeeze().index_select(
-            dim=0, index=position_ids.squeeze()
-        )  # [total_bs_seq, head_dim]
-        sin = sin.squeeze().index_select(dim=0, index=position_ids.squeeze())
-        # cos = cos.squeeze().index_select(dim=0, index=position_ids.squeeze()).unsqueeze(1) # [total_bs_seq, 1, head_dim]
-        # sin = sin.squeeze().index_select(dim=0, index=position_ids.squeeze()).unsqueeze(1)
-        query_states = apply_rotary_emb_func(
-            query_states.unsqueeze(0),
-            cos[:, : self.head_dim // 2],
-            sin[:, : self.head_dim // 2],
-            inplace=True,
-        ).squeeze(0)
-        key_states = apply_rotary_emb_func(
-            key_states.unsqueeze(0),
-            cos[:, : self.head_dim // 2],
-            sin[:, : self.head_dim // 2],
-            inplace=True,
-        ).squeeze(0)
-        # print(query_states.shape, key_states.shape, value_states.shape)
-        # assert 1 > 2
-    else:
-        query_states, key_states = apply_rotary_pos_emb_unpad(
-            query_states, key_states, cos, sin, position_ids
-        )
+    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+    query_states = query_states.transpose(1, 2).squeeze(0)
+    key_states = key_states.transpose(1, 2).squeeze(0)
 
     if past_key_value is not None:
-        # Activate slicing cache only if the config has a value `sliding_windows` attribute
-        cache_has_contents = past_key_value.get_seq_length(self.layer_idx) > 0
-        if (
-            getattr(self.config, "sliding_window", None) is not None
-            and kv_seq_len > self.config.sliding_window
-            and cache_has_contents
-        ):
-            slicing_tokens = 1 - self.config.sliding_window
-
-            past_key = past_key_value[self.layer_idx][0]
-            past_value = past_key_value[self.layer_idx][1]
-
-            past_key = past_key[:, :, slicing_tokens:, :].contiguous()
-            past_value = past_value[:, :, slicing_tokens:, :].contiguous()
-
-            if past_key.shape[-2] != self.config.sliding_window - 1:
-                raise ValueError(
-                    f"past key must have a shape of (`batch_size, num_heads, self.config.sliding_window-1, head_dim`), got"
-                    f" {past_key.shape}"
-                )
-
-            if attention_mask is not None:
-                attention_mask = attention_mask[:, slicing_tokens:]
-                attention_mask = torch.cat(
-                    [attention_mask, torch.ones_like(attention_mask[:, -1:])],
-                    dim=-1,
-                )
-
         cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
         key_states, value_states = past_key_value.update(
             key_states, value_states, self.layer_idx, cache_kwargs

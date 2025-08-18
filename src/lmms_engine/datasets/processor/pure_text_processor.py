@@ -11,8 +11,8 @@ from .config import ProcessorConfig
 # from transformers.models.qwen2_vl.processing_qwen2_vl import Qwen2VLProcessorKwargs
 
 
-@register_processor("qwen3")
-class Qwen3DataProcessor:
+@register_processor("pure_text")
+class PureTextDataProcessor:
     def __init__(self, config: ProcessorConfig) -> None:
         self.config = config
         self.tokenizer = None

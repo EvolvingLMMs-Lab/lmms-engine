@@ -8,7 +8,7 @@
       packing_length: 2048
       processor_config:
         processor_name: "Qwen/Qwen3-0.6B"
-        processor_type: "qwen3"
+        processor_type: "pure_text"
     model_config:
       attn_implementation: sdpa
       load_from_config:
