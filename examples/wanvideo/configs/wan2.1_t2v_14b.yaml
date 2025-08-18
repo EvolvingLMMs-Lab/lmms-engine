@@ -8,8 +8,8 @@
     # Dataset configuration
     dataset_config:
       dataset_type: vision
-      dataset_format: json
-      dataset_path: data/example_video_dataset/metadata.json
+      dataset_format: csv
+      dataset_path: data/example_video_dataset/metadata.csv
       video_sampling_strategy: frame_num
       frame_num: 49
       video_backend: qwen_vl_utils

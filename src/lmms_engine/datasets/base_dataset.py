@@ -282,6 +282,8 @@ class BaseDataset(Dataset):
             self.data_list = DataUtilities.load_json(self.config.dataset_path)
         elif self.config.dataset_format == "jsonl":
             self.data_list = DataUtilities.load_jsonlines(self.config.dataset_path)
+        elif self.config.dataset_format == "csv":
+            self.data_list = DataUtilities.load_csv(self.config.dataset_path)
         elif self.config.dataset_format == "arrow":
             self.data_list = load_from_disk(self.config.dataset_path)
         elif self.config.dataset_format == "parquet":
@@ -512,6 +514,8 @@ class BaseDataset(Dataset):
             or self.config.dataset_format == "arrow"
         ):
             data_dict = self.load_from_json(self.data_list[index])
+        elif self.config.dataset_format == "csv":
+            data_dict = self.load_from_csv(self.data_list[index])
         elif self.config.dataset_format == "yaml":
             data_dict = self.load_from_json(
                 self.data_list[index], self.data_folder[index]
@@ -530,6 +534,10 @@ class BaseDataset(Dataset):
             data_dict_list = [
                 self.load_from_json(self.data_list[index]) for index in index_group
             ]
+        elif self.config.dataset_format == "csv":
+            data_dict_list = [
+                self.load_from_csv(self.data_list[index]) for index in index_group
+            ]
         elif self.config.dataset_format == "yaml":
             data_dict_list = [
                 self.load_from_json(self.data_list[index], self.data_folder[index])
@@ -546,6 +554,10 @@ class BaseDataset(Dataset):
     @abstractmethod
     def load_from_json(self, data, data_folder=None):
         pass
+
+    def load_from_csv(self, data, data_folder=None):
+        """Load from CSV data. Default implementation just calls load_from_json."""
+        return self.load_from_json(data, data_folder)
 
     @abstractmethod
     def load_from_hf(self, data):
