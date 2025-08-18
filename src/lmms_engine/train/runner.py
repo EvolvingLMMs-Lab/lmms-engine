@@ -245,15 +245,11 @@ class TrainRunner:
             )
         from transformers.trainer_pt_utils import AcceleratorConfig
 
-        self.config.trainer_args.accelerator_config = AcceleratorConfig(
-            dispatch_batches=False,
-            split_batches=False,
-        )
         trainer = trainer_cls(
             model=self.model,
             args=self.config.trainer_args,
             data_collator=self.train_dataset.get_collator(),
-            train_dataset=self.train_dataset.dataset,
+            train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
             processing_class=self.train_dataset.processor,
         )

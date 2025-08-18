@@ -25,4 +25,3 @@ class DatasetConfig:
     video_backend: Optional[
         Literal["decord", "torchvision", "qwen_vl_utils"]
     ] = "qwen_vl_utils"
-    tokenizer: Optional[str] = None
