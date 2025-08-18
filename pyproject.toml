@@ -45,8 +45,6 @@ dependencies = [
     "flash-attn>=2.8.3",
     "liger-kernel>=0.6.1",
     "qwen-vl-utils",
-    "einops",
-    "pandas",
 ]
 
 [project.optional-dependencies]
