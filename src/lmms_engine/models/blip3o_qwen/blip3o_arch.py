@@ -1,4 +1,5 @@
 # Adapted from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/model/blip3o_arch.py
+# Acutally I'm not very sure if we need to simplify this design. Seems that they used a lot of inheritance.
 
 import math
 import os
