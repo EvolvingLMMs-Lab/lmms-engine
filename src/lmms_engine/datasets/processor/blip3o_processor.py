@@ -1,37 +1,18 @@
+# Based on https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/data/dataset.py
+
 from dataclasses import dataclass
-import pyarrow.parquet as pq
 import torch
 import transformers
-import yaml
 from PIL import Image, ImageFile
-from lmms_engine.utils.logging_utils import Logging
-from torch.utils.data import Dataset
 from torchvision.transforms import v2 as transforms
 from datasets import load_dataset, concatenate_datasets
+from .config import ProcessorConfig
+from transformers import AutoTokenizer
 from .processor import Processor
 # from blip3o.utils import rank0_print
-
-@dataclass
-class Blip3oConstants:
-    IGNORE_INDEX: int = -100
-    IMAGE_TOKEN_INDEX: int = -200
-    DEFAULT_IMAGE_TOKEN: str = "<image>"
-    DEFAULT_IMAGE_PATCH_TOKEN: str = "<im_patch>"
-    DEFAULT_IM_START_TOKEN: str = "<im_start>"
-    DEFAULT_IM_END_TOKEN: str = "<im_end>"
-
+from lmms_engine.models.blip3o_qwen.blip3o import Blip3oConstants
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-
-target_transform = transforms.Compose(
-    [
-        transforms.Resize(1024),
-        transforms.CenterCrop(1024),
-        transforms.ToImage(),
-        transforms.ToDtype(torch.float32, scale=True),
-        transforms.Normalize([0.5], [0.5]),
-    ]
-)
 
 
 def expand2square(pil_img, background_color):
@@ -96,7 +77,7 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
 
     # Apply prompt templates
     input_ids, targets = [], []
-    for i, source in enumerate(sources):
+    for source in sources:
         if roles[source[0]["from"]] != roles["human"]:
             source = source[1:]
 
@@ -142,10 +123,23 @@ def preprocess_qwen(sources, tokenizer: transformers.PreTrainedTokenizer, has_im
     input_ids = torch.tensor(input_ids, dtype=torch.long)
     targets = torch.tensor(targets, dtype=torch.long)
 
-    return dict(
-        input_ids=input_ids,  
-        labels=targets,  
-    )
+    return {
+        "input_ids": input_ids,  
+        "labels": targets,  
+    }
 
 class Blip3oProcessor(Processor):
-    pass
+    def __init__(self, config: ProcessorConfig):
+        self.config = config
+        self.target_transform = transforms.Compose(
+            [
+                transforms.Resize(1024),
+                transforms.CenterCrop(1024),
+                transforms.ToImage(),
+                transforms.ToDtype(torch.float32, scale=True),
+                transforms.Normalize([0.5], [0.5]),
+            ]
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.config.processor_name, padding_side="right")
+        if self.tokenizer.unk_token is not None:
+            self.tokenizer.pad_token = self.tokenizer.unk_token

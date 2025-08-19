@@ -45,6 +45,8 @@ dependencies = [
     "flash-attn>=2.8.3",
     "liger-kernel>=0.6.1",
     "qwen-vl-utils",
+    "diffusers>=0.35.0",
+    "tok>=0.1.14",
 ]
 
 [project.optional-dependencies]
