@@ -262,5 +262,5 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
         return inputs
 
 
-AutoConfig.register("blip3o_qwen", blip3oQwenConfig)
-AutoModelForCausalLM.register(blip3oQwenConfig, blip3oQwenForCausalLM)
+AutoConfig.register("blip3o_qwen", Blip3oQwenConfig)
+AutoModelForCausalLM.register(Blip3oQwenConfig, Blip3oQwenForCausalLM)
