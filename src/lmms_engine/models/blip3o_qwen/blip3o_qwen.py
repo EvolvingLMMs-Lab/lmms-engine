@@ -9,8 +9,6 @@ from diffusers.training_utils import (
     compute_loss_weighting_for_sd3,
 )
 from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
     Qwen3Config,
     Qwen3ForCausalLM,
     Qwen3Model,
@@ -19,6 +17,7 @@ from transformers.generation.utils import GenerateOutput
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .blip3o_arch import Blip3oMetaForCausalLM, Blip3oMetaModel
+from .constants import Blip3oConstants
 from .utils import rank0_print
 
 
