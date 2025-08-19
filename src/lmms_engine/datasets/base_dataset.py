@@ -250,12 +250,7 @@ class BaseDataset(Dataset):
         }
         if self.config.video_sampling_strategy == "frame_num":
             video_dict.pop("fps", None)
-
-        if not hasattr(self, "fetch_video"):
-            raise ImportError(
-                "qwen_vl_utils not installed. Please install it using `pip install qwen-vl-utils`"
-            )
-
+        video_dict.pop("max_pixels")  # without it, the demo of wan training will fail
         frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
         frames = frames.numpy()
         return frames, sample_fps

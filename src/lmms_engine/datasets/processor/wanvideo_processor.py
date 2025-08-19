@@ -13,40 +13,35 @@ class WanVideoDataProcessor:
     def __init__(self, config, model_id=None):
         self.config = config
         self.model_id = model_id
-        # Initialize the WanVideo processor
-        self.processor = WanVideoModelProcessor()
 
     def apply_prompt_template(self, prompt: str) -> str:
         """Apply prompt template for WanVideo."""
         # WanVideo uses direct prompts without special formatting
         return prompt
 
-    def process_one(
-        self,
-        prompt: str = None,
-        images: List[Image.Image] = None,
-        videos: List[List[Image.Image]] = None,
-        audios: List[Any] = None,
-        video_kwargs: Dict[str, Any] = None,
+    def build(self):
+        self.processor = WanVideoModelProcessor()
+
+    def process(
+        self, images: List[Image.Image], hf_messages, videos=None, **kwargs
     ) -> Dict[str, Any]:
         """
         Process a single sample for WanVideo training.
 
         Args:
-            prompt: Text prompt/caption for the video
             images: List of images (for I2V mode)
+            hf_messages: Text prompt/caption for the video
             videos: List of video frames
-            audios: Not used for WanVideo
             video_kwargs: Additional video parameters (fps, etc.)
 
         Returns:
             Dictionary with processed inputs for training
         """
-        if prompt is None:
-            prompt = ""
+        if hf_messages is None:
+            hf_messages = ""
 
         # Apply prompt template
-        formatted_prompt = self.apply_prompt_template(prompt)
+        formatted_prompt = self.apply_prompt_template(hf_messages)
 
         # Process text
         if self.processor.tokenizer is not None:
@@ -95,7 +90,7 @@ class WanVideoDataProcessor:
         }
 
         # Add video-specific kwargs if provided
-        if video_kwargs:
-            output.update(video_kwargs)
+        # if video_kwargs:
+        #     output.update(video_kwargs)
 
         return output
