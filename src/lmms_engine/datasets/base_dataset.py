@@ -332,20 +332,21 @@ class BaseDataset(Dataset):
             if self.config.dataset_format == "yaml":
                 self.data_folder = [self.data_folder[i] for i in data_index]
 
-        if isinstance(self.data_list, HFDataset):
-            self.data_lengths = self.data_list.map(
-                lambda x: {"length": self.estimate_data_tokens_per_row(x)},
-                num_proc=cpu_count() // 2,
-            ).select_columns("length")
-            self.data_lengths = self.data_lengths.to_list()
-            self.data_lengths = [da["length"] for da in self.data_lengths]
-        else:
-            self.data_lengths = (
-                self._estimate_data_tokens(self.data_list)
-                if self.config.dataset_format != "hf_dataset"
-                else self.data_list_no_image
-            )
         if self.config.packing:
+            # this block which tries to get the data_lengths seems only useful for packing? so I move this part under the cndito
+            if isinstance(self.data_list, HFDataset):
+                self.data_lengths = self.data_list.map(
+                    lambda x: {"length": self.estimate_data_tokens_per_row(x)},
+                    num_proc=cpu_count() // 2,
+                ).select_columns("length")
+                self.data_lengths = self.data_lengths.to_list()
+                self.data_lengths = [da["length"] for da in self.data_lengths]
+            else:
+                self.data_lengths = (
+                    self._estimate_data_tokens(self.data_list)
+                    if self.config.dataset_format != "hf_dataset"
+                    else self.data_list_no_image
+                )
             self.filter_overlong()
             if self.config.packing_strategy is None:
                 raise ValueError("Packing strategy is not specified.")
@@ -366,7 +367,13 @@ class BaseDataset(Dataset):
             )
 
     def estimate_data_tokens_per_row(self, row):
-        messages = row["messages"]
+        # Try different column names for message data
+        messages = None
+        for col_name in ["messages", "prompt"]:
+            if col_name in row:
+                messages = row[col_name]
+                break
+        # Handle structured messages format
         cur_len = 0
         for message in messages:
             content = message["content"]
