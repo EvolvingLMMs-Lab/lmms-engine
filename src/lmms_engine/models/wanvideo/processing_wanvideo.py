@@ -78,7 +78,8 @@ class WanVideoImageProcessor(BaseImageProcessor):
         from PIL import Image as PILImage
 
         if isinstance(image, np.ndarray):
-            image = PILImage.fromarray(image)
+            print(image.shape, image.squeeze().shape)
+            image = PILImage.fromarray(image.squeeze())
 
         image = image.resize((size["width"], size["height"]), PILImage.LANCZOS)
         return np.array(image)

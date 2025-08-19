@@ -49,15 +49,15 @@ def create_train_task(config):
     )
 
     # Extract trainer args from config, handling nested structure
-    trainer_args_dict = config.pop("trainer_args", {})
-    # If trainer_args is empty, use remaining config as trainer args
-    if not trainer_args_dict:
-        trainer_args_dict = config.copy()
-        # Remove non-trainer argument keys
-        for key in ["sp_ulysses_degree", "use_cpu"]:
-            trainer_args_dict.pop(key, None)
+    # trainer_args_dict = config.pop("trainer_args", {})
+    # # If trainer_args is empty, use remaining config as trainer args
+    # if not trainer_args_dict:
+    #     trainer_args_dict = config.copy()
+    #     # Remove non-trainer argument keys
+    #     for key in ["sp_ulysses_degree", "use_cpu"]:
+    #         trainer_args_dict.pop(key, None)
 
-    trainer_args = TrainingArguments(**trainer_args_dict)
+    trainer_args = TrainingArguments(**config)
 
     train_config = TrainerConfig(
         dataset_config=dataset_config,
