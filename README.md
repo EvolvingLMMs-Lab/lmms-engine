@@ -7,9 +7,7 @@ Training framework for LMMs-Lab.
 Installation is simple
 
 ```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -e .
+uv sync
 ```
 
 ### Sequence Packing

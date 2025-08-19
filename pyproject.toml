@@ -80,6 +80,9 @@ exclude = [
 lmms_launch="lmms_engine.launch.cli:main"
 
 
+[tool.uv]
+extra-build-dependencies = { flash-attn = ["torch"] }
+
 [project.urls]
 Homepage = "https://lmms-lab.com/"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms_engine"
