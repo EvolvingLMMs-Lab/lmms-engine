@@ -1,10 +1,7 @@
 # Based on https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/data/dataset.py
 
-from dataclasses import dataclass
-
 import torch
 import transformers
-from datasets import concatenate_datasets, load_dataset
 from PIL import Image, ImageFile
 from torchvision.transforms import v2 as transforms
 from transformers import AutoTokenizer
@@ -18,7 +15,7 @@ from .processor import Processor
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-def expand2square(pil_img, background_color):
+def expand2square(pil_img: Image.Image, background_color) -> Image.Image:
     width, height = pil_img.size
     if width == height:
         return pil_img
@@ -32,7 +29,7 @@ def expand2square(pil_img, background_color):
         return result
 
 
-def preprocess_multimodal(sources: list[str], data_args) -> dict:
+def preprocess_multimodal(sources: list[str], data_args):
     is_multimodal = data_args.is_multimodal
     if not is_multimodal:
         return sources
