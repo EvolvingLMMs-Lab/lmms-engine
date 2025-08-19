@@ -12,6 +12,7 @@ import torch.nn as nn
 from diffusers import FlowMatchEulerDiscreteScheduler
 from diffusers.models.normalization import RMSNorm
 
+from .constants import Blip3oConstants
 from .decoder import build_sana, build_vae
 from .encoder import build_vision_tower
 from .utils import rank0_print

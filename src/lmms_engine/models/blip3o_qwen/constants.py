@@ -10,4 +10,3 @@ class Blip3oConstants:
     DEFAULT_IM_START_TOKEN: str = "<im_start>"
     DEFAULT_IM_END_TOKEN: str = "<im_end>"
     DIFFUSION_CONNECTOR_HIDDEN_SIZE: int = 2304
-
