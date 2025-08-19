@@ -18,7 +18,9 @@ from lmms_engine.utils import Logging
 try:
     import fla
 except ImportError as e:
-    Logging.warning(f"Failed to import fla.")
+    Logging.warning(
+        f"Failed to import the lib 'fla'. If you do not need it, you can ignore this warning."
+    )
 
 
 # A decorator class to register processors

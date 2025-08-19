@@ -14,9 +14,10 @@ class WanVideoDataProcessor:
         self.config = config
         self.model_id = model_id
 
-    def apply_prompt_template(self, prompt: str) -> str:
+    def apply_prompt_template(self, hf_messages: str) -> str:
         """Apply prompt template for WanVideo."""
         # WanVideo uses direct prompts without special formatting
+        prompt = hf_messages[0]["content"][1]["text"]
         return prompt
 
     def build(self):
@@ -60,6 +61,7 @@ class WanVideoDataProcessor:
             }
 
         # Process video frames
+        print(videos)
         if videos is not None and len(videos) > 0:
             # Videos is a list of frame lists
             video_frames = videos[0] if isinstance(videos[0], list) else videos
