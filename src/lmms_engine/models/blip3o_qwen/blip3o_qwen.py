@@ -260,7 +260,3 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
         if image_sizes is not None:
             inputs["image_sizes"] = image_sizes
         return inputs
-
-
-AutoConfig.register("blip3o_qwen", Blip3oQwenConfig)
-AutoModelForCausalLM.register(Blip3oQwenConfig, Blip3oQwenForCausalLM)
