@@ -1,20 +1,20 @@
 # Adapted from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/model/blip3o_arch.py
 
+import math
 import os
 import random
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
-
-from .utils import rank0_print
-from .encoder import build_vision_tower
-from .decoder import build_sana, build_vae
-from diffusers.models.normalization import RMSNorm
 from diffusers import FlowMatchEulerDiscreteScheduler
-import math
+from diffusers.models.normalization import RMSNorm
 
-from dataclasses import dataclass
+from .decoder import build_sana, build_vae
+from .encoder import build_vision_tower
+from .utils import rank0_print
+
 
 @dataclass
 class Blip3oConstants:
@@ -26,6 +26,7 @@ class Blip3oConstants:
     DEFAULT_IM_END_TOKEN: str = "<im_end>"
     DIFFUSION_CONNECTOR_HIDDEN_SIZE: int = 2304
 
+
 class Blip3oMetaModel:
     def __init__(self, config):
         super().__init__(config)
@@ -36,21 +37,33 @@ class Blip3oMetaModel:
 
             self.sana = build_sana(config)
             self.sana_vae = build_vae(config)
-            norm = RMSNorm(Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE, eps=1e-5, elementwise_affine=True)
+            norm = RMSNorm(
+                Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                eps=1e-5,
+                elementwise_affine=True,
+            )
 
             with torch.no_grad():
                 norm.weight.fill_(math.sqrt(5.5))
 
             self.diffusion_connector = nn.Sequential(
-                nn.Linear(config.hidden_size, Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE),
+                nn.Linear(
+                    config.hidden_size, Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE
+                ),
                 nn.GELU(approximate="tanh"),
-                nn.Linear(Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE, Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE),
+                nn.Linear(
+                    Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                    Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                ),
                 norm,
             )
-            self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(config.diffusion_name_or_path, subfolder="scheduler")
-            
-            self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(config.diffusion_name_or_path, subfolder="scheduler")
-            
+            self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                config.diffusion_name_or_path, subfolder="scheduler"
+            )
+
+            self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                config.diffusion_name_or_path, subfolder="scheduler"
+            )
 
     def get_vision_tower(self):
         vision_tower = getattr(self, "vision_tower", None)
@@ -58,9 +71,8 @@ class Blip3oMetaModel:
             vision_tower = vision_tower[0]
         return vision_tower
 
-
     def get_sana(self):
-        sana = getattr(self, 'sana', None)
+        sana = getattr(self, "sana", None)
         if type(sana) is list:
             sana = sana[0]
         if sana is not None:
@@ -68,7 +80,7 @@ class Blip3oMetaModel:
         return sana
 
     def get_sana_vae(self):
-        sana_vae = getattr(self, 'sana_vae', None)
+        sana_vae = getattr(self, "sana_vae", None)
         if type(sana_vae) is list:
             sana_vae = sana_vae[0]
         if sana_vae is not None:
@@ -82,11 +94,13 @@ class Blip3oMetaModel:
         mm_patch_merge_type = model_args.mm_patch_merge_type
 
         self.config.mm_vision_tower = vision_tower
-        self.config.vision_tower_pretrained = getattr(model_args, "vision_tower_pretrained", "")
+        self.config.vision_tower_pretrained = getattr(
+            model_args, "vision_tower_pretrained", ""
+        )
 
         if self.get_vision_tower() is None:
             vision_tower = build_vision_tower(model_args)
-            
+
             if fsdp is not None and len(fsdp) > 0:
                 self.vision_tower = [vision_tower]
             else:
@@ -98,12 +112,14 @@ class Blip3oMetaModel:
                 vision_tower = self.vision_tower
             vision_tower.load_model()
 
-
         if self.get_sana() is None:
             sana = build_sana(model_args)
-            self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(model_args.diffusion_name_or_path, subfolder="scheduler"
+            self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                model_args.diffusion_name_or_path, subfolder="scheduler"
             )
-            self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(model_args.diffusion_name_or_path, subfolder="scheduler")
+            self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
+                model_args.diffusion_name_or_path, subfolder="scheduler"
+            )
 
             if fsdp is not None and len(fsdp) > 0:
                 self.sana = [sana]
@@ -114,7 +130,6 @@ class Blip3oMetaModel:
                 sana = self.sana[0]
             else:
                 sana = self.sana
-
 
         if self.get_sana_vae() is None:
             sana_vae = build_vae(model_args)
@@ -129,15 +144,24 @@ class Blip3oMetaModel:
             else:
                 sana_vae = self.sana_vae
 
-
-        if getattr(self, 'diffusion_connector', None) is None:
-            norm = RMSNorm(Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE, eps=1e-5, elementwise_affine=True)
+        if getattr(self, "diffusion_connector", None) is None:
+            norm = RMSNorm(
+                Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                eps=1e-5,
+                elementwise_affine=True,
+            )
             with torch.no_grad():
                 norm.weight.fill_(math.sqrt(5.5))
             self.diffusion_connector = nn.Sequential(
-                nn.Linear(self.config.hidden_size, Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE),
+                nn.Linear(
+                    self.config.hidden_size,
+                    Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                ),
                 nn.GELU(approximate="tanh"),
-                nn.Linear(Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE, Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE),
+                nn.Linear(
+                    Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                    Blip3oConstants.DIFFUSION_CONNECTOR_HIDDEN_SIZE,
+                ),
                 norm,
             )
         else:
@@ -152,35 +176,53 @@ class Blip3oMetaModel:
 
 
 class Blip3oMetaForCausalLM(ABC):
-
     @abstractmethod
     def get_model(self):
         pass
 
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
-    
-    def encode_images(self, images, modalities, pool_scale=None):
-        image_features = self.get_model().get_vision_tower()(images, pool_scale=pool_scale)
 
-        assert 'tokens' in image_features
-        image_tokens = image_features['tokens']
+    def encode_images(self, images, modalities, pool_scale=None):
+        image_features = self.get_model().get_vision_tower()(
+            images, pool_scale=pool_scale
+        )
+
+        assert "tokens" in image_features
+        image_tokens = image_features["tokens"]
 
         # discrete features for gen related tasks
         image_tokens = image_tokens + self.config.image_start_token_id
         image_features = self.get_model().embed_tokens(image_tokens)
 
-        return {'image_features': image_features, 'image_tokens': image_tokens}
+        return {"image_features": image_features, "image_tokens": image_tokens}
 
-    def prepare_inputs_labels_for_multimodal(self, input_ids, position_ids, attention_mask, past_key_values, labels, images, modalities=None, image_sizes=None):
+    def prepare_inputs_labels_for_multimodal(
+        self,
+        input_ids,
+        position_ids,
+        attention_mask,
+        past_key_values,
+        labels,
+        images,
+        modalities=None,
+        image_sizes=None,
+    ):
         vision_tower = self.get_vision_tower()
 
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
-            return input_ids, position_ids, attention_mask, past_key_values, None, labels
+            return (
+                input_ids,
+                position_ids,
+                attention_mask,
+                past_key_values,
+                None,
+                labels,
+            )
 
         if not isinstance(modalities, list):
             modalities = [modalities]
-        
+
         # random scale for training, but scale 1 for understanding evaluation
         if self.training:
             pool_scale = random.choice(vision_tower.pool_scales)
@@ -200,9 +242,11 @@ class Blip3oMetaForCausalLM(ABC):
 
             concat_images = torch.cat([image for image in images_list], dim=0)
             split_sizes = [image.shape[0] for image in images_list]
-            encoded_image_features = self.encode_images(concat_images, modalities, pool_scale=pool_scale)
-            image_tokens = encoded_image_features['image_tokens']
-            encoded_image_features = encoded_image_features['image_features']
+            encoded_image_features = self.encode_images(
+                concat_images, modalities, pool_scale=pool_scale
+            )
+            image_tokens = encoded_image_features["image_tokens"]
+            encoded_image_features = encoded_image_features["image_features"]
 
             # This is a list, each element is [num_images, patch * patch, dim]
             encoded_image_features = torch.split(encoded_image_features, split_sizes)
@@ -210,7 +254,7 @@ class Blip3oMetaForCausalLM(ABC):
                 image_tokens = torch.split(image_tokens, split_sizes)
             image_features = []
             for idx, image_feat in enumerate(encoded_image_features):
-                    image_features.append(image_feat)
+                image_features.append(image_feat)
 
             mm_patch_merge_type = getattr(self.config, "mm_patch_merge_type", "flat")
 
@@ -219,11 +263,15 @@ class Blip3oMetaForCausalLM(ABC):
                 if image_tokens is not None:
                     image_tokens = [x.flatten(0, 1) for x in image_tokens]
             else:
-                raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
+                raise ValueError(
+                    f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}"
+                )
         else:
-            image_features = self.encode_images(images, modalities, pool_scale=pool_scale)
-            image_tokens = image_features['image_tokens']
-            image_features = image_features['image_features']
+            image_features = self.encode_images(
+                images, modalities, pool_scale=pool_scale
+            )
+            image_tokens = image_features["image_tokens"]
+            image_features = image_features["image_features"]
         # Let's just add dummy tensors if they do not exist,
         # it is a headache to deal with None all the time.
         # But it is not ideal, and if you have a better idea,
@@ -236,14 +284,22 @@ class Blip3oMetaForCausalLM(ABC):
         else:
             attention_mask = attention_mask.bool()
         if position_ids is None:
-            position_ids = torch.arange(0, input_ids.shape[1], dtype=torch.long, device=input_ids.device)
+            position_ids = torch.arange(
+                0, input_ids.shape[1], dtype=torch.long, device=input_ids.device
+            )
         if labels is None:
             labels = torch.full_like(input_ids, Blip3oConstants.IGNORE_INDEX)
 
         # remove the padding using attention_mask -- FIXME
         _input_ids = input_ids
-        input_ids = [cur_input_ids[cur_attention_mask] for cur_input_ids, cur_attention_mask in zip(input_ids, attention_mask)]
-        labels = [cur_labels[cur_attention_mask] for cur_labels, cur_attention_mask in zip(labels, attention_mask)]
+        input_ids = [
+            cur_input_ids[cur_attention_mask]
+            for cur_input_ids, cur_attention_mask in zip(input_ids, attention_mask)
+        ]
+        labels = [
+            cur_labels[cur_attention_mask]
+            for cur_labels, cur_attention_mask in zip(labels, attention_mask)
+        ]
 
         new_input_embeds = []
         new_labels = []
@@ -256,21 +312,37 @@ class Blip3oMetaForCausalLM(ABC):
                 # cur_image_features = image_features[cur_image_idx]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids)
                 # cur_input_embeds = torch.cat([cur_input_embeds_1, cur_image_features[0:0]], dim=0)
-                cur_input_embeds = torch.cat([cur_input_embeds_1, cur_input_embeds_1[0:0]], dim=0)
+                cur_input_embeds = torch.cat(
+                    [cur_input_embeds_1, cur_input_embeds_1[0:0]], dim=0
+                )
                 new_input_embeds.append(cur_input_embeds)
                 new_labels.append(labels[batch_idx])
                 cur_image_idx += 1
                 continue
 
-            image_token_indices = [-1] + torch.where(cur_input_ids == Blip3oConstants.IMAGE_TOKEN_INDEX)[0].tolist() + [cur_input_ids.shape[0]]
+            image_token_indices = (
+                [-1]
+                + torch.where(cur_input_ids == Blip3oConstants.IMAGE_TOKEN_INDEX)[
+                    0
+                ].tolist()
+                + [cur_input_ids.shape[0]]
+            )
             cur_input_ids_noim = []
             cur_labels = labels[batch_idx]
             cur_labels_noim = []
             for i in range(len(image_token_indices) - 1):
-                cur_input_ids_noim.append(cur_input_ids[image_token_indices[i] + 1 : image_token_indices[i + 1]])
-                cur_labels_noim.append(cur_labels[image_token_indices[i] + 1 : image_token_indices[i + 1]])
+                cur_input_ids_noim.append(
+                    cur_input_ids[
+                        image_token_indices[i] + 1 : image_token_indices[i + 1]
+                    ]
+                )
+                cur_labels_noim.append(
+                    cur_labels[image_token_indices[i] + 1 : image_token_indices[i + 1]]
+                )
             split_sizes = [x.shape[0] for x in cur_labels_noim]
-            cur_input_embeds = self.get_model().embed_tokens(torch.cat(cur_input_ids_noim))
+            cur_input_embeds = self.get_model().embed_tokens(
+                torch.cat(cur_input_ids_noim)
+            )
             cur_input_embeds_no_im = torch.split(cur_input_embeds, split_sizes, dim=0)
             cur_new_input_embeds = []
             cur_new_labels = []
@@ -285,16 +357,32 @@ class Blip3oMetaForCausalLM(ABC):
                         rank0_print("Error image_features[cur_image_idx]!")
                         break
                     # [Assisant\n<start_image><image><end_image>]
-                    if self.config.image_start_tag_id == cur_labels_noim[i][-1] and image_tokens is not None:
+                    if (
+                        self.config.image_start_tag_id == cur_labels_noim[i][-1]
+                        and image_tokens is not None
+                    ):
                         cur_image_tokens = image_tokens[cur_image_idx]
                         if pool_scale is not None:
-                            pool_token = self.config.scale_start_token_id + pool_scale - 1
-                            pool_token = torch.tensor([pool_token], dtype=torch.long, device=cur_image_tokens.device)
+                            pool_token = (
+                                self.config.scale_start_token_id + pool_scale - 1
+                            )
+                            pool_token = torch.tensor(
+                                [pool_token],
+                                dtype=torch.long,
+                                device=cur_image_tokens.device,
+                            )
                             cur_image_tokens = torch.cat([pool_token, cur_image_tokens])
                             pool_embed = self.get_model().embed_tokens(pool_token)
-                            cur_image_features = torch.cat([pool_embed, cur_image_features])
+                            cur_image_features = torch.cat(
+                                [pool_embed, cur_image_features]
+                            )
                     else:
-                        cur_image_tokens = torch.full((cur_image_features.shape[0],), Blip3oConstants.IGNORE_INDEX, device=cur_labels.device, dtype=cur_labels.dtype)
+                        cur_image_tokens = torch.full(
+                            (cur_image_features.shape[0],),
+                            Blip3oConstants.IGNORE_INDEX,
+                            device=cur_labels.device,
+                            dtype=cur_labels.dtype,
+                        )
                     cur_image_idx += 1
                     cur_new_input_embeds.append(cur_image_features)
                     cur_new_labels.append(cur_image_tokens)
@@ -307,34 +395,83 @@ class Blip3oMetaForCausalLM(ABC):
             new_labels.append(cur_new_labels)
 
         # Truncate sequences to max length as image embeddings can make the sequence longer
-        tokenizer_model_max_length = getattr(self.config, "tokenizer_model_max_length", None)
+        tokenizer_model_max_length = getattr(
+            self.config, "tokenizer_model_max_length", None
+        )
 
-        new_input_embeds = [x[:tokenizer_model_max_length] for x, modality in zip(new_input_embeds, modalities)]
-        new_labels = [x[:tokenizer_model_max_length] for x, modality in zip(new_labels, modalities)]
+        new_input_embeds = [
+            x[:tokenizer_model_max_length]
+            for x, modality in zip(new_input_embeds, modalities)
+        ]
+        new_labels = [
+            x[:tokenizer_model_max_length]
+            for x, modality in zip(new_labels, modalities)
+        ]
 
         # Combine them
         max_len = max(x.shape[0] for x in new_input_embeds)
         batch_size = len(new_input_embeds)
 
         new_input_embeds_padded = []
-        new_labels_padded = torch.full((batch_size, max_len), Blip3oConstants.IGNORE_INDEX, dtype=new_labels[0].dtype, device=new_labels[0].device)
-        attention_mask = torch.zeros((batch_size, max_len), dtype=attention_mask.dtype, device=attention_mask.device)
-        position_ids = torch.zeros((batch_size, max_len), dtype=position_ids.dtype, device=position_ids.device)
+        new_labels_padded = torch.full(
+            (batch_size, max_len),
+            Blip3oConstants.IGNORE_INDEX,
+            dtype=new_labels[0].dtype,
+            device=new_labels[0].device,
+        )
+        attention_mask = torch.zeros(
+            (batch_size, max_len),
+            dtype=attention_mask.dtype,
+            device=attention_mask.device,
+        )
+        position_ids = torch.zeros(
+            (batch_size, max_len), dtype=position_ids.dtype, device=position_ids.device
+        )
 
-        for i, (cur_new_embed, cur_new_labels) in enumerate(zip(new_input_embeds, new_labels)):
+        for i, (cur_new_embed, cur_new_labels) in enumerate(
+            zip(new_input_embeds, new_labels)
+        ):
             cur_len = cur_new_embed.shape[0]
             if getattr(self.config, "tokenizer_padding_side", "right") == "left":
-                new_input_embeds_padded.append(torch.cat((torch.zeros((max_len - cur_len, cur_new_embed.shape[1]), dtype=cur_new_embed.dtype, device=cur_new_embed.device), cur_new_embed), dim=0))
+                new_input_embeds_padded.append(
+                    torch.cat(
+                        (
+                            torch.zeros(
+                                (max_len - cur_len, cur_new_embed.shape[1]),
+                                dtype=cur_new_embed.dtype,
+                                device=cur_new_embed.device,
+                            ),
+                            cur_new_embed,
+                        ),
+                        dim=0,
+                    )
+                )
                 if cur_len > 0:
                     new_labels_padded[i, -cur_len:] = cur_new_labels
                     attention_mask[i, -cur_len:] = True
-                    position_ids[i, -cur_len:] = torch.arange(0, cur_len, dtype=position_ids.dtype, device=position_ids.device)
+                    position_ids[i, -cur_len:] = torch.arange(
+                        0, cur_len, dtype=position_ids.dtype, device=position_ids.device
+                    )
             else:
-                new_input_embeds_padded.append(torch.cat((cur_new_embed, torch.zeros((max_len - cur_len, cur_new_embed.shape[1]), dtype=cur_new_embed.dtype, device=cur_new_embed.device)), dim=0))
+                new_input_embeds_padded.append(
+                    torch.cat(
+                        (
+                            cur_new_embed,
+                            torch.zeros(
+                                (max_len - cur_len, cur_new_embed.shape[1]),
+                                dtype=cur_new_embed.dtype,
+                                device=cur_new_embed.device,
+                            ),
+                        ),
+                        dim=0,
+                    )
+                )
                 if cur_len > 0:
                     new_labels_padded[i, :cur_len] = cur_new_labels
                     attention_mask[i, :cur_len] = True
-                    position_ids[i, :cur_len] = torch.arange(0, cur_len, dtype=position_ids.dtype, device=position_ids.device)
+                    position_ids[i, :cur_len] = torch.arange(
+                        0, cur_len, dtype=position_ids.dtype, device=position_ids.device
+                    )
 
         new_input_embeds = torch.stack(new_input_embeds_padded, dim=0)
 
@@ -351,39 +488,74 @@ class Blip3oMetaForCausalLM(ABC):
         if _position_ids is None:
             position_ids = None
         if getattr(self.config, "use_pos_skipping", False) and self.training:
-            position_ids = torch.arange(new_input_embeds.size(1), device=new_input_embeds.device).unsqueeze(0).to(new_input_embeds.device)
+            position_ids = (
+                torch.arange(new_input_embeds.size(1), device=new_input_embeds.device)
+                .unsqueeze(0)
+                .to(new_input_embeds.device)
+            )
             split_position = random.randint(0, new_input_embeds.size(1))
             left_add = random.randint(0, self.config.pos_skipping_range)
             right_add = random.randint(left_add, self.config.pos_skipping_range)
             position_ids[:, :split_position] += left_add
             position_ids[:, split_position:] += right_add
 
-        return None, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels
+        return (
+            None,
+            position_ids,
+            attention_mask,
+            past_key_values,
+            new_input_embeds,
+            new_labels,
+        )
 
     def initialize_vision_tokenizer(self, model_args, tokenizer):
         total_num_new_tokens = 0
         vocab_size = len(tokenizer)
         if model_args.mm_use_im_start_end:
-            num_new_tokens = tokenizer.add_tokens([Blip3oConstants.DEFAULT_IM_START_TOKEN, Blip3oConstants.DEFAULT_IM_END_TOKEN], special_tokens=True)
-            self.config.image_start_tag_id = tokenizer.convert_tokens_to_ids(Blip3oConstants.DEFAULT_IM_START_TOKEN)
-            self.config.image_end_tag_id = tokenizer.convert_tokens_to_ids(Blip3oConstants.DEFAULT_IM_END_TOKEN)
+            num_new_tokens = tokenizer.add_tokens(
+                [
+                    Blip3oConstants.DEFAULT_IM_START_TOKEN,
+                    Blip3oConstants.DEFAULT_IM_END_TOKEN,
+                ],
+                special_tokens=True,
+            )
+            self.config.image_start_tag_id = tokenizer.convert_tokens_to_ids(
+                Blip3oConstants.DEFAULT_IM_START_TOKEN
+            )
+            self.config.image_end_tag_id = tokenizer.convert_tokens_to_ids(
+                Blip3oConstants.DEFAULT_IM_END_TOKEN
+            )
             total_num_new_tokens += num_new_tokens
             self.resize_token_embeddings(vocab_size + total_num_new_tokens)
 
         if model_args.num_scale_tokens > 0:
-            scale_tokens = [model_args.scale_token_format.format(str(i)) for i in range(model_args.num_scale_tokens)]
+            scale_tokens = [
+                model_args.scale_token_format.format(str(i))
+                for i in range(model_args.num_scale_tokens)
+            ]
             num_new_tokens = tokenizer.add_tokens(scale_tokens, special_tokens=False)
-            self.config.scale_start_token_id = tokenizer.convert_tokens_to_ids(scale_tokens[0])
-            self.config.scale_end_token_id = tokenizer.convert_tokens_to_ids(scale_tokens[-1])
+            self.config.scale_start_token_id = tokenizer.convert_tokens_to_ids(
+                scale_tokens[0]
+            )
+            self.config.scale_end_token_id = tokenizer.convert_tokens_to_ids(
+                scale_tokens[-1]
+            )
             self.config.num_scale_tokens = model_args.num_scale_tokens
             total_num_new_tokens += num_new_tokens
             self.resize_token_embeddings(vocab_size + total_num_new_tokens)
 
         if model_args.num_image_tokens > 0:
-            image_tokens = [model_args.image_token_format.format(str(i)) for i in range(model_args.num_image_tokens)]
+            image_tokens = [
+                model_args.image_token_format.format(str(i))
+                for i in range(model_args.num_image_tokens)
+            ]
             num_new_tokens = tokenizer.add_tokens(image_tokens, special_tokens=False)
-            self.config.image_start_token_id = tokenizer.convert_tokens_to_ids(image_tokens[0])
-            self.config.image_end_token_id = tokenizer.convert_tokens_to_ids(image_tokens[-1])
+            self.config.image_start_token_id = tokenizer.convert_tokens_to_ids(
+                image_tokens[0]
+            )
+            self.config.image_end_token_id = tokenizer.convert_tokens_to_ids(
+                image_tokens[-1]
+            )
             self.config.num_image_tokens = model_args.num_image_tokens
 
             total_num_new_tokens += num_new_tokens
@@ -393,15 +565,25 @@ class Blip3oMetaForCausalLM(ABC):
             input_embeddings = self.get_input_embeddings().weight.data
             output_embeddings = self.get_output_embeddings().weight.data
 
-            input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(dim=0, keepdim=True)
-            output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(dim=0, keepdim=True)
+            input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(
+                dim=0, keepdim=True
+            )
+            output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
+                dim=0, keepdim=True
+            )
 
             input_embeddings[-num_new_tokens:] = input_embeddings_avg
             output_embeddings[-num_new_tokens:] = output_embeddings_avg
-        
+
             vision_tower = self.get_vision_tower()
-            if model_args.load_embeddings_from_vision and vision_tower is not None:                
+            if model_args.load_embeddings_from_vision and vision_tower is not None:
                 vision_embeddings = vision_tower.get_embedding()
-                if model_args.num_image_tokens == vision_embeddings.shape[0] and input_embeddings.shape[1] == vision_embeddings.shape[1]:
+                if (
+                    model_args.num_image_tokens == vision_embeddings.shape[0]
+                    and input_embeddings.shape[1] == vision_embeddings.shape[1]
+                ):
                     rank0_print("Load vision embeddings from vision tower.")
-                    input_embeddings[self.config.image_start_token_id:self.config.image_end_token_id+1] = vision_embeddings
+                    input_embeddings[
+                        self.config.image_start_token_id : self.config.image_end_token_id
+                        + 1
+                    ] = vision_embeddings

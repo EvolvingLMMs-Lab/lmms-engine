@@ -1,9 +1,13 @@
 # Adapted from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/model/language_model/blip3o_qwen.py
 
-from typing import  List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+from diffusers.training_utils import (
+    compute_density_for_timestep_sampling,
+    compute_loss_weighting_for_sd3,
+)
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -15,18 +19,19 @@ from transformers.generation.utils import GenerateOutput
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from .blip3o_arch import Blip3oMetaForCausalLM, Blip3oMetaModel
-from diffusers.training_utils import compute_density_for_timestep_sampling, compute_loss_weighting_for_sd3
 from .utils import rank0_print
 
 
 class Blip3oQwenConfig(Qwen3Config):
     model_type = "blip3o_qwen"
 
+
 class Blip3oQwenModel(Blip3oMetaModel, Qwen3Model):
     config_class = Blip3oQwenConfig
 
     def __init__(self, config: Qwen3Config):
         super(Blip3oQwenModel, self).__init__(config)
+
 
 class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
     config_class = Blip3oQwenConfig
@@ -59,12 +64,14 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
     def mask_drop(self, latents, drop_prob=0.1):
         if drop_prob <= 0:
             return latents
-        mask = torch.bernoulli(torch.zeros(latents.shape[0], device=latents.device, dtype=latents.dtype) + drop_prob)
+        mask = torch.bernoulli(
+            torch.zeros(latents.shape[0], device=latents.device, dtype=latents.dtype)
+            + drop_prob
+        )
         while len(mask.shape) < len(latents.shape):
             mask = mask.unsqueeze(-1)
         mask = 1 - mask  # need to flip 0 <-> 1
         return latents * mask
-
 
     def forward(
         self,
@@ -85,10 +92,24 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
         dpo_forward: Optional[bool] = False,
         cache_position=None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
-
-
         if inputs_embeds is None:
-            (input_ids, position_ids, attention_mask, past_key_values, inputs_embeds, labels) = self.prepare_inputs_labels_for_multimodal(input_ids, position_ids, attention_mask, past_key_values, labels, images, modalities, image_sizes)
+            (
+                input_ids,
+                position_ids,
+                attention_mask,
+                past_key_values,
+                inputs_embeds,
+                labels,
+            ) = self.prepare_inputs_labels_for_multimodal(
+                input_ids,
+                position_ids,
+                attention_mask,
+                past_key_values,
+                labels,
+                images,
+                modalities,
+                image_sizes,
+            )
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -111,8 +132,6 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
             shift_labels = shift_labels.view(-1)
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
-    
-
 
         if target_images is not None:
             vae = self.model.get_sana_vae()
@@ -130,45 +149,51 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
                 mode_scale=1.29,
             )
             indices = (u * self.model.noise_scheduler.config.num_train_timesteps).long()
-            timesteps = self.model.noise_scheduler.timesteps[indices].to(device=latents.device)
-            sigmas = self.get_sigmas(timesteps, latents.device, n_dim=latents.ndim, dtype=latents.dtype)
+            timesteps = self.model.noise_scheduler.timesteps[indices].to(
+                device=latents.device
+            )
+            sigmas = self.get_sigmas(
+                timesteps, latents.device, n_dim=latents.ndim, dtype=latents.dtype
+            )
             noisy_latents = (1.0 - sigmas) * latents + sigmas * noise
-            
+
             sana = self.model.get_sana()
 
+            start_pos = (labels == self.config.image_start_tag_id).float().argmax(dim=1)
+            end_pos = (labels == self.config.image_end_tag_id).float().argmax(dim=1)
 
-            start_pos = (labels == self.config.image_start_tag_id).float().argmax(dim=1)   
-            end_pos   = (labels == self.config.image_end_tag_id).float().argmax(dim=1)   
-
-            selected_hidden_states = []                       
-            for b in range(hidden_states.size(0)):          
-                start = start_pos[b].item() + 1         
-                end = end_pos[b].item()      
-                hidden_states_filter = hidden_states[b, start:end, :]      
+            selected_hidden_states = []
+            for b in range(hidden_states.size(0)):
+                start = start_pos[b].item() + 1
+                end = end_pos[b].item()
+                hidden_states_filter = hidden_states[b, start:end, :]
                 if hidden_states_filter.size(1) != 730:
                     hidden_states_filter = hidden_states[b, -730:, :]
-                selected_hidden_states.append(hidden_states_filter) 
+                selected_hidden_states.append(hidden_states_filter)
 
             selected_hidden_states = torch.stack(selected_hidden_states, dim=0)
             diffusion_pred = sana(
                 hidden_states=noisy_latents,
                 timestep=timesteps,
-                encoder_hidden_states=self.model.diffusion_connector(self.mask_drop(selected_hidden_states)),
+                encoder_hidden_states=self.model.diffusion_connector(
+                    self.mask_drop(selected_hidden_states)
+                ),
                 encoder_attention_mask=None,
             ).sample
 
             target = noise - latents
-            weighting = compute_loss_weighting_for_sd3(weighting_scheme=weighting_scheme, sigmas=sigmas)
+            weighting = compute_loss_weighting_for_sd3(
+                weighting_scheme=weighting_scheme, sigmas=sigmas
+            )
             diff_loss = torch.mean(
-                (weighting.float() * (diffusion_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1),
+                (
+                    weighting.float() * (diffusion_pred.float() - target.float()) ** 2
+                ).reshape(target.shape[0], -1),
                 1,
             )
             diff_loss = diff_loss.mean()
             rank0_print(f" Cross-entropy loss {loss}, Diffusion loss {diff_loss} ")
             loss += diff_loss
-
-
-
 
         return CausalLMOutputWithPast(
             loss=loss,
@@ -177,7 +202,6 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
 
     @torch.no_grad()
     def generate(
@@ -194,17 +218,43 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
             raise NotImplementedError("`inputs_embeds` is not supported")
 
         if images is not None:
-            (inputs, position_ids, attention_mask, _, inputs_embeds, _) = self.prepare_inputs_labels_for_multimodal(inputs, position_ids, attention_mask, None, None, images, modalities, image_sizes=image_sizes)
+            (
+                inputs,
+                position_ids,
+                attention_mask,
+                _,
+                inputs_embeds,
+                _,
+            ) = self.prepare_inputs_labels_for_multimodal(
+                inputs,
+                position_ids,
+                attention_mask,
+                None,
+                None,
+                images,
+                modalities,
+                image_sizes=image_sizes,
+            )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
-        return super().generate(position_ids=position_ids, attention_mask=attention_mask, inputs_embeds=inputs_embeds, **kwargs)
+        return super().generate(
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            **kwargs,
+        )
 
-
-
-    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
+    def prepare_inputs_for_generation(
+        self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs
+    ):
         images = kwargs.pop("images", None)
         image_sizes = kwargs.pop("image_sizes", None)
-        inputs = super().prepare_inputs_for_generation(input_ids, past_key_values=past_key_values, inputs_embeds=inputs_embeds, **kwargs)
+        inputs = super().prepare_inputs_for_generation(
+            input_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            **kwargs,
+        )
         if images is not None:
             inputs["images"] = images
         if image_sizes is not None:
