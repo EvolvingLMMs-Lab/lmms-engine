@@ -9,7 +9,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import yaml
-from transformers import Trainer
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
@@ -29,8 +28,11 @@ from ..models.monkey_patch import (
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
+from .dllm_trainer import DLLMTrainer
 from .fsdp2_trainer import FSDP2SFTTrainer
 from .trainer import Trainer
+
+# from transformers import Trainer
 
 
 class TrainRunner:
@@ -87,7 +89,9 @@ class TrainRunner:
                     k: v for k, v in load_from_config.items() if k != "model_type"
                 }
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class(m_config)
+            model = model_class.from_config(
+                m_config, attn_implementation=self.model_config.attn_implementation
+            )
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."
@@ -239,10 +243,13 @@ class TrainRunner:
             trainer_cls = Trainer
         elif self.config.trainer_type == "fsdp2_trainer":
             trainer_cls = FSDP2SFTTrainer
+        elif self.config.trainer_type == "dllm_trainer":
+            trainer_cls = DLLMTrainer
         else:
             raise ValueError(
                 f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"
             )
+        from transformers.trainer_pt_utils import AcceleratorConfig
 
         trainer = trainer_cls(
             model=self.model,
