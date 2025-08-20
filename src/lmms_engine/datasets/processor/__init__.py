@@ -15,6 +15,7 @@ __all__ = [
     "LLaVADataProcessor",
     "Qwen2_5_VLDataProcessor",
     "Qwen2VLDataProcessor",
+    "WanVideoDataProcessor",
     "PureTextDataProcessor",
     "Qwen2DataProcessor",
     "WanVideoDataProcessor",
