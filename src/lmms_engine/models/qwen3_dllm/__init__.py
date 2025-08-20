@@ -23,7 +23,7 @@ register_model(
     "qwen3_dllm",
     Qwen3DLLMConfig,
     Qwen3DLLMForMaskedLM,
-    is_masked_lm=True,
+    model_general_type="masked_lm",
 )
 
 __all__ = ["Qwen3DLLMConfig", "Qwen3DLLMForMaskedLM"]

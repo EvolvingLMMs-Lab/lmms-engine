@@ -48,7 +48,16 @@ def create_train_task(config):
         tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
     )
 
-    trainer_args = TrainingArguments(**config)
+    # Extract trainer args from config, handling nested structure
+    trainer_args_dict = config.pop("trainer_args", {})
+    # If trainer_args is empty, use remaining config as trainer args
+    if not trainer_args_dict:
+        trainer_args_dict = config.copy()
+        # Remove non-trainer argument keys
+        for key in ["sp_ulysses_degree", "use_cpu"]:
+            trainer_args_dict.pop(key, None)
+
+    trainer_args = TrainingArguments(**trainer_args_dict)
 
     train_config = TrainerConfig(
         dataset_config=dataset_config,

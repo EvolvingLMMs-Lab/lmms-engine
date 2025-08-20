@@ -1,7 +1,7 @@
 import torch
 from transformers import PretrainedConfig
 
-from lmms_engine.utils import TrainUtilities
+from lmms_engine.utils import Logging, TrainUtilities
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
@@ -44,7 +44,7 @@ class FlopsCounter:
 
     def __init__(self, config: PretrainedConfig):
         if config.model_type not in VALID_CONFIG_TYPE:
-            print(
+            Logging.warning(
                 f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be "
                 f"zero."
             )

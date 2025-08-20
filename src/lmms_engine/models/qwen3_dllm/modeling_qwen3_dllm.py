@@ -17,7 +17,7 @@ from transformers.modeling_outputs import BaseModelOutput, MaskedLMOutput
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
-from transformers.utils import TransformersKwargs, auto_docstring, can_return_tuple
+from transformers.utils import TransformersKwargs, can_return_tuple
 from transformers.utils.generic import check_model_inputs
 
 from .configuration_qwen3_dllm import Qwen3DLLMConfig
@@ -213,7 +213,6 @@ class Qwen3DLLMAttention(nn.Module):
         #     key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         attention_interface: Callable = eager_attention_forward
-
         if self.config._attn_implementation != "eager":
             attention_interface = ALL_ATTENTION_FUNCTIONS[
                 self.config._attn_implementation
@@ -288,7 +287,6 @@ class Qwen3DLLMDecoderLayer(GradientCheckpointingLayer):
         return hidden_states
 
 
-@auto_docstring
 class Qwen3DLLMPreTrainedModel(PreTrainedModel):
     config: Qwen3DLLMConfig
     base_model_prefix = "model"
@@ -354,7 +352,6 @@ class Qwen3DLLMRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-@auto_docstring
 class Qwen3DLLMModel(Qwen3DLLMPreTrainedModel):
     def __init__(self, config: Qwen3DLLMConfig):
         super().__init__(config)
@@ -378,7 +375,6 @@ class Qwen3DLLMModel(Qwen3DLLMPreTrainedModel):
         self.post_init()
 
     @check_model_inputs
-    @auto_docstring
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -419,17 +415,14 @@ class Qwen3DLLMModel(Qwen3DLLMPreTrainedModel):
                 attention_mask[:, None, None, :].repeat(1, 1, seq_len, 1).bool()
             )
             min_dtype = torch.finfo(inputs_embeds.dtype).min
-            # we need 0s where the tokens should be taken into account, and -inf otherwise (mask is already of boolean type)
-            attn_mask_float = torch.where(
+            attention_mask = torch.where(
                 attn_mask_bool,
                 torch.tensor(
                     0.0, device=inputs_embeds.device, dtype=inputs_embeds.dtype
                 ),
                 min_dtype,
             )
-            mask_mapping = {
-                "full_attention": attn_mask_float,
-            }
+        mask_mapping = {"full_attention": attention_mask}
         hidden_states = inputs_embeds
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)

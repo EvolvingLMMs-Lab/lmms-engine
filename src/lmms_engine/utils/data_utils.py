@@ -6,6 +6,7 @@ from typing import Dict, List, Literal, Tuple, Union
 
 import jsonlines
 import numpy as np
+import pandas as pd
 import yaml
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from librosa import resample
@@ -37,26 +38,36 @@ class DataUtilities:
         return data_list
 
     @staticmethod
-    def maybe_load_json_or_jsonlines(
-        path: str, data_type: Literal["json", "jsonl"]
+    def load_csv(path: str) -> List[Dict[str, str]]:
+        """Load CSV file and convert to list of dictionaries."""
+        df = pd.read_csv(path)
+        # Convert DataFrame to list of dictionaries
+        data_list = df.to_dict("records")
+        return data_list
+
+    @staticmethod
+    def maybe_load_json_or_jsonlines_or_csv(
+        path: str, data_type: Literal["json", "jsonl", "csv"]
     ) -> List[Dict[str, List]]:
         if data_type == "json":
             return DataUtilities.load_json(path)
         elif data_type == "jsonl":
             return DataUtilities.load_jsonlines(path)
+        elif data_type == "csv":
+            return DataUtilities.load_csv(path)
         else:
             raise NotImplementedError
 
     @staticmethod
     def maybe_load_by_type(
-        path: str, data_type: Literal["json", "jsonl", "arrow"]
+        path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]
     ) -> Union[List[Dict[str, List]], Dataset]:
         if data_type == "arrow":
             dataset = load_from_disk(path)
         elif data_type == "parquet":
             dataset = Dataset.from_parquet(path)
         else:
-            dataset = DataUtilities.maybe_load_json_or_jsonlines(path, data_type)
+            dataset = DataUtilities.maybe_load_json_or_jsonlines_or_csv(path, data_type)
 
         # Force to load in Dataset format if load in yaml
         # For better streaming data
