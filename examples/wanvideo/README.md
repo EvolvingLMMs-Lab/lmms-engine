@@ -24,6 +24,10 @@ The implementation currently supports the following WanVideo model configuration
 
 Organize your video dataset in CSV format with the following structure:
 
+```bash
+modelscope download --dataset DiffSynth-Studio/example_video_dataset --local_dir ./data/example_video_dataset
+```
+
 #### For T2V (Text-to-Video) training:
 ```csv
 video,prompt
