@@ -1,0 +1,172 @@
+# WanVideo 2.1 T2V 14B Training Configuration
+# Large-scale Text-to-Video generation model
+
+- task_type: trainer
+  config:
+    trainer_type: hf_trainer
+    
+    # Dataset configuration
+    dataset_config:
+      dataset_type: vision
+      dataset_format: json
+      dataset_path: data/example_video_dataset/metadata.json
+      video_sampling_strategy: frame_num
+      frame_num: 49
+      shuffle: false
+      video_backend: qwen_vl_utils
+      
+      # Processor configuration
+      processor_config:
+        processor_name: WanVideo/Wan2.1-T2V-3B
+        processor_type: wanvideo
+        kwargs:
+          do_resize: true
+          size:
+            height: 480
+            width: 832
+          do_normalize: true
+          image_mean: [0.5, 0.5, 0.5]
+          image_std: [0.5, 0.5, 0.5]
+          
+    model_config:
+      load_from_config:
+        model_type: wanvideo
+        config:
+          # model_variant: "Wan2.1-T2V-1.3B"
+          # model_size: "1.3B"
+          # DiT model parameters
+          dit_hidden_size: 2432
+          dit_num_layers: 28
+          dit_num_heads: 19
+          dit_patch_size: 2
+          dit_patch_size_t: 1
+          dit_in_channels: 16
+          dit_mlp_ratio: 4.0
+          dit_qk_norm: true
+          dit_enable_flash_attn: true
+          dit_rope_scaling_factor: 2.0
+          dit_temporal_rope_scaling_factor: 2.0
+          
+          # VAE parameters
+          vae_latent_channels: 16
+          vae_scaling_factor: 0.33208
+          
+          # Text encoder
+          text_encoder_model: "umt5-xxl-enc"
+          text_encoder_hidden_size: 4096
+          max_text_length: 256
+          
+          # Training parameters
+          num_train_timesteps: 1000
+          scheduler_type: "flow_match"
+          scheduler_shift: 5
+          # gradient_checkpointing: true
+          
+          # Generation defaults
+          num_frames: 49
+          height: 480
+          width: 832
+          fps: 15
+          guidance_scale: 5.0
+          num_inference_steps: 20
+
+    # Model configuration
+    # model_config:
+    #   load_from_config:
+    #     model_type: wanvideo
+    #     model_variant: "Wan2.1-T2V-14B"
+    #     model_size: "14B"
+        
+    #     # DiT model parameters for 14B
+    #     dit_hidden_size: 5120
+    #     dit_num_layers: 48
+    #     dit_num_heads: 40
+    #     dit_patch_size: 2
+    #     dit_patch_size_t: 1
+    #     dit_in_channels: 16
+    #     dit_mlp_ratio: 4.0
+    #     dit_qk_norm: true
+    #     dit_enable_flash_attn: true
+    #     dit_rope_scaling_factor: 2.0
+    #     dit_temporal_rope_scaling_factor: 2.0
+        
+    #     # VAE parameters
+    #     vae_latent_channels: 16
+    #     vae_scaling_factor: 0.33208
+        
+    #     # Text encoder
+    #     text_encoder_model: "umt5-xxl-enc"
+    #     text_encoder_hidden_size: 4096
+    #     max_text_length: 256
+        
+    #     # Training parameters
+    #     num_train_timesteps: 1000
+    #     scheduler_type: "flow_match"
+    #     scheduler_shift: 5
+    #     gradient_checkpointing: true
+        
+    #     # LoRA configuration for efficient training
+    #     use_lora: true
+    #     lora_rank: 128
+    #     lora_target_modules: ["q", "k", "v", "o", "ffn.0", "ffn.2"]
+        
+    #     # Generation defaults
+    #     num_frames: 49
+    #     height: 480
+    #     width: 832
+    #     fps: 15
+    #     guidance_scale: 5.0
+    #     num_inference_steps: 20
+    #     attn_implementation: flash_attention_2
+      
+      # Optional: Load pretrained weights
+      # load_from_pretrained_path: "Wan-AI/Wan2.1-T2V-14B"
+      
+    # Training arguments
+    # trainer_args:
+    output_dir: "./output/wan2.1_t2v_3b"
+    num_train_epochs: 2
+    per_device_train_batch_size: 1
+    per_device_eval_batch_size: 1
+    gradient_accumulation_steps: 16  # Higher for 14B model
+    
+    learning_rate: 5.0e-6  # Lower LR for larger model
+    weight_decay: 0.01
+    warmup_steps: 1000
+    lr_scheduler_type: "cosine"
+    
+    logging_steps: 10
+    save_steps: 250
+    save_total_limit: 2
+    
+    dataloader_num_workers: 4
+    run_name: lmms_engine_wan2.1_t2v_3b_demo_test
+    fp16: false
+    bf16: true
+    tf32: true
+    
+    seed: 42
+    
+    # Optimization
+    optim: "adamw_torch"
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_epsilon: 1.0e-8
+    
+    # Evaluation
+    # eval_strategy: "steps"
+    # eval_steps: 250
+    sp_ulysses_degree: 1
+    # Gradient clipping
+    max_grad_norm: 0.5  # More aggressive clipping for stability
+    
+    # FSDP configuration for multi-GPU training
+    fsdp: "full_shard auto_wrap"
+    fsdp_config:
+      backward_prefetch: "backward_pre"
+      forward_prefetch: true
+      use_orig_params: false
+      cpu_ram_efficient_loading: true
+      sync_module_states: true
+      limit_all_gathers: true
+      activation_checkpointing: true
