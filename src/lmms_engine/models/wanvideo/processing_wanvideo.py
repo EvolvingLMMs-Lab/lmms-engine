@@ -225,6 +225,7 @@ class WanVideoImageProcessor(BaseImageProcessor):
             if len(processed_images.shape) == 4:  # (T, H, W, C)
                 processed_images = processed_images.permute(3, 0, 1, 2)
                 # Add batch dimension
+
             processed_images = processed_images.unsqueeze(0)
 
         return {"pixel_values": processed_images}
@@ -249,6 +250,7 @@ class WanVideoProcessor:
     def __init__(self, image_processor=None, tokenizer=None, **kwargs):
         if image_processor is None:
             image_processor = WanVideoImageProcessor(**kwargs)
+
         if tokenizer is None:
             # Default to T5 tokenizer for text encoding
             try:

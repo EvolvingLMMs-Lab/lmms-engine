@@ -67,11 +67,17 @@ def model_forward(
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-    original_input_ids = input_ids
     if cu_seq_lens is None and input_ids is not None:
+        original_inputs = input_ids
         input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
             input_ids, attention_mask
         )
+    elif cu_seq_lens is None and inputs_embeds is not None:
+        original_inputs = inputs_embeds
+        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
+            inputs_embeds, attention_mask
+        )
+    bs, seqlen = original_inputs.shape[:2]
 
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
@@ -85,13 +91,13 @@ def model_forward(
         )
         cache_position = torch.arange(
             past_seen_tokens,
-            past_seen_tokens + original_input_ids.shape[1],
+            past_seen_tokens + seqlen,
             device=inputs_embeds.device,
         )
 
     if position_ids is None:
         position_ids = cache_position.unsqueeze(0)
-    position_ids = position_ids.repeat_interleave(original_input_ids.shape[0], dim=0)
+    position_ids = position_ids.repeat_interleave(bs, dim=0)
 
     position_ids = index_first_axis(
         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
@@ -102,7 +108,7 @@ def model_forward(
         # Prepare mask arguments
         mask_kwargs = {
             "config": self.config,
-            "input_embeds": original_input_ids,  # Use original input ids to prepare mask
+            "input_embeds": original_inputs,  # Use original input ids to prepare mask
             "attention_mask": attention_mask,
             "cache_position": cache_position,
             "past_key_values": past_key_values,

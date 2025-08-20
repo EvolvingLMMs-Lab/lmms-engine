@@ -1,5 +1,5 @@
-# WanVideo 2.1 T2V 14B Training Configuration
-# Large-scale Text-to-Video generation model
+# WanVideo 2.1 T2V 1.3B Training Configuration
+# Text-to-Video generation model configuration
 
 - task_type: trainer
   config:
@@ -11,7 +11,7 @@
       dataset_format: csv
       dataset_path: data/example_video_dataset/metadata.csv
       video_sampling_strategy: frame_num
-      frame_num: 49
+      frame_num: 49  # Default number of frames
       video_backend: qwen_vl_utils
       
       # Processor configuration
@@ -29,13 +29,13 @@
     model_config:
       load_from_config:
         model_type: wanvideo
-        model_variant: "Wan2.1-T2V-14B"
-        model_size: "14B"
+        model_variant: "Wan2.1-T2V-1.3B"
+        model_size: "1.3B"
         
-        # DiT model parameters for 14B
-        dit_hidden_size: 5120
-        dit_num_layers: 48
-        dit_num_heads: 40
+        # DiT model parameters
+        dit_hidden_size: 2432
+        dit_num_layers: 28
+        dit_num_heads: 19
         dit_patch_size: 2
         dit_patch_size_t: 1
         dit_in_channels: 16
@@ -60,11 +60,6 @@
         scheduler_shift: 5
         gradient_checkpointing: true
         
-        # LoRA configuration for efficient training
-        use_lora: true
-        lora_rank: 128
-        lora_target_modules: ["q", "k", "v", "o", "ffn.0", "ffn.2"]
-        
         # Generation defaults
         num_frames: 49
         height: 480
@@ -74,26 +69,27 @@
         num_inference_steps: 20
       
       # Optional: Load pretrained weights
-      # load_from_pretrained_path: "Wan-AI/Wan2.1-T2V-14B"
+      # load_from_pretrained_path: "Wan-AI/Wan2.1-T2V-1.3B"
       
       attn_implementation: flash_attention_2
     
     # Training arguments
     trainer_args:
-      output_dir: "./output/wan2.1_t2v_14b"
-      num_train_epochs: 2
+      output_dir: "./output/wan2.1_t2v_1.3b"
+      num_train_epochs: 3
       per_device_train_batch_size: 1
       per_device_eval_batch_size: 1
-      gradient_accumulation_steps: 16  # Higher for 14B model
+      gradient_accumulation_steps: 8
+      gradient_checkpointing: true
       
-      learning_rate: 5.0e-6  # Lower LR for larger model
+      learning_rate: 1.0e-5
       weight_decay: 0.01
-      warmup_steps: 1000
+      warmup_steps: 500
       lr_scheduler_type: "cosine"
       
       logging_steps: 10
-      save_steps: 250
-      save_total_limit: 2
+      save_steps: 500
+      save_total_limit: 3
       
       dataloader_num_workers: 4
       
@@ -111,18 +107,16 @@
       
       # Evaluation # currently do not support evaluation in wan video training
       # eval_strategy: "steps"
-      # eval_steps: 250
+      # eval_steps: 500
+      
+      # Checkpointing
+      resume_from_checkpoint: null
       
       # Gradient clipping
-      max_grad_norm: 0.5  # More aggressive clipping for stability
+      max_grad_norm: 1.0
       
-      # FSDP configuration for multi-GPU training
-      fsdp: "full_shard auto_wrap"
-      fsdp_config:
-        backward_prefetch: "backward_pre"
-        forward_prefetch: true
-        use_orig_params: false
-        cpu_ram_efficient_loading: true
-        sync_module_states: true
-        limit_all_gathers: true
-        activation_checkpointing: true
+      # FSDP settings (if using multi-GPU)
+      # fsdp: null
+      
+      # DeepSpeed settings (alternative to FSDP)
+      # deepspeed: null
