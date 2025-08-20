@@ -8,7 +8,7 @@ WanVideo is a family of diffusion-based video generation models that support:
 - **Text-to-Video (T2V)**: Generate videos from text descriptions
 - **Image-to-Video (I2V)**: Generate videos from a starting image
 - **Video-to-Video (V2V)**: Transform existing videos with text guidance
-- **VACE**: Video aesthetic and consistency enhancement
+- **VACE**: Video All-in-one Creation and Editing model
 - **Fun Controls**: Advanced control mechanisms for video generation
 
 ## Model Variants
@@ -67,14 +67,14 @@ python -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
 ```bash
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
     --master_addr="127.0.0.1" --master_port="8000" \
-    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_14b.yaml
+    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Multi-GPU Training with Accelerate
 
 ```bash
 accelerate launch --use_fsdp \
-    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_14b.yaml
+    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Resume Training
