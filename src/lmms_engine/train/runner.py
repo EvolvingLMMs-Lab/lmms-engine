@@ -128,26 +128,31 @@ class TrainRunner:
             Logging.info(f"Try to apply liger kernel on the model {model_type}")
             _apply_liger_kernel_to_instance(self.model)
         else:
-            # If not, we probe whether lm can apply
             Logging.info(
-                f"Not found model class, Try to apply liger kernel on the language model of the model {model_type}"
+                f"Try to apply custom liger kernel on the language model of the model {model_type}"
             )
             try:
-                model_type = getattr(
-                    self.model.language_model, "config", None
-                ) and getattr(self.model.language_model.config, "model_type", None)
-                _apply_liger_kernel_to_instance(self.model.language_model)
-                if model_type and model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
-                    Logging.info(
-                        f"Successfully apply liger kernels to model type {model_type}"
-                    )
-                else:
-                    Logging.info(
-                        f"Cannot find model type {model_type} in MODEL_TYPE_TO_APPLY_LIGER_FN, skip applying liger kernels"
-                    )
+                _apply_liger_kernel_to_custom_instance(
+                    self.model.language_model, **kwargs
+                )
+                Logging.info(
+                    f"Successfully apply custom liger kernel on the language model of the model {model_type}"
+                )
+                return
             except Exception as e:
                 Logging.error(
-                    f"Try to apply liger kernel on the language model of the model, but failed with exceptions : \n {e}"
+                    f"Try to apply custom liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
+                )
+
+            try:
+                _apply_liger_kernel_to_instance(self.model.language_model)
+                Logging.info(
+                    f"Successfully apply liger kernel on the language model of the model {model_type}"
+                )
+                return
+            except Exception as e:
+                Logging.error(
+                    f"Try to apply liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
                 )
 
     def _load_mm_projector(self):
