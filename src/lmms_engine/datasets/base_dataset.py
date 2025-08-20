@@ -59,7 +59,24 @@ class BaseDataset(Dataset):
         super().__init__()
         self.processor_config = config.processor_config
         if isinstance(self.processor_config, dict):
-            self.processor_config = ProcessorConfig(**self.processor_config)
+            # Extract only the fields that ProcessorConfig accepts
+            processor_config_dict = {}
+            valid_fields = {'processor_name', 'processor_type', 'max_pixels', 'min_pixels'}
+            
+            for key, value in self.processor_config.items():
+                if key in valid_fields:
+                    processor_config_dict[key] = value
+            
+            # Set processor_name to processor_type if not provided
+            if 'processor_name' not in processor_config_dict and 'processor_type' in processor_config_dict:
+                processor_config_dict['processor_name'] = processor_config_dict['processor_type']
+            
+            # Store the full config dict for the processor to use
+            self.full_processor_config = config.processor_config
+            self.processor_config = ProcessorConfig(**processor_config_dict)
+        else:
+            # If it's already a ProcessorConfig object, no need for full_processor_config
+            self.full_processor_config = None
         self.config = config
         if self.config.object_storage == "gcs":
             self.storage_client = Client()
@@ -72,7 +89,9 @@ class BaseDataset(Dataset):
 
     def _build_processor(self):
         processor_cls = DATAPROCESSOR_MAPPING[self.processor_config.processor_type]
-        processor = processor_cls(self.processor_config)
+        # Pass the full config dict if available, otherwise fall back to processor_config
+        config_to_pass = getattr(self, 'full_processor_config', self.processor_config)
+        processor = processor_cls(config_to_pass)
         return processor
 
     def build(self):

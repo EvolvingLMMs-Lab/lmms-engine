@@ -78,5 +78,5 @@ def create_model_from_config(model_type, config):
     elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
         model_class = AutoModelForMaskedLM
     else:
-        raise ValueError(f"Model type '{model_type}' is not supported.")
+        raise ValueError(f"Model type '{model_type}' is not found in CONFIG_MAPPING.")
     return model_class, m_config

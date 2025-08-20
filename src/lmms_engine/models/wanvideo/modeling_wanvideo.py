@@ -158,6 +158,7 @@ class WanDiTBlock(nn.Module):
     def __init__(self, config: WanVideoConfig, layer_idx: int):
         super().__init__()
         self.layer_idx = layer_idx
+        self.gradient_checkpointing = False
         hidden_size = config.dit_hidden_size
         
         self.norm1 = RMSNorm(hidden_size)
@@ -208,6 +209,7 @@ class WanDiT(nn.Module):
     def __init__(self, config: WanVideoConfig):
         super().__init__()
         self.config = config
+        self.gradient_checkpointing = False
         
         # Patch embedding
         self.patch_embed = nn.Conv3d(
@@ -317,7 +319,7 @@ class WanDiT(nn.Module):
         
         # Apply transformer blocks
         for block in self.blocks:
-            if use_gradient_checkpointing and self.training:
+            if (use_gradient_checkpointing or self.gradient_checkpointing) and self.training:
                 x = torch.utils.checkpoint.checkpoint(
                     block, x, cond_emb, None, None
                 )
@@ -339,12 +341,24 @@ class WanVideoPreTrainedModel(PreTrainedModel):
     base_model_prefix = "wanvideo"
     supports_gradient_checkpointing = True
     _no_split_modules = ["WanDiTBlock"]
+    _supports_gradient_checkpointing = True
     
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Conv3d)):
             module.weight.data.normal_(mean=0.0, std=0.02)
             if module.bias is not None:
                 module.bias.data.zero_()
+                
+    def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func=None):
+        if enable:
+            self.gradient_checkpointing = True
+            # Set gradient checkpointing for DiT module
+            if hasattr(self, 'dit'):
+                self.dit.gradient_checkpointing = True
+        else:
+            self.gradient_checkpointing = False
+            if hasattr(self, 'dit'):
+                self.dit.gradient_checkpointing = False
                 
 
 class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
