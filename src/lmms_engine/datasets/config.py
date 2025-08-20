@@ -7,7 +7,7 @@ from .processor import ProcessorConfig
 @dataclass
 class DatasetConfig:
     dataset_type: Literal["vision", "vision_audio"]
-    dataset_format: Literal["json", "jsonl", "yaml", "hf_dataset", "arrow"]
+    dataset_format: Literal["json", "jsonl", "csv", "yaml", "hf_dataset", "arrow"]
     processor_config: Union[dict, ProcessorConfig]
     dataset_path: Optional[str] = None  # Optional - used for external files
     datasets: Optional[List[dict]] = None  # Optional - used for inline YAML definitions

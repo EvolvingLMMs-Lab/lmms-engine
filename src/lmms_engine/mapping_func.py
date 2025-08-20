@@ -1,5 +1,8 @@
+from typing import Literal
+
 from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
+    AutoModel,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
     AutoModelForMaskedLM,
@@ -9,6 +12,7 @@ from transformers.modeling_utils import PreTrainedModel
 
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
+
 from lmms_engine.utils import Logging
 
 try:
@@ -39,17 +43,24 @@ def register_dataset(dataset_type: str):
     return decorator
 
 
+AUTO_REGISTER_MODEL_MAPPING = {
+    "causal_lm": AutoModelForCausalLM,
+    "masked_lm": AutoModelForMaskedLM,
+    "image_text_to_text": AutoModelForImageTextToText,
+    "general": AutoModel,
+}
+
+
 def register_model(
     model_type: str,
     model_config: PretrainedConfig,
     model_class: PreTrainedModel,
-    is_masked_lm: bool = False,
+    model_general_type: Literal[
+        "causal_lm", "masked_lm", "image_text_to_text", "general"
+    ] = "causal_lm",
 ):
     AutoConfig.register(model_type, model_config)
-    if is_masked_lm:
-        AutoModelForMaskedLM.register(model_config, model_class)
-    else:
-        AutoModelForCausalLM.register(model_config, model_class)
+    AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
 
 def create_model_from_pretrained(load_from_pretrained_path):
@@ -61,6 +72,8 @@ def create_model_from_pretrained(load_from_pretrained_path):
         model_class = AutoModelForImageTextToText
     elif type(config) in AutoModelForMaskedLM._model_mapping.keys():
         model_class = AutoModelForMaskedLM
+    elif type(config) in AutoModel._model_mapping.keys():
+        model_class = AutoModel
     else:
         raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
     return model_class
@@ -69,14 +82,26 @@ def create_model_from_pretrained(load_from_pretrained_path):
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-    config_class = CONFIG_MAPPING[model_type]
-    m_config = config_class(**config)
-    if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
-        model_class = AutoModelForCausalLM
-    elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
-        model_class = AutoModelForImageTextToText
-    elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
-        model_class = AutoModelForMaskedLM
+    # Special handling for WanVideo model
+    # if model_type == "wanvideo":
+    #     from lmms_engine.models.wanvideo import (
+    #         WanVideoConfig,
+    #         WanVideoForConditionalGeneration,
+    #     )
+    #     m_config = WanVideoConfig(**config)
+    #     return WanVideoForConditionalGeneration, m_config
+    # Handle other models through AutoModel
+    if model_type in CONFIG_MAPPING:
+        config_class = CONFIG_MAPPING[model_type]
+        m_config = config_class(**config)
+        if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
+            model_class = AutoModelForCausalLM
+        elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
+            model_class = AutoModelForImageTextToText
+        elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
+            model_class = AutoModelForMaskedLM
+        elif type(m_config) in AutoModel._model_mapping.keys():
+            model_class = AutoModel
     else:
-        raise ValueError(f"Model type '{model_type}' is not supported.")
+        raise ValueError(f"Model type '{model_type}' is not found in CONFIG_MAPPING.")
     return model_class, m_config

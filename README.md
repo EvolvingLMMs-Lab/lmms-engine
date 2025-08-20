@@ -7,55 +7,8 @@ Training framework for LMMs-Lab.
 Installation is simple
 
 ```bash
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -e .
+uv sync
 ```
-
-### Sequence Packing
-
-Sequence packing is a techniques to accelerate the training process by removing the pad. With it enabled, it will boost the training performance quickly. Currently the implementation is being fused with liger-kernel and being patched to the model's forward during training. Thus, we might need to validate the operations. Current sequence packing ops are all written in flash-attn with the `var_len` function so we need to install `flash-attn` and `liger-kernel` to use it. If you currently use the fully unpadding techniques start from the input ids, the MFU can reach to about 35-40 under ideal settings. Normally, in most of the cases, a range between 25-35 would be normal
-
-#### Current Supported Ops
-
-- Qwen2 or 2.5 LM series
-- Qwen2.5 VL
-- QwenAudioEncoder
-
-To use rmpad, you should install flash-attn also. You can do it by
-
-```bash
-uv pip install flash-attn --no-build-isolation
-```
-
-If you encounter any issue for example symbol not found. This is possibly because of the flash-attn has been compiled on the wrong torch version. You can run
-
-```bash
-uv pip install --no-build-isolation --no-cache-dir flash-attn
-```
-
-To use it, you will need to set
-
-```yaml
-use_liger_kernel: true
-use_rmpad: true
-```
-
-in the training config. Then the forward would be patched into the model.
-
-#### Debugging Advise
-
-If you are trying to debug the forward function during training, you need to go into the kernels and edit the code there. Otherwise, the original forward function will be patched and would not be affected.
-
-### Liger Kernel
-
-[Liger Kernel](https://github.com/linkedin/Liger-Kernel) is a collection of Triton kernels designed specifically for LLM training. It can effectively increase multi-GPU training throughput and reduces memory usage. Based on my testing, it does reduces memory usage when finetuning models. Benchmarking based on my testing under kino stage-1 training settings, it reduces the memory usage by around 30%. The major memory reduction is on the fused CrossEntropy kernel and allow us to use large batch size during training.
-
-To use it is simple, you need to first install it using `uv pip install liger-kernel`. Then set the `use_liger_kernel` in the trainer config to `true`. The patching logic currently is as follows:
-
-1. For our custom model, you will need to write your own `apply_liger_kernel_to_xxx` and register the model type to the `MODEL_REGISTRY` in the monkey patch.
-2. If the model is not in the registry, we will search if it is in the original liger-kernel implementation
-3. If the model is not in the registry, we will see if it contains a `language_model` component and apply liger-kernel on that
 
 ## Launch
 
@@ -104,3 +57,45 @@ Please check the [config_example.yaml](examples/config_example.yaml) for more de
 - [Overall Design Principle](docs/design_principle.md)
 - [Training](docs/train.md)
 - [API](docs/api.md)
+
+
+#### Current Supported Ops
+
+- Qwen2 or 2.5 LM series
+- Qwen2.5 VL
+- QwenAudioEncoder
+
+To use rmpad, you should install flash-attn also. You can do it by
+
+```bash
+uv pip install flash-attn --no-build-isolation
+```
+
+If you encounter any issue for example symbol not found. This is possibly because of the flash-attn has been compiled on the wrong torch version. You can run
+
+```bash
+uv pip install --no-build-isolation --no-cache-dir flash-attn
+```
+
+To use it, you will need to set
+
+```yaml
+use_liger_kernel: true
+use_rmpad: true
+```
+
+in the training config. Then the forward would be patched into the model.
+
+### Sequence Packing
+
+Sequence packing is a techniques to accelerate the training process by removing the pad. With it enabled, it will boost the training performance quickly. Currently the implementation is being fused with liger-kernel and being patched to the model's forward during training. Thus, we might need to validate the operations. Current sequence packing ops are all written in flash-attn with the `var_len` function so we need to install `flash-attn` and `liger-kernel` to use it. If you currently use the fully unpadding techniques start from the input ids, the MFU can reach to about 35-40 under ideal settings. Normally, in most of the cases, a range between 25-35 would be normal
+
+### Liger Kernel
+
+[Liger Kernel](https://github.com/linkedin/Liger-Kernel) is a collection of Triton kernels designed specifically for LLM training. It can effectively increase multi-GPU training throughput and reduces memory usage. Based on my testing, it does reduces memory usage when finetuning models. Benchmarking based on my testing under kino stage-1 training settings, it reduces the memory usage by around 30%. The major memory reduction is on the fused CrossEntropy kernel and allow us to use large batch size during training.
+
+To use it is simple, you need to first install it using `uv pip install liger-kernel`. Then set the `use_liger_kernel` in the trainer config to `true`. The patching logic currently is as follows:
+
+1. For our custom model, you will need to write your own `apply_liger_kernel_to_xxx` and register the model type to the `MODEL_REGISTRY` in the monkey patch.
+2. If the model is not in the registry, we will search if it is in the original liger-kernel implementation
+3. If the model is not in the registry, we will see if it contains a `language_model` component and apply liger-kernel on that

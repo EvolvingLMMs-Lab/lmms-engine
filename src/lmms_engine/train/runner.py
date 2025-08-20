@@ -81,11 +81,15 @@ class TrainRunner:
             )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)
+            # Handle both nested and flat config structures
             init_config = load_from_config.get("config", None)
+            if init_config is None:
+                # If no nested config, use the load_from_config dict directly (excluding model_type)
+                init_config = {
+                    k: v for k, v in load_from_config.items() if k != "model_type"
+                }
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class.from_config(
-                m_config, attn_implementation=self.model_config.attn_implementation
-            )
+            model = model_class.from_config(m_config)
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."
@@ -128,26 +132,31 @@ class TrainRunner:
             Logging.info(f"Try to apply liger kernel on the model {model_type}")
             _apply_liger_kernel_to_instance(self.model)
         else:
-            # If not, we probe whether lm can apply
             Logging.info(
-                f"Not found model class, Try to apply liger kernel on the language model of the model {model_type}"
+                f"Try to apply custom liger kernel on the language model of the model {model_type}"
             )
             try:
-                model_type = getattr(
-                    self.model.language_model, "config", None
-                ) and getattr(self.model.language_model.config, "model_type", None)
-                _apply_liger_kernel_to_instance(self.model.language_model)
-                if model_type and model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
-                    Logging.info(
-                        f"Successfully apply liger kernels to model type {model_type}"
-                    )
-                else:
-                    Logging.info(
-                        f"Cannot find model type {model_type} in MODEL_TYPE_TO_APPLY_LIGER_FN, skip applying liger kernels"
-                    )
+                _apply_liger_kernel_to_custom_instance(
+                    self.model.language_model, **kwargs
+                )
+                Logging.info(
+                    f"Successfully apply custom liger kernel on the language model of the model {model_type}"
+                )
+                return
             except Exception as e:
                 Logging.error(
-                    f"Try to apply liger kernel on the language model of the model, but failed with exceptions : \n {e}"
+                    f"Try to apply custom liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
+                )
+
+            try:
+                _apply_liger_kernel_to_instance(self.model.language_model)
+                Logging.info(
+                    f"Successfully apply liger kernel on the language model of the model {model_type}"
+                )
+                return
+            except Exception as e:
+                Logging.error(
+                    f"Try to apply liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
                 )
 
     def _load_mm_projector(self):
@@ -268,10 +277,12 @@ class TrainRunner:
             self.trainer.train(resume_from_checkpoint=True)
         else:
             self.trainer.train()
-        self.trainer.save_state()
-        self.safe_save_model_for_hf_trainer(
-            self.trainer, self.config.trainer_args.output_dir
-        )
+        # Save the state for hf_trainer
+        if hasattr(self.trainer, "save_state"):
+            self.trainer.save_state()
+            self.safe_save_model_for_hf_trainer(
+                self.trainer, self.config.trainer_args.output_dir
+            )
 
     def safe_save_model_for_hf_trainer(self, trainer: Trainer, output_dir: str):
         """Collects the state dict and dump to disk."""

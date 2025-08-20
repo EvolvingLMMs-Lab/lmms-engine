@@ -11,7 +11,7 @@ def parse_argument():
     parser.add_argument(
         "--test",
         "-t",
-        choices=["all", "dataset", "models", "utils"],
+        choices=["all", "dataset", "models", "utils", "train"],
         default="all",
         help="The test suite you want to test, default to test all files",
     )

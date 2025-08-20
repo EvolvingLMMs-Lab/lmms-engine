@@ -24,6 +24,9 @@ class LLaVADataProcessor:
         processor = LlavaOnevisionProcessor.from_pretrained(self.config.processor_name)
         return processor
 
+    def save_pretrained(self, output_dir: str):
+        self.processor.save_pretrained(output_dir)
+
     def process(self, images: List[Image.Image], hf_messages, videos=None, **kwargs):
         """
         A wrapper method to process single data
@@ -53,10 +56,13 @@ class LLaVADataProcessor:
                 )
                 for image_size in image_sizes
             ]
+        else:
+            num_image_tokens = None
 
         inputs = self.get_qwen_template_labels(hf_messages, num_image_tokens)
-        inputs["pixel_values"] = image_inputs["pixel_values"]
-        inputs["image_sizes"] = image_inputs["image_sizes"]
+        if images is not None:
+            inputs["pixel_values"] = image_inputs["pixel_values"]
+            inputs["image_sizes"] = image_inputs["image_sizes"]
 
         return inputs
 
@@ -72,8 +78,10 @@ class LLaVADataProcessor:
         start_from = 0
         for message in hf_messages:
             role = message["role"]
-            encode_id = self.processor.apply_chat_template([message], tokenize=True)
-            if image_token_index in encode_id:
+            encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
+            # If num image tokens is not None, it means we have images in the batch
+            # otherwise something like <image> tag in html is used
+            if image_token_index in encode_id and num_image_tokens is not None:
                 encode_id, used_images = self._expand_encode_id_image_tokens(
                     encode_id, num_image_tokens, start_from
                 )

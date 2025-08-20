@@ -35,18 +35,29 @@ def create_train_task(config):
     # For now, we haven't implement the tp and pp
     use_cpu = config.get("use_cpu", False)
     backend = "gloo" if use_cpu else "nccl"
-    dist.init_process_group(
-        rank=global_rank,
-        world_size=world_size,
-        backend=backend,
-        init_method=f"env://",
-        timeout=datetime.timedelta(minutes=30),
-    )
+    # If the process group is already initialized, don't initialize it again
+    if not dist.is_initialized():
+        dist.init_process_group(
+            rank=global_rank,
+            world_size=world_size,
+            backend=backend,
+            init_method=f"env://",
+            timeout=datetime.timedelta(minutes=30),
+        )
     setup_process_group_manager(
         tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
     )
 
-    trainer_args = TrainingArguments(**config)
+    # Extract trainer args from config, handling nested structure
+    trainer_args_dict = config.pop("trainer_args", {})
+    # If trainer_args is empty, use remaining config as trainer args
+    if not trainer_args_dict:
+        trainer_args_dict = config.copy()
+        # Remove non-trainer argument keys
+        for key in ["sp_ulysses_degree", "use_cpu"]:
+            trainer_args_dict.pop(key, None)
+
+    trainer_args = TrainingArguments(**trainer_args_dict)
 
     train_config = TrainerConfig(
         dataset_config=dataset_config,

@@ -168,3 +168,4 @@ playground/
 .deepspeed_env
 output/
 checkpoints/
+.vscode

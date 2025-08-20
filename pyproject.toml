@@ -47,6 +47,8 @@ dependencies = [
     "qwen-vl-utils",
     "diffusers>=0.35.0",
     "tok>=0.1.14",
+    "einops",
+    "pandas",
 ]
 
 [project.optional-dependencies]
@@ -81,6 +83,9 @@ exclude = [
 [project.scripts]
 lmms_launch="lmms_engine.launch.cli:main"
 
+
+[tool.uv]
+extra-build-dependencies = { flash-attn = ["torch"] }
 
 [project.urls]
 Homepage = "https://lmms-lab.com/"
