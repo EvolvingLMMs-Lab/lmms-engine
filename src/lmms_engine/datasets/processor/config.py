@@ -8,3 +8,4 @@ class ProcessorConfig:
     processor_type: str
     max_pixels: Optional[int] = None
     min_pixels: Optional[int] = None
+    kwargs: Optional[dict] = None
