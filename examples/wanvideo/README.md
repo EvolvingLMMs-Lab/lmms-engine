@@ -13,35 +13,32 @@ WanVideo is a family of diffusion-based video generation models that support:
 
 ## Model Variants
 
-The implementation supports various WanVideo model sizes:
-- **1.3B**: Efficient model for quick iterations
-- **5B**: Balanced model for quality and speed
-- **14B**: High-quality model for production use
+The implementation currently supports the following WanVideo model configurations:
+- **1.3B T2V**: Efficient text-to-video model for quick iterations (480×832 resolution)
+- **14B T2V**: High-quality text-to-video model (480×832 resolution)
+- **14B I2V**: Image-to-video model with higher resolution support (720×1280)
 
 ## Quick Start
 
 ### 1. Prepare Your Dataset
 
-First, organize your video dataset and create metadata:
+Organize your video dataset in CSV format with the following structure:
 
-```bash
-# Create metadata for T2V training
-python prepare_dataset.py create \
-    --video_dir /path/to/videos \
-    --output data/metadata.json
-
-# Create metadata for I2V training
-python prepare_dataset.py create_i2v \
-    --video_dir /path/to/videos \
-    --image_dir /path/to/first_frames \
-    --output data/i2v_metadata.json
-
-# Validate dataset
-python prepare_dataset.py validate \
-    --metadata data/metadata.json \
-    --video_root /path/to/videos \
-    --check_files
+#### For T2V (Text-to-Video) training:
+```csv
+video,prompt
+path/to/video1.mp4,"A beautiful sunset over the mountains"
+path/to/video2.mp4,"A cat playing with a ball in a garden"
 ```
+
+#### For I2V (Image-to-Video) training:
+```csv
+video,image,prompt
+path/to/video1.mp4,path/to/first_frame1.jpg,"The scene comes to life with movement"
+path/to/video2.mp4,path/to/first_frame2.jpg,"Camera pans across the landscape"
+```
+
+Save your metadata CSV file (e.g., `data/metadata.csv`) and update the dataset path in the configuration files.
 
 ### 2. Configure Training
 
@@ -58,7 +55,7 @@ Modify the configuration files to match your dataset paths and training requirem
 #### Single GPU Training
 
 ```bash
-python train_wanvideo.py --config configs/wan2.1_t2v_1.3b.yaml
+python -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Multi-GPU Training with torchrun
@@ -66,21 +63,25 @@ python train_wanvideo.py --config configs/wan2.1_t2v_1.3b.yaml
 ```bash
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
     --master_addr="127.0.0.1" --master_port="8000" \
-    train_wanvideo.py --config configs/wan2.1_t2v_14b.yaml
+    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_14b.yaml
 ```
 
 #### Multi-GPU Training with Accelerate
 
 ```bash
-accelerate launch --config_file accelerate_config.yaml \
-    train_wanvideo.py --config configs/wan2.1_t2v_14b.yaml
+accelerate launch --use_fsdp \
+    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_14b.yaml
 ```
 
 #### Resume Training
 
-```bash
-python train_wanvideo.py --config configs/wan2.1_t2v_1.3b.yaml --resume
+To resume training, update the configuration file to include:
+```yaml
+trainer_args:
+  resume_from_checkpoint: "./output/wan2.1_t2v_1.3b/checkpoint-XXX"
 ```
+
+Then run the training command again.
 
 ## Configuration Details
 
@@ -92,22 +93,25 @@ Key parameters in the model configuration:
 model_config:
   load_from_config:
     model_type: wanvideo
-    model_size: "1.3B"  # or "5B", "14B"
+    model_variant: "Wan2.1-T2V-1.3B"  # Model variant identifier
+    model_size: "1.3B"  # or "14B"
     
     # DiT architecture
-    dit_hidden_size: 2432
-    dit_num_layers: 28
-    dit_num_heads: 19
+    dit_hidden_size: 2432  # Hidden dimension
+    dit_num_layers: 28     # Number of transformer layers
+    dit_num_heads: 19      # Number of attention heads
+    dit_enable_flash_attn: true  # Enable Flash Attention
     
     # Training settings
     gradient_checkpointing: true
-    use_lora: false  # Enable for efficient fine-tuning
-    lora_rank: 32
+    scheduler_type: "flow_match"  # Scheduler for diffusion
     
     # Generation settings
     num_frames: 49
     height: 480
     width: 832
+    guidance_scale: 5.0
+    num_inference_steps: 20
 ```
 
 ### Training Arguments
@@ -116,6 +120,7 @@ Important training parameters:
 
 ```yaml
 trainer_args:
+  output_dir: "./output/wan2.1_t2v_1.3b"
   num_train_epochs: 3
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 8
@@ -125,28 +130,39 @@ trainer_args:
   bf16: true
   tf32: true
   
+  # Optimizer settings
+  optim: "adamw_torch"
+  weight_decay: 0.01
+  lr_scheduler_type: "cosine"
+  warmup_steps: 500
+  
   # Checkpointing
   save_steps: 500
   save_total_limit: 3
+  eval_steps: 500
 ```
 
 ## Advanced Features
 
 ### LoRA Fine-tuning
 
-For efficient fine-tuning with limited GPU memory:
+LoRA support is planned for future releases. Currently, use gradient checkpointing and mixed precision training to reduce memory usage:
 
 ```yaml
 model_config:
   load_from_config:
-    use_lora: true
-    lora_rank: 128
-    lora_target_modules: ["q", "k", "v", "o", "ffn.0", "ffn.2"]
+    gradient_checkpointing: true
+  attn_implementation: flash_attention_2
+
+trainer_args:
+  gradient_checkpointing: true
+  bf16: true
+  tf32: true
 ```
 
 ### FSDP for Large Models
 
-For training 14B models across multiple GPUs:
+For training 14B models across multiple GPUs (as configured in `wan2.1_i2v_14b.yaml`):
 
 ```yaml
 trainer_args:
@@ -154,51 +170,55 @@ trainer_args:
   fsdp_config:
     backward_prefetch: "backward_pre"
     forward_prefetch: true
+    use_orig_params: false
+    cpu_ram_efficient_loading: true
+    sync_module_states: true
+    limit_all_gathers: true
     activation_checkpointing: true
+    sharding_strategy: "FULL_SHARD"
 ```
 
-### Dataset Formats
+### Dataset Configuration
 
-WanVideo training supports multiple data formats:
+The dataset is configured in the YAML files:
 
-#### CSV Format (Recommended)
+```yaml
+dataset_config:
+  dataset_type: vision
+  dataset_format: csv  # Currently supports CSV format
+  dataset_path: data/metadata.csv
+  video_sampling_strategy: frame_num
+  frame_num: 49  # Number of frames to sample
+  video_backend: qwen_vl_utils  # Video processing backend
+  
+  # Processor configuration for video preprocessing
+  processor_config:
+    processor_type: wanvideo
+    do_resize: true
+    size:
+      height: 480  # Target height
+      width: 832   # Target width
+    do_normalize: true
+    image_mean: [0.5, 0.5, 0.5]
+    image_std: [0.5, 0.5, 0.5]
+```
 
-Simple CSV format with `video` and `prompt` columns:
+#### CSV Format (Required)
 
+The dataset must be in CSV format with the following columns:
+
+**For T2V training:**
 ```csv
 video,prompt
-video1.mp4,"from sunset to night, a small town, light, house, river"
-video2.mp4,"A cat playing with a ball in a garden"
+path/to/video1.mp4,"A scenic mountain landscape"
+path/to/video2.mp4,"Urban cityscape at night"
 ```
 
-#### JSON Format
-
-For more complex metadata:
-
-```json
-[
-  {
-    "video_path": "path/to/video.mp4",
-    "caption": "A description of the video content",
-    "video_id": "unique_video_id",
-    "duration": 10.5,
-    "fps": 30,
-    "resolution": "1920x1080"
-  }
-]
-```
-
-For I2V, add an `image_path` field:
-
-```json
-[
-  {
-    "video_path": "path/to/video.mp4",
-    "image_path": "path/to/first_frame.jpg",
-    "caption": "A description of the video content",
-    "video_id": "unique_video_id"
-  }
-]
+**For I2V training:**
+```csv
+video,image,prompt
+path/to/video1.mp4,path/to/frame1.jpg,"Movement starts from this frame"
+path/to/video2.mp4,path/to/frame2.jpg,"Dynamic scene evolution"
 ```
 
 ## Monitoring Training
@@ -211,33 +231,43 @@ tensorboard --logdir ./output/wan2.1_t2v_1.3b
 
 ## Inference
 
-After training, use the model for inference:
+After training, you can load and use the model for inference. The model checkpoints are saved in the `output_dir` specified in your configuration.
 
 ```python
+import torch
 from lmms_engine.models.wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
     WanVideoConfig,
 )
 
-# Load model
-config = WanVideoConfig.from_pretrained("./output/wan2.1_t2v_1.3b")
+# Load the trained model
+checkpoint_path = "./output/wan2.1_t2v_1.3b/checkpoint-XXX"
+config = WanVideoConfig.from_pretrained(checkpoint_path)
 model = WanVideoForConditionalGeneration.from_pretrained(
-    "./output/wan2.1_t2v_1.3b",
+    checkpoint_path,
     config=config,
+    torch_dtype=torch.bfloat16,  # Use bf16 for efficiency
 )
 processor = WanVideoProcessor()
 
-# Generate video
+# Move model to GPU
+model = model.to("cuda")
+
+# Generate video from text prompt
 prompt = "A serene lake surrounded by mountains at sunset"
-video = model.generate(
-    prompt=prompt,
-    num_frames=49,
-    height=480,
-    width=832,
-    num_inference_steps=20,
-    guidance_scale=5.0,
-)
+with torch.no_grad():
+    outputs = model.generate(
+        prompt=prompt,
+        num_frames=49,
+        height=480,
+        width=832,
+        num_inference_steps=20,
+        guidance_scale=5.0,
+    )
+
+# Process and save the generated video
+# Note: Video post-processing implementation depends on your specific requirements
 ```
 
 ## Troubleshooting
