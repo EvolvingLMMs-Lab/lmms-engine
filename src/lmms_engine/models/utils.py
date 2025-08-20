@@ -28,6 +28,7 @@ VALID_CONFIG_TYPE = {
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
+    "llava_onevision",
 }
 
 
@@ -59,8 +60,12 @@ class FlopsCounter:
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
+            "llava_onevision": self._estimate_qwen2_flops,
         }
-        self.config = config
+        if config.model_type == "llava_onevision":
+            self.config = config.text_config
+        else:
+            self.config = config
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
         return 0

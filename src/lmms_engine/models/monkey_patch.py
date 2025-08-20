@@ -245,6 +245,8 @@ def apply_liger_kernel_to_aero(
                 model.language_model.base_model_prefix,
                 model.language_model,
             )
+        elif isinstance(model, Qwen2Model):
+            base_model: Qwen2Model = model
         else:
             base_model: Qwen2Model = model.model
 
@@ -290,10 +292,50 @@ def apply_liger_kernel_to_qwen2_audio(
         Qwen2AudioAttention.forward = qwen2_audio_flash_attn_forward
 
 
+def apply_liger_kernel_to_llava_onevision(
+    rope: bool = True,
+    cross_entropy: bool = False,
+    fused_linear_cross_entropy: bool = True,
+    rms_norm: bool = True,
+    swiglu: bool = True,
+    model: PreTrainedModel = None,
+    use_rmpad: bool = True,
+):
+    from transformers.models.llava_onevision.modeling_llava_onevision import (
+        LlavaOnevisionForConditionalGeneration,
+    )
+
+    if fused_linear_cross_entropy:
+        from .llava_onevision.llava_ov_liger import forward as llava_ov_liger_forward
+
+        if use_rmpad:
+
+            def wrap_forward(func):
+                @wraps(func)
+                def wrapper(*args, **kwargs):
+                    return func(use_rmpad=use_rmpad, *args, **kwargs)
+
+                return wrapper
+
+            llava_ov_liger_forward = wrap_forward(llava_ov_liger_forward)
+        LlavaOnevisionForConditionalGeneration.forward = llava_ov_liger_forward
+
+    apply_liger_kernel_to_aero(
+        rope=rope,
+        cross_entropy=cross_entropy,
+        fused_linear_cross_entropy=fused_linear_cross_entropy,
+        rms_norm=rms_norm,
+        swiglu=swiglu,
+        model=model.language_model,
+        use_rmpad=use_rmpad,
+    )
+
+
 CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN = {
     "aero": apply_liger_kernel_to_aero,
     "qwen2": apply_liger_kernel_to_aero,  # Qwen2 is the same as Aero on Language Model side
     "qwen2_5_vl": apply_liger_kernel_to_qwen2_5_vl,
+    "llava_onevision": apply_liger_kernel_to_llava_onevision,
 }
 
 
