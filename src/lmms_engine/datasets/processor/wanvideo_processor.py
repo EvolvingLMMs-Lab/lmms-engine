@@ -14,13 +14,23 @@ class WanVideoDataProcessor:
         self.config = config
         self.model_id = model_id
 
-    def apply_prompt_template(self, prompt: str) -> str:
+    def apply_prompt_template(self, hf_messages: str) -> str:
         """Apply prompt template for WanVideo."""
         # WanVideo uses direct prompts without special formatting
+        prompt = hf_messages[0]["content"][1]["text"]
         return prompt
 
+    def save_pretrained(self, save_directory: str):
+        # Build a clean processor for saving
+        # wanvideo_kwargs = self.config.kwargs
+        # new_processor = WanVideoModelProcessor(**wanvideo_kwargs)
+        # new_processor.save_pretrained(save_directory)
+        pass
+
     def build(self):
-        self.processor = WanVideoModelProcessor()
+        wanvideo_kwargs = self.config["kwargs"]
+        self.processor = WanVideoModelProcessor(**wanvideo_kwargs)
+        self.tokenizer = self.processor.tokenizer
 
     def process(
         self, images: List[Image.Image], hf_messages, videos=None, **kwargs
@@ -44,8 +54,8 @@ class WanVideoDataProcessor:
         formatted_prompt = self.apply_prompt_template(hf_messages)
 
         # Process text
-        if self.processor.tokenizer is not None:
-            text_inputs = self.processor.tokenizer(
+        if self.tokenizer is not None:
+            text_inputs = self.tokenizer(
                 formatted_prompt,
                 return_tensors="pt",
                 padding=True,
@@ -63,30 +73,23 @@ class WanVideoDataProcessor:
         if videos is not None and len(videos) > 0:
             # Videos is a list of frame lists
             video_frames = videos[0] if isinstance(videos[0], list) else videos
-
             # Process frames using the image processor
             video_inputs = self.processor.image_processor.preprocess(
                 video_frames,
                 return_tensors="pt",
             )
             pixel_values = video_inputs["pixel_values"]
-        elif images is not None and len(images) > 0:
-            # For I2V mode, use the first image
-            image_inputs = self.processor.image_processor.preprocess(
-                images[0],
-                return_tensors="pt",
-            )
-            pixel_values = image_inputs["pixel_values"]
         else:
-            # Dummy pixel values if no visual input
-            pixel_values = torch.zeros((1, 3, 8, 480, 832))
+            raise ValueError("No video frames provided")
 
         # Prepare output dictionary
         output = {
-            "input_ids": text_inputs["input_ids"].squeeze(0),
-            "attention_mask": text_inputs["attention_mask"].squeeze(0),
-            "pixel_values": pixel_values.squeeze(0),
-            "labels": text_inputs["input_ids"].squeeze(0).clone(),  # For training
+            "input_ids": text_inputs["input_ids"].squeeze(0),  # B, L
+            # "attention_mask": text_inputs["attention_mask"].squeeze(0), # B, L
+            "pixel_values": pixel_values.squeeze(0),  # B, T, C, H, W
+            "labels": text_inputs["input_ids"]
+            .squeeze(0)
+            .clone(),  # For training # B, L
         }
 
         # Add video-specific kwargs if provided
