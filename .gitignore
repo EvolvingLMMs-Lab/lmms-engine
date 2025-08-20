@@ -169,3 +169,5 @@ playground/
 output/
 checkpoints/
 .vscode
+
+blip3o-60k/
