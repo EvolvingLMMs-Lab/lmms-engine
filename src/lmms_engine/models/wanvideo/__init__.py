@@ -3,10 +3,10 @@ from lmms_engine.mapping_func import register_model
 from .configuration_wanvideo import WanVideoConfig
 from .modeling_wanvideo import (
     WanVideoForConditionalGeneration,
-    WanVideoPreTrainedModel,
     WanVideoOutput,
+    WanVideoPreTrainedModel,
 )
-from .processing_wanvideo import WanVideoProcessor, WanVideoImageProcessor
+from .processing_wanvideo import WanVideoImageProcessor, WanVideoProcessor
 
 register_model(
     "wanvideo",

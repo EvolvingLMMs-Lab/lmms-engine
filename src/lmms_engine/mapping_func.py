@@ -69,14 +69,27 @@ def create_model_from_pretrained(load_from_pretrained_path):
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-    config_class = CONFIG_MAPPING[model_type]
-    m_config = config_class(**config)
-    if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
-        model_class = AutoModelForCausalLM
-    elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
-        model_class = AutoModelForImageTextToText
-    elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
-        model_class = AutoModelForMaskedLM
+    # Special handling for WanVideo model
+    if model_type == "wanvideo":
+        from lmms_engine.models.wanvideo import (
+            WanVideoConfig,
+            WanVideoForConditionalGeneration,
+        )
+
+        m_config = WanVideoConfig(**config)
+        return WanVideoForConditionalGeneration, m_config
+
+    # Handle other models through AutoModel
+    if model_type in CONFIG_MAPPING:
+        config_class = CONFIG_MAPPING[model_type]
+        m_config = config_class(**config)
+        if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
+            model_class = AutoModelForCausalLM
+        elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
+            model_class = AutoModelForImageTextToText
+        else:
+            raise ValueError(f"Model type '{model_type}' is not supported.")
+        return model_class, m_config
     else:
         raise ValueError(f"Model type '{model_type}' is not found in CONFIG_MAPPING.")
     return model_class, m_config

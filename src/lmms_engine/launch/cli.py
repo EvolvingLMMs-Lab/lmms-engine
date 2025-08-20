@@ -56,7 +56,7 @@ def create_train_task(config):
         # Remove non-trainer argument keys
         for key in ["sp_ulysses_degree", "use_cpu"]:
             trainer_args_dict.pop(key, None)
-    
+
     trainer_args = TrainingArguments(**trainer_args_dict)
 
     train_config = TrainerConfig(
