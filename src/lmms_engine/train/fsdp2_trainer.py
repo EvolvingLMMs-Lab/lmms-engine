@@ -47,6 +47,10 @@ class FSDP2SFTTrainer:
         self.eval_dataset = eval_dataset
         self.processing_class = processing_class
         self.data_collator = data_collator
+        self.default_backend = []
+        if "wandb" in self.args.report_to:
+            self.default_backend.append("wandb")
+        self.default_backend.append("console")
 
     def prepare_dataloader(self, dataset: Dataset, is_training: bool = True):
         data_collator = self.data_collator
@@ -210,6 +214,7 @@ class FSDP2SFTTrainer:
             self.tracking = Tracking(
                 project_name=os.environ.get("WANDB_PROJECT", "lmms-engine"),
                 experiment_name=self.args.run_name,
+                default_backend=self.default_backend,
                 config=self.args,
             )
 
@@ -276,7 +281,7 @@ class FSDP2SFTTrainer:
                 train_metrics["mfu"] = round(mfu, 2)
 
                 epoch_progress = f"{self.global_step / self.total_steps:.2f}"
-                train_metrics["epoch"] = epoch_progress
+                train_metrics["epoch"] = float(epoch_progress)
                 if rank == 0:
                     self.tracking.log(train_metrics)
                 self.global_step += 1
