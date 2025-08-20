@@ -208,7 +208,12 @@ class FSDP2SFTTrainer:
         self.prepare_optimizer()
         self.steps_per_epoch = len(train_dataloader)
         self.total_steps = self.steps_per_epoch * self.args.num_train_epochs
-        self.prepare_scheduler(self.args.warmup_steps, self.total_steps)
+        warmup_steps = (
+            int(self.total_steps * self.args.warmup_ratio)
+            if self.args.warmup_ratio > 0
+            else self.args.warmup_steps
+        )
+        self.prepare_scheduler(warmup_steps, self.total_steps)
         rank = dist.get_rank()
         if rank == 0:
             self.tracking = Tracking(
@@ -294,20 +299,21 @@ class FSDP2SFTTrainer:
                         self.global_step,
                         total_limit=self.args.save_total_limit,
                     )
+                if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
+                    break
                 pbar.update(1)
             pbar.close()
 
             if self.eval_dataset is not None:
                 raise NotImplementedError("Evaluation is not implemented")
 
-        # End of the training, save the final checkpoint
-        if rank == 0:
-            output_dir = os.path.join(
-                self.args.output_dir, f"checkpoint-{self.global_step}"
-            )
-            self.save_checkpoints(
-                output_dir, self.global_step, total_limit=self.args.save_total_limit
-            )
+        # Save the final checkpoint
+        output_dir = os.path.join(
+            self.args.output_dir, f"checkpoint-{self.global_step}"
+        )
+        self.save_checkpoints(
+            output_dir, self.global_step, total_limit=self.args.save_total_limit
+        )
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
@@ -381,7 +387,7 @@ class FSDP2SFTTrainer:
 
     @property
     def should_save(self):
-        return self.global_step % self.args.save_steps == 0
+        return self.global_step % self.args.save_steps == 0 and self.global_step > 0
 
     def load_checkpoints(self, output_path: str, step: int):
         rank = dist.get_rank()

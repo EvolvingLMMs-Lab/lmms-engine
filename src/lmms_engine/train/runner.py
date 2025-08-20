@@ -268,10 +268,12 @@ class TrainRunner:
             self.trainer.train(resume_from_checkpoint=True)
         else:
             self.trainer.train()
-        self.trainer.save_state()
-        self.safe_save_model_for_hf_trainer(
-            self.trainer, self.config.trainer_args.output_dir
-        )
+        # Save the state for hf_trainer
+        if hasattr(self.trainer, "save_state"):
+            self.trainer.save_state()
+            self.safe_save_model_for_hf_trainer(
+                self.trainer, self.config.trainer_args.output_dir
+            )
 
     def safe_save_model_for_hf_trainer(self, trainer: Trainer, output_dir: str):
         """Collects the state dict and dump to disk."""
