@@ -14,6 +14,34 @@ from .collator import VisionCollator
 
 @register_dataset("vision")
 class VisionSFTDataset(BaseDataset):
+    def transform_csv_to_messages(self, data) -> Dict:
+        """Transform simple CSV format to OpenAI message format for video training."""
+        # Convert CSV format {video: "video1.mp4", prompt: "..."} 
+        # to OpenAI format with video_url
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video_url",
+                        "video_url": {"url": data["video"]}
+                    },
+                    {
+                        "type": "text", 
+                        "text": data["prompt"]
+                    }
+                ]
+            }
+        ]
+        return {"messages": messages}
+
+    def load_from_csv(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
+        """Load from CSV data by transforming to OpenAI message format."""
+        # Transform CSV format to OpenAI message format
+        transformed_data = self.transform_csv_to_messages(data)
+        # Then use the existing JSON loading logic
+        return self.load_from_json(transformed_data, data_folder)
+
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
         # TODO Write a protocol for vision openai input
         images_list = []

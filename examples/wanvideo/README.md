@@ -157,9 +157,23 @@ trainer_args:
     activation_checkpointing: true
 ```
 
-### Custom Dataset Format
+### Dataset Formats
 
-The expected dataset format for T2V:
+WanVideo training supports multiple data formats:
+
+#### CSV Format (Recommended)
+
+Simple CSV format with `video` and `prompt` columns:
+
+```csv
+video,prompt
+video1.mp4,"from sunset to night, a small town, light, house, river"
+video2.mp4,"A cat playing with a ball in a garden"
+```
+
+#### JSON Format
+
+For more complex metadata:
 
 ```json
 [
