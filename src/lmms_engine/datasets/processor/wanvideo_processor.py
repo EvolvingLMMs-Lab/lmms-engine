@@ -61,7 +61,6 @@ class WanVideoDataProcessor:
             }
 
         # Process video frames
-        print(videos)
         if videos is not None and len(videos) > 0:
             # Videos is a list of frame lists
             video_frames = videos[0] if isinstance(videos[0], list) else videos
