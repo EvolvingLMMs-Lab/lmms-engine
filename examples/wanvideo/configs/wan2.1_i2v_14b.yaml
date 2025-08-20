@@ -110,9 +110,9 @@
       adam_beta2: 0.999
       adam_epsilon: 1.0e-8
       
-      # Evaluation
-      eval_strategy: "steps"
-      eval_steps: 200
+      # Evaluation # currently do not support evaluation in wan video training
+      # eval_strategy: "steps"
+      # eval_steps: 200
       
       # Gradient clipping
       max_grad_norm: 0.5

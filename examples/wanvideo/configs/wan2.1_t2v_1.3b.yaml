@@ -105,9 +105,9 @@
       adam_beta2: 0.999
       adam_epsilon: 1.0e-8
       
-      # Evaluation
-      eval_strategy: "steps"
-      eval_steps: 500
+      # Evaluation # currently do not support evaluation in wan video training
+      # eval_strategy: "steps"
+      # eval_steps: 500
       
       # Checkpointing
       resume_from_checkpoint: null

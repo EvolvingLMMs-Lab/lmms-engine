@@ -109,7 +109,7 @@
       adam_beta2: 0.999
       adam_epsilon: 1.0e-8
       
-      # Evaluation
+      # Evaluation # currently do not support evaluation in wan video training
       # eval_strategy: "steps"
       # eval_steps: 250
       

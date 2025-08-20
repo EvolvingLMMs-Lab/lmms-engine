@@ -48,7 +48,7 @@ Save your metadata CSV file (e.g., `data/metadata.csv`) and update the dataset p
 
 We provide pre-configured YAML files for different model variants:
 
-- `configs/wan2.1_t2v_1.3b.yaml`: Text-to-Video 1.3B model
+- `examples/wanvideo/configs/wan2.1_t2v_1.3b.yaml`: Text-to-Video 1.3B model
 - `configs/wan2.1_t2v_14b.yaml`: Text-to-Video 14B model
 - `configs/wan2.1_i2v_14b.yaml`: Image-to-Video 14B model
 
@@ -59,7 +59,7 @@ Modify the configuration files to match your dataset paths and training requirem
 #### Single GPU Training
 
 ```bash
-python -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
+python -m lmms_engine.launch.cli --config examples/wanvideo/configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Multi-GPU Training with torchrun
@@ -67,14 +67,14 @@ python -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
 ```bash
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
     --master_addr="127.0.0.1" --master_port="8000" \
-    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
+    -m lmms_engine.launch.cli --config examples/wanvideo/configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Multi-GPU Training with Accelerate
 
 ```bash
 accelerate launch --use_fsdp \
-    -m lmms_engine.launch.cli --config configs/wan2.1_t2v_1.3b.yaml
+    -m lmms_engine.launch.cli --config examples/wanvideo/configs/wan2.1_t2v_1.3b.yaml
 ```
 
 #### Resume Training
