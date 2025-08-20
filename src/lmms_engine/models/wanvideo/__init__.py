@@ -12,6 +12,7 @@ register_model(
     "wanvideo",
     WanVideoConfig,
     WanVideoForConditionalGeneration,
+    model_general_type="general",
 )
 
 __all__ = [

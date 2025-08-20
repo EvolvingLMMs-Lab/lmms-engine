@@ -385,6 +385,7 @@ class WanVideoPreTrainedModel(PreTrainedModel):
                 self.dit.gradient_checkpointing = False
 
 
+# @register_model("wanvideo", WanVideoConfig, WanVideoPreTrainedModel)
 class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
     def __init__(self, config: WanVideoConfig):
         super().__init__(config)
@@ -400,7 +401,6 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
         # Scheduler placeholder
         self.scheduler = None
-
         # Initialize weights
         self.post_init()
 

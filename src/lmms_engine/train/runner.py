@@ -89,7 +89,7 @@ class TrainRunner:
                     k: v for k, v in load_from_config.items() if k != "model_type"
                 }
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class(m_config)
+            model = model_class.from_config(m_config)
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."

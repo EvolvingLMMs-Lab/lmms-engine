@@ -85,7 +85,6 @@
       per_device_train_batch_size: 1
       per_device_eval_batch_size: 1
       gradient_accumulation_steps: 16  # Higher for 14B model
-      gradient_checkpointing: true
       
       learning_rate: 5.0e-6  # Lower LR for larger model
       weight_decay: 0.01
@@ -111,8 +110,8 @@
       adam_epsilon: 1.0e-8
       
       # Evaluation
-      eval_strategy: "steps"
-      eval_steps: 250
+      # eval_strategy: "steps"
+      # eval_steps: 250
       
       # Gradient clipping
       max_grad_norm: 0.5  # More aggressive clipping for stability
