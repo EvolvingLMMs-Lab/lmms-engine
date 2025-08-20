@@ -28,7 +28,7 @@ class WanVideoDataProcessor:
         pass
 
     def build(self):
-        wanvideo_kwargs = self.config.kwargs
+        wanvideo_kwargs = self.config["kwargs"]
         self.processor = WanVideoModelProcessor(**wanvideo_kwargs)
         self.tokenizer = self.processor.tokenizer
 
