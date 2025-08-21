@@ -7,12 +7,13 @@ from datasets import Dataset, load_dataset
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-
-def image_to_base64(image: Image.Image) -> str:
-    buffered = io.BytesIO()
-    image.convert("RGB").save(buffered, format="JPEG")
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{img_str}"
+def save_image(image: Image.Image, id: str, output_path: str):
+    ext = image.format.lower()
+    path = os.path.join(output_path, f"images/{id}.{ext}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    image.save(path)
+    return path
+    
 
 
 if __name__ == "__main__":
@@ -23,9 +24,10 @@ if __name__ == "__main__":
     )
     # train_dataset.push_to_hub("pufanyi/BLIP3o-60k")
 
-    def generator(dataset):
+    def generator(dataset, output_path):
         for id, d in enumerate(dataset):
             # print(d)
+            img_path = save_image(d["jpg"], id, output_path)
             yield {
                 "id": str(id),
                 "messages": [
@@ -44,7 +46,7 @@ if __name__ == "__main__":
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": image_to_base64(d["jpg"]),
+                                    "url": img_path,
                                 },
                             }
                         ],
@@ -52,5 +54,8 @@ if __name__ == "__main__":
                 ],
             }
 
-    dataset = Dataset.from_generator(generator, gen_kwargs={"dataset": train_dataset})
-    dataset.push_to_hub("pufanyi/BLIP3o-60k", num_proc=64)
+    # dataset.push_to_hub("pufanyi/BLIP3o-60k", num_proc=64)
+    output_path = os.path.join(os.path.dirname(__file__), "data", "blip3o-60k")
+    os.makedirs(output_path, exist_ok=True)
+    dataset = Dataset.from_generator(generator, gen_kwargs={"dataset": train_dataset, "output_path": output_path}, num_proc=64)
+    dataset.save_to_disk(output_path)
