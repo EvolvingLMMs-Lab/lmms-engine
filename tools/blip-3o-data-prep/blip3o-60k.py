@@ -20,7 +20,7 @@ if __name__ == "__main__":
     
     def generator(dataset):
         for id, d in enumerate(dataset):
-            print(d)
+            # print(d)
             yield {
                 "id": str(id),
                 "messages": [
@@ -44,4 +44,4 @@ if __name__ == "__main__":
             }
     
     dataset = Dataset.from_generator(generator, gen_kwargs={"dataset": train_dataset})
-    dataset.push_to_hub("pufanyi/BLIP3o-60k")
+    dataset.push_to_hub("pufanyi/BLIP3o-60k", num_proc=64)
