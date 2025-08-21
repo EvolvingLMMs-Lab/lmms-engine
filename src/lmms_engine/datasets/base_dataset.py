@@ -250,7 +250,8 @@ class BaseDataset(Dataset):
         }
         if self.config.video_sampling_strategy == "frame_num":
             video_dict.pop("fps", None)
-        video_dict.pop("max_pixels")  # without it, the demo of wan training will fail
+
+        video_dict.pop("max_pixels", None)
         frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
         frames = frames.numpy()
         return frames, sample_fps

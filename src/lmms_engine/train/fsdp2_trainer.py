@@ -240,10 +240,11 @@ class FSDP2SFTTrainer:
             # start_epoch is a float, we need to convert it to an integer
             start_epoch = int(start_epoch)
             self.global_step = int(latest_checkpoint.split("-")[1])
+            need_update_pbar = True
         else:
             start_epoch = 0
             self.global_step = 0
-
+            need_update_pbar = False
         Logging.info(f"Training with {self.args.num_train_epochs} epochs")
 
         for epoch in range(start_epoch, self.args.num_train_epochs):
@@ -253,7 +254,11 @@ class FSDP2SFTTrainer:
                 desc=f"Epoch {epoch + 1}",
                 disable=dist.get_rank() != 0,
             )
-            pbar.update(self.global_step)
+            # if the checkpoint is loaded, we need to update the pbar
+            # but we only need to update the pbar once
+            if need_update_pbar:
+                pbar.update(self.global_step)
+                need_update_pbar = False
             for step, batch in enumerate(self.train_dataloader):
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
@@ -285,7 +290,7 @@ class FSDP2SFTTrainer:
                 )
                 train_metrics["mfu"] = round(mfu, 2)
 
-                epoch_progress = f"{self.global_step / self.total_steps:.2f}"
+                epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
                 train_metrics["epoch"] = float(epoch_progress)
                 if rank == 0:
                     self.tracking.log(train_metrics)
