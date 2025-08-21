@@ -21,15 +21,19 @@ class VisionSFTDataset(BaseDataset):
         kwargs = {}
 
         # Build messages directly from CSV data
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video_url", "video_url": {"url": data["video"]}},
-                    {"type": "text", "text": data["prompt"]},
-                ],
-            }
-        ]
+        # Seems that this will force the user to provide a video url?
+        # Maybe we need to add this check
+        # Btw I'm not very sure if we are using video understanding or video generation
+        if "video" in data and isinstance(data["video"], str):
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": data["video"]}},
+                        {"type": "text", "text": data["prompt"]},
+                    ],
+                }
+            ]
 
         # Process video content directly
         for message in messages:
