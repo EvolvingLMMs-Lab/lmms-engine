@@ -103,7 +103,7 @@ class TrainRunner:
         setup_flops_counter(model.config)
         Logging.info(f"Model Structure: {model}")
         Logging.info(
-            f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} GB"
+            f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B"
         )
         return model
 

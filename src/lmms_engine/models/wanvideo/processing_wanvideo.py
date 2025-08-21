@@ -22,6 +22,7 @@ from PIL import Image
 from transformers import AutoTokenizer
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.image_utils import ImageInput
+from transformers.processing_utils import ProcessorMixin
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
 from transformers.utils import TensorType, logging
 
@@ -77,9 +78,7 @@ class WanVideoImageProcessor(BaseImageProcessor):
         """Resize image or video frame."""
         from PIL import Image as PILImage
 
-        if isinstance(image, np.ndarray):
-            image = PILImage.fromarray(image)
-
+        image = PILImage.fromarray(image.astype(np.uint8))
         image = image.resize((size["width"], size["height"]), PILImage.LANCZOS)
         return np.array(image)
 
@@ -95,8 +94,10 @@ class WanVideoImageProcessor(BaseImageProcessor):
 
         top = (h - crop_h) // 2
         left = (w - crop_w) // 2
-
-        return image[top : top + crop_h, left : left + crop_w]
+        if image.ndim == 3:
+            return image[top : top + crop_h, left : left + crop_w, :]
+        else:
+            return image[top : top + crop_h, left : left + crop_w]
 
     def normalize(
         self,
@@ -157,29 +158,65 @@ class WanVideoImageProcessor(BaseImageProcessor):
             if isinstance(image, Image.Image):
                 image = np.array(image)
 
-            # Convert to RGB if needed
-            if do_convert_rgb and image.shape[-1] != 3:
-                if len(image.shape) == 2:  # Grayscale
-                    image = np.stack([image] * 3, axis=-1)
-                elif image.shape[-1] == 4:  # RGBA
-                    image = image[..., :3]
+            # Handle 4D tensor case (batch of video frames)
+            if isinstance(image, np.ndarray) and image.ndim == 4:
+                # Process each frame in the batch
+                batch_processed_frames = []
+                for i in range(image.shape[0]):
+                    frame = image[i]  # Get single frame
+                    if frame.ndim == 3 and (frame.shape[0] == 3 or frame.shape[0] == 1):
+                        frame = np.transpose(frame, (1, 2, 0))  # (C, H, W) -> (H, W, C)
 
-            # Resize
-            if do_resize:
-                image = self.resize(image, size)
+                    # Convert to RGB if needed
+                    if do_convert_rgb and frame.shape[-1] != 3:
+                        if len(frame.shape) == 2:  # Grayscale
+                            frame = np.stack([frame] * 3, axis=-1)
+                        elif frame.shape[-1] == 4:  # RGBA
+                            frame = frame[..., :3]
 
-            # Center crop
-            if do_center_crop:
-                image = self.center_crop(image, crop_size)
+                    # Resize
+                    if do_resize:
+                        frame = self.resize(frame, size)
 
-            # Normalize
-            if do_normalize:
-                image = self.normalize(image, image_mean, image_std)
+                    # Center crop
+                    if do_center_crop:
+                        frame = self.center_crop(frame, crop_size)
 
-            processed_images.append(image)
+                    # Normalize
+                    if do_normalize:
+                        frame = self.normalize(frame, image_mean, image_std)
+
+                    batch_processed_frames.append(frame)
+
+                # Stack frames back into 4D tensor
+                processed_image = np.stack(batch_processed_frames, axis=0)
+            else:
+                # Handle single image case (3D or 2D)
+                # Convert to RGB if needed
+                if do_convert_rgb and image.shape[-1] != 3:
+                    if len(image.shape) == 2:  # Grayscale
+                        image = np.stack([image] * 3, axis=-1)
+                    elif image.shape[-1] == 4:  # RGBA
+                        image = image[..., :3]
+
+                # Resize
+                if do_resize:
+                    image = self.resize(image, size)
+
+                # Center crop
+                if do_center_crop:
+                    image = self.center_crop(image, crop_size)
+
+                # Normalize
+                if do_normalize:
+                    image = self.normalize(image, image_mean, image_std)
+
+                processed_image = image
+
+            processed_images.append(processed_image)
 
         # Stack frames for video
-        processed_images = np.stack(processed_images, axis=0)
+        processed_images = np.stack(processed_images, axis=0)  # B, T, H, W, C
 
         # Convert to tensor if requested
         if return_tensors == "pt":
@@ -187,7 +224,8 @@ class WanVideoImageProcessor(BaseImageProcessor):
             # Rearrange to (C, T, H, W) for video
             if len(processed_images.shape) == 4:  # (T, H, W, C)
                 processed_images = processed_images.permute(3, 0, 1, 2)
-            # Add batch dimension
+                # Add batch dimension
+
             processed_images = processed_images.unsqueeze(0)
 
         return {"pixel_values": processed_images}
@@ -202,9 +240,17 @@ class WanVideoProcessor:
         tokenizer: Text tokenizer instance.
     """
 
-    def __init__(self, image_processor=None, tokenizer=None):
+    attributes = ["tokenizer", "image_processor"]
+    valid_kwargs = [
+        "chat_template",
+    ]
+    tokenizer_class = "AutoTokenizer"
+    image_processor_class = "WanVideoImageProcessor"
+
+    def __init__(self, image_processor=None, tokenizer=None, **kwargs):
         if image_processor is None:
-            image_processor = WanVideoImageProcessor()
+            image_processor = WanVideoImageProcessor(**kwargs)
+
         if tokenizer is None:
             # Default to T5 tokenizer for text encoding
             try:

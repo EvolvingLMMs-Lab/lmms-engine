@@ -315,7 +315,6 @@ class BaseDataset(Dataset):
                 )
         else:
             raise NotImplementedError
-
         if self.config.shuffle:
             Logging.info("Shuffle Dataset ...")
             data_index = [i for i in range(len(self.data_list))]
@@ -446,13 +445,11 @@ class BaseDataset(Dataset):
     ):
         max_length = packing_length
         Logging.info(f"Packing inputs...pack length:{max_length}")
-
         result = []
         current_concatenated_length = 0
         current_list = []
         i = 0
         cur_window = {}
-
         next_window = {}
         for k in range(window_size):
             next_window[f"{k}"] = lengths[k]

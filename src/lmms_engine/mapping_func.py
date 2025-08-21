@@ -13,12 +13,15 @@ from transformers.modeling_utils import PreTrainedModel
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
 
+
 from lmms_engine.utils import Logging
 
 try:
     import fla
 except ImportError as e:
-    Logging.warning(f"Failed to import fla.")
+    Logging.warning(
+        f"Failed to import the lib 'fla'. If you do not need it, you can ignore this warning."
+    )
 
 
 # A decorator class to register processors
@@ -82,15 +85,6 @@ def create_model_from_pretrained(load_from_pretrained_path):
 def create_model_from_config(model_type, config):
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-    # Special handling for WanVideo model
-    # if model_type == "wanvideo":
-    #     from lmms_engine.models.wanvideo import (
-    #         WanVideoConfig,
-    #         WanVideoForConditionalGeneration,
-    #     )
-    #     m_config = WanVideoConfig(**config)
-    #     return WanVideoForConditionalGeneration, m_config
-    # Handle other models through AutoModel
     if model_type in CONFIG_MAPPING:
         config_class = CONFIG_MAPPING[model_type]
         m_config = config_class(**config)

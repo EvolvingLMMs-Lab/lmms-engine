@@ -17,14 +17,26 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from transformers.configuration_utils import PretrainedConfig
-from transformers.utils import logging
-
-logger = logging.get_logger(__name__)
 
 
-@dataclass
 class WanVideoConfig(PretrainedConfig):
     model_type = "wanvideo"
+    keys_to_ignore_at_inference = ["past_key_values"]
+
+    base_model_tp_plan = {
+        "layers.*.self_attn.q_proj": "colwise",
+        "layers.*.self_attn.k_proj": "colwise",
+        "layers.*.self_attn.v_proj": "colwise",
+        "layers.*.self_attn.o_proj": "rowwise",
+        "layers.*.mlp.gate_proj": "colwise",
+        "layers.*.mlp.up_proj": "colwise",
+        "layers.*.mlp.down_proj": "rowwise",
+    }
+    base_model_pp_plan = {
+        "embed_tokens": (["input_ids"], ["inputs_embeds"]),
+        "layers": (["hidden_states", "attention_mask"], ["hidden_states"]),
+        "norm": (["hidden_states"], ["hidden_states"]),
+    }
 
     def __init__(
         self,
@@ -64,7 +76,7 @@ class WanVideoConfig(PretrainedConfig):
         scheduler_type: str = "flow_match",
         scheduler_shift: int = 5,
         scheduler_sigma_min: float = 0.0,
-        gradient_checkpointing: bool = False,
+        # gradient_checkpointing: bool = False,
         use_lora: bool = False,
         lora_rank: int = 32,
         lora_target_modules: List[str] = None,
@@ -76,13 +88,11 @@ class WanVideoConfig(PretrainedConfig):
         guidance_scale: float = 5.0,
         num_inference_steps: int = 20,
         # Model variants
-        model_variant: str = "Wan2.1-T2V-1.3B",  # T2V, I2V, VACE, Fun, etc.
-        model_size: str = "1.3B",  # 1.3B, 5B, 14B
+        # model_variant: str = "Wan2.1-T2V-1.3B",  # T2V, I2V, VACE, Fun, etc.
+        # model_size: str = "1.3B",  # 1.3B, 5B, 14B
         tie_word_embeddings: bool = False,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-
         # DiT configuration
         self.dit_hidden_size = dit_hidden_size
         self.dit_num_layers = dit_num_layers
@@ -123,7 +133,7 @@ class WanVideoConfig(PretrainedConfig):
         self.scheduler_type = scheduler_type
         self.scheduler_shift = scheduler_shift
         self.scheduler_sigma_min = scheduler_sigma_min
-        self.gradient_checkpointing = gradient_checkpointing
+        # self.gradient_checkpointing = gradient_checkpointing
         self.use_lora = use_lora
         self.lora_rank = lora_rank
         self.lora_target_modules = lora_target_modules or [
@@ -144,31 +154,32 @@ class WanVideoConfig(PretrainedConfig):
         self.num_inference_steps = num_inference_steps
 
         # Model variants
-        self.model_variant = model_variant
-        self.model_size = model_size
+        # self.model_variant = model_variant
+        # self.model_size = model_size
+        # self.tie_word_embeddings = tie_word_embeddings
 
-        self.tie_word_embeddings = tie_word_embeddings
+        super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
 
-    def get_model_size_config(self):
-        """Get model size specific configurations"""
-        size_configs = {
-            "1.3B": {
-                "dit_hidden_size": 2432,
-                "dit_num_layers": 28,
-                "dit_num_heads": 19,
-            },
-            "5B": {
-                "dit_hidden_size": 3840,
-                "dit_num_layers": 42,
-                "dit_num_heads": 30,
-            },
-            "14B": {
-                "dit_hidden_size": 5120,
-                "dit_num_layers": 48,
-                "dit_num_heads": 40,
-            },
-        }
-        return size_configs.get(self.model_size, {})
+    # def get_model_size_config(self):
+    #     """Get model size specific configurations"""
+    #     size_configs = {
+    #         "1.3B": {
+    #             "dit_hidden_size": 2432,
+    #             "dit_num_layers": 28,
+    #             "dit_num_heads": 19,
+    #         },
+    #         "5B": {
+    #             "dit_hidden_size": 3840,
+    #             "dit_num_layers": 42,
+    #             "dit_num_heads": 30,
+    #         },
+    #         "14B": {
+    #             "dit_hidden_size": 5120,
+    #             "dit_num_layers": 48,
+    #             "dit_num_heads": 40,
+    #         },
+    #     }
+    #     return size_configs.get(self.model_size, {})
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""
