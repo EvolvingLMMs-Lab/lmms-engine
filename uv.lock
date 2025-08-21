@@ -1018,6 +1018,7 @@ dependencies = [
     { name = "torchvision" },
     { name = "transformers" },
     { name = "triton" },
+    { name = "trl" },
     { name = "wandb" },
 ]
 
@@ -1073,6 +1074,7 @@ requires-dist = [
     { name = "torchvision" },
     { name = "transformers" },
     { name = "triton" },
+    { name = "trl", specifier = ">=0.16.1" },
     { name = "trl", marker = "extra == 'pref'", specifier = "==0.16.1" },
     { name = "wandb" },
 ]

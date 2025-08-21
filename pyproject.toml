@@ -49,6 +49,7 @@ dependencies = [
     "tok>=0.1.14",
     "einops",
     "pandas",
+    "trl>=0.16.1",
 ]
 
 [project.optional-dependencies]
