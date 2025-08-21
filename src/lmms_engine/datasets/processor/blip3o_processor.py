@@ -7,7 +7,7 @@ from torchvision.transforms import v2 as transforms
 from transformers import AutoTokenizer
 
 # from blip3o.utils import rank0_print
-from lmms_engine.models.blip3o_qwen.constants import Blip3oConstants
+from lmms_engine.models.blip3o.constants import Blip3oConstants
 
 from .config import ProcessorConfig
 from .processor import Processor
