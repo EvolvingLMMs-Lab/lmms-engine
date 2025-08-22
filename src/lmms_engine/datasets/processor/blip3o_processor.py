@@ -163,4 +163,89 @@ class Blip3oProcessor(Processor):
             self.tokenizer.pad_token = self.tokenizer.unk_token
 
     def process(self):
-        pass
+        sources = self.list_data_dict[i]
+
+        if sources["type"] == "T2I":
+            sources["conversations"] = [
+                {
+                    "from": "human",
+                    "value": f"Please generate image based on the following caption: {sources['txt']}",
+                },
+                {"from": "gpt", "value": "<image>"},
+            ]
+
+        elif sources["type"] == "I2I":
+            sources["conversations"] = [
+                {
+                    "from": "human",
+                    "value": f"<image>\nPlease reconstruct the given image.",
+                },
+                {"from": "gpt", "value": ""},
+            ]
+
+        else:
+            raise ValueError(
+                "Unknown source type. Please check the 'type' in 'sources'."
+            )
+
+        if "image" in sources:
+            if sources["type"] == "T2I" or sources["type"] == "I2I":
+                image_files = self.list_data_dict[i]["image"]
+
+            if not isinstance(image_files, list):
+                image_files = [image_files]
+
+            images = []
+
+            for img in image_files:
+                try:
+                    if sources["type"] == "T2I" or sources["type"] == "I2I":
+                        img = img.convert("RGB")
+                    else:
+                        raise ValueError(
+                            "Unknown source type. Please check the 'type' in 'sources'."
+                        )
+                    images.append(img)
+                except Exception as e:
+                    print(f"Error opening image {img}: {e}")
+                    images = None
+                    break  # Skip to the next image if there's an error
+
+            ## test if can apply img_process
+            if not images is None:
+                try:
+                    process_images = [self.process_image(f) for f in images]
+                except Exception as e:
+                    print(f"Error wrong number of channels: {e}")
+                    images = None
+
+            # If no valid images were found, randomly pick another item
+            if images is None:
+                print(sources)
+                print(f"warning false image!!!!!!")
+                i = random.randint(0, len(self.list_data_dict) - 1)
+                continue
+
+            sources = preprocess_multimodal(
+                copy.deepcopy([sources["conversations"]]), self.data_args
+            )
+        else:
+            sources = copy.deepcopy([sources["conversations"]])
+
+        data_dict = preprocess_qwen(
+            sources, self.tokenizer, has_image=("image" in self.list_data_dict[i])
+        )
+        if isinstance(i, int):
+            data_dict = dict(
+                input_ids=data_dict["input_ids"][0], labels=data_dict["labels"][0]
+            )
+
+        # image exist in the data
+        if "image" in self.list_data_dict[i]:
+            data_dict["image"] = process_images
+            data_dict["target_image"] = [self.process_target_image(f) for f in images]
+
+        data_dict["ids"] = (
+            self.list_data_dict[i]["id"] if "id" in self.list_data_dict[i] else "unk"
+        )
+        return data_dict

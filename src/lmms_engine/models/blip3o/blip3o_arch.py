@@ -1,10 +1,8 @@
 # Adapted from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/model/blip3o_arch.py
 
 import math
-import os
 import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
