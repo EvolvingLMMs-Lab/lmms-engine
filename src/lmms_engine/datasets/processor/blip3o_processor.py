@@ -1,13 +1,18 @@
 # Based on https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/blip3o/data/dataset.py
 
 import copy
+import json
 
+import dacite
 import numpy as np
 import torch
 import transformers
 from PIL import Image, ImageFile
+from pydantic import BaseModel, Field
 from torchvision.transforms import v2 as transforms
 from transformers import AutoTokenizer
+
+from lmms_engine.mapping_func import register_processor
 
 # from blip3o.utils import rank0_print
 from lmms_engine.models.blip3o.constants import Blip3oConstants
@@ -16,6 +21,21 @@ from .config import ProcessorConfig
 from .processor import Processor
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+
+class DataArguments(BaseModel):
+    data_path: str | None = Field(
+        default=None,
+        metadata={
+            "help": "Path to the training data, in blip3o's instruction.json format. Supporting multiple json files via /path/to/{a,b,c}.json"
+        },
+    )
+    lazy_preprocess: bool = False
+    is_multimodal: bool = False
+    early_mix_text: bool = False
+    image_folder: str | None = None
+    image_aspect_ratio: str = "square"
+    dataset_cls: str = Field(default="blip3o")
 
 
 def expand2square(pil_img: Image.Image, background_color) -> Image.Image:
@@ -147,9 +167,13 @@ def preprocess_qwen(
     }
 
 
+@register_processor("blip3o")
 class Blip3oProcessor(Processor):
-    def __init__(self, config: ProcessorConfig):
-        self.config = config
+    def __init__(self, config: ProcessorConfig | dict):
+        if isinstance(config, dict):
+            config = dacite.from_dict(ProcessorConfig, config)
+        self.config: ProcessorConfig = config
+
         self.target_transform = transforms.Compose(
             [
                 transforms.Resize(1024),
@@ -165,8 +189,11 @@ class Blip3oProcessor(Processor):
         if self.tokenizer.unk_token is not None:
             self.tokenizer.pad_token = self.tokenizer.unk_token
 
-        self.processor_type = config.kwargs.get("type", "T2I")
-        self.data_args = config.kwargs.get("data_args", {})
+        self.processor_type = self.config.kwargs.get("type", "T2I")
+        data_args_dict = self.config.kwargs.get("data_args", {})
+        if isinstance(data_args_dict, str):
+            data_args_dict = json.loads(data_args_dict)
+        self.data_args = DataArguments.model_validate(data_args_dict)
 
     def process(
         self,

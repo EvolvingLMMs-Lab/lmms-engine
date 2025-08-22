@@ -50,6 +50,7 @@ dependencies = [
     "einops",
     "pandas",
     "trl>=0.16.1",
+    "dacite>=1.9.2",
 ]
 
 [project.optional-dependencies]

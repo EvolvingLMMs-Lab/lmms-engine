@@ -1,5 +1,6 @@
 from .aero_processor import AeroDataProcessor
 from .base_qwen2_5_vl_processor import BaseQwen2_5_DataProcessor
+from .blip3o_processor import Blip3oProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
 from .pure_text_processor import PureTextDataProcessor
@@ -19,4 +20,5 @@ __all__ = [
     "PureTextDataProcessor",
     "Qwen2DataProcessor",
     "WanVideoDataProcessor",
+    "Blip3oProcessor",
 ]
