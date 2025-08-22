@@ -171,6 +171,8 @@ class FSDP2SFTTrainer:
         self.fsdp2_model.train()
         self.optimizer.zero_grad()
         loss = self.compute_loss(batch)
+        if dist.get_world_size() > 1:
+            loss = loss.mean()
         loss_item = loss.item()
         loss.backward()
         grad_norm = fsdp2_clip_grad_norm_(
