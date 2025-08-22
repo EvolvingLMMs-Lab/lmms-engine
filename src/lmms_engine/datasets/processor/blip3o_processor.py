@@ -173,6 +173,8 @@ class Blip3oProcessor(Processor):
         if isinstance(config, dict):
             config = dacite.from_dict(ProcessorConfig, config)
         self.config: ProcessorConfig = config
+        if self.config.kwargs is None:
+            self.config.kwargs = {}
 
         self.target_transform = transforms.Compose(
             [
