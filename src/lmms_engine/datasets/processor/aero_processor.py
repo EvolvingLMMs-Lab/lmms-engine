@@ -8,10 +8,11 @@ from lmms_engine.mapping_func import register_processor
 
 from ...models.aero.processing_aero import AeroProcessor, AeroProcessorKwargs
 from .config import ProcessorConfig
+from .processor import Processor
 
 
 @register_processor("aero")
-class AeroDataProcessor:
+class AeroDataProcessor(Processor):
     def __init__(self, config: ProcessorConfig) -> None:
         self.config = config
 
