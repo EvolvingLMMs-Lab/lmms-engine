@@ -291,5 +291,5 @@ class Blip3oProcessor(Processor):
                 self.process_target_image(f) for f in processed_images
             ]
 
-        data_dict["ids"] = hf_messages["id"]
+        data_dict["ids"] = "unk"  # TODO: add id
         return data_dict
