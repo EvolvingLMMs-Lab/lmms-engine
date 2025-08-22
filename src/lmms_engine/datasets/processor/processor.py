@@ -18,3 +18,7 @@ class Processor(ABC):
         **kwargs,
     ) -> dict:
         raise NotImplementedError("Processor.process() is not implemented")
+
+    @abstractmethod
+    def build(self):
+        raise NotImplementedError("Processor.build() is not implemented")

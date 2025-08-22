@@ -176,6 +176,13 @@ class Blip3oProcessor(Processor):
         if self.config.kwargs is None:
             self.config.kwargs = {}
 
+        self.processor_type = self.config.kwargs.get("type", "T2I")
+        data_args_dict = self.config.kwargs.get("data_args", {})
+        if isinstance(data_args_dict, str):
+            data_args_dict = json.loads(data_args_dict)
+        self.data_args = DataArguments.model_validate(data_args_dict)
+
+    def build(self):
         self.target_transform = transforms.Compose(
             [
                 transforms.Resize(1024),
@@ -185,17 +192,12 @@ class Blip3oProcessor(Processor):
                 transforms.Normalize([0.5], [0.5]),
             ]
         )
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.config.processor_name, padding_side="right"
         )
         if self.tokenizer.unk_token is not None:
             self.tokenizer.pad_token = self.tokenizer.unk_token
-
-        self.processor_type = self.config.kwargs.get("type", "T2I")
-        data_args_dict = self.config.kwargs.get("data_args", {})
-        if isinstance(data_args_dict, str):
-            data_args_dict = json.loads(data_args_dict)
-        self.data_args = DataArguments.model_validate(data_args_dict)
 
     def process(
         self,
