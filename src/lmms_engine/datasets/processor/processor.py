@@ -1,8 +1,20 @@
 from abc import ABC, abstractmethod
+from typing import List, Optional
+
+import numpy as np
+from PIL import Image
 
 
-# I'm not very sure if we really need this class, since I found that pure_text_processor don't have a process method. Maybe we need to force all the processors to have a process method?
 class Processor(ABC):
     @abstractmethod
-    def process(self, *args, **kwargs) -> dict:
+    def process(
+        self,
+        images: List[Image.Image],
+        hf_messages,
+        audios: Optional[List[np.ndarray]] = None,
+        sampling_rate: Optional[int] = None,
+        videos=None,
+        add_system_prompt=True,
+        **kwargs,
+    ) -> dict:
         raise NotImplementedError("Processor.process() is not implemented")
