@@ -161,3 +161,6 @@ class Blip3oProcessor(Processor):
         )
         if self.tokenizer.unk_token is not None:
             self.tokenizer.pad_token = self.tokenizer.unk_token
+
+    def process(self):
+        pass
