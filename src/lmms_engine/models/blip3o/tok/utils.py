@@ -1,3 +1,5 @@
+# Copied from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/tok/utils.py
+
 import torch
 import torch.nn as nn
 

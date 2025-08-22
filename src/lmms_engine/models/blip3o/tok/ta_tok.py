@@ -1,3 +1,5 @@
+# Copied from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/tok/ta_tok.py
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

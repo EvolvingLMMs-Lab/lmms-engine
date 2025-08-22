@@ -1,3 +1,5 @@
+# Copied from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/tok/ar_dtok/ar_model.py
+
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass

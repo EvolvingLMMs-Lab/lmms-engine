@@ -1,3 +1,5 @@
+# Copied from https://github.com/JiuhaiChen/BLIP3o/blob/BLIP3o-NEXT/tok/ar_dtok/vqvae.py
+
 from dataclasses import dataclass, field
 from typing import List
 

@@ -3,11 +3,11 @@
 import os
 
 import torch
-from tok.ta_tok import TextAlignedTokenizer
-from tok.utils import ScalingLayer
 from torch import nn
 from transformers.models.siglip.image_processing_siglip import SiglipImageProcessor
 
+from .tok.ta_tok import TextAlignedTokenizer
+from .tok.utils import ScalingLayer
 from .utils import rank0_print
 
 
