@@ -10,7 +10,7 @@ from PIL import Image
 
 def save_image(image: Image.Image, id: str, output_path: str):
     ext = image.format.lower()
-    relative_path = f"images/{id}.{ext}"
+    relative_path = f"images{id//10000}/{id%10000}.{ext}"
     path = os.path.join(output_path, relative_path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     image.save(path)
