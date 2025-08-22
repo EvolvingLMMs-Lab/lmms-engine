@@ -63,8 +63,8 @@ if __name__ == "__main__":
         gen_kwargs={"dataset": train_dataset, "output_path": output_path},
         num_proc=64,
     )
-    dataset.save_to_disk(output_path)
-
+    dataset.save_to_disk(output_path, format="parquet")
+    """
     print(f"Dataset saved to {output_path}. Now uploading to Hub...")
     # Make sure you are logged in with `huggingface-cli login`
     api = HfApi()
@@ -76,3 +76,4 @@ if __name__ == "__main__":
         commit_message="Upload BLIP3o-60k dataset with images",
     )
     print(f"Dataset successfully uploaded to https://huggingface.co/datasets/{repo_id}")
+    """
