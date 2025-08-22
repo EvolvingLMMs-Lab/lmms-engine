@@ -50,7 +50,7 @@
     freeze_modules: ["visual"]
     use_liger_kernel: true
     use_rmpad: true
-    fsdp2: true
-    fsdp_config:
-      transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
-      reshard_after_forward: false
+    fsdp2: false
+    # fsdp_config:
+    #   transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
+    #   reshard_after_forward: false
