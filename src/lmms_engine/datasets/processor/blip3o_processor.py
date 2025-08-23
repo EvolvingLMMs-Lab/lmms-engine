@@ -10,12 +10,14 @@ import transformers
 from PIL import Image, ImageFile
 from pydantic import BaseModel, Field
 from torchvision.transforms import v2 as transforms
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 from lmms_engine.mapping_func import register_processor
 
 # from blip3o.utils import rank0_print
 from lmms_engine.models.blip3o.constants import Blip3oConstants
+from lmms_engine.models.blip3o.encoder import build_vision_tower
+from lmms_engine.utils.logging_utils import Logging
 
 from .config import ProcessorConfig
 from .processor import Processor
@@ -182,6 +184,12 @@ class Blip3oProcessor(Processor):
             data_args_dict = json.loads(data_args_dict)
         self.data_args = DataArguments.model_validate(data_args_dict)
 
+        # Build vision tower and get image processor using encoder.py
+        qwen3_config = AutoConfig.from_pretrained(self.config.processor_name)
+        self.vision_tower = build_vision_tower(qwen3_config, delay_load=True)
+        self.image_processor = self.vision_tower.image_processor
+        self.modality = torch.tensor(0)  # 0 is for und task, 1 is for gen task
+
     def build(self):
         self.target_transform = transforms.Compose(
             [
@@ -204,7 +212,7 @@ class Blip3oProcessor(Processor):
         return image
 
     def process_image(self, image):
-        processor = self.data_args.image_processor
+        processor = self.image_processor
         image_size = image.size
         image = processor.preprocess(image, return_tensors="pt")["pixel_values"][0]
         return image, image_size, self.modality
@@ -276,8 +284,11 @@ class Blip3oProcessor(Processor):
                         )
                     processed_images.append(self.process_image(img))
                 except Exception as e:
-                    print(f"Error opening image {img}: {e}")
-                    processed_images = None
+                    Logging.error(f"Error opening image {img}: {e}")
+                    import traceback
+
+                    traceback.print_exc()
+                    processed_images = []
                     break  # Skip to the next image if there's an error
 
         sources = preprocess_multimodal(
@@ -285,7 +296,9 @@ class Blip3oProcessor(Processor):
         )
 
         data_dict = preprocess_qwen(
-            sources, self.tokenizer, has_image=len(processed_images) > 0
+            sources,
+            self.tokenizer,
+            has_image=len(processed_images) > 0,
         )
         data_dict = dict(
             input_ids=data_dict["input_ids"][0], labels=data_dict["labels"][0]
