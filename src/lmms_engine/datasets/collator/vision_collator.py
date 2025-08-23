@@ -26,6 +26,8 @@ class VisionCollator:
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         if isinstance(instances[0], list):
             instances = [inst for instance in instances for inst in instance]
+        with open("instances.json", "w") as f:
+            print(instances, file=f)
         inputs = collections.defaultdict(list)
         for instance in instances:
             for key, values in instance.items():
