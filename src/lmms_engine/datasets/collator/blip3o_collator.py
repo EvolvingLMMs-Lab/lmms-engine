@@ -29,7 +29,11 @@ class Blip3oCollator:
             input_ids = torch.flip(input_ids, [1])
         return input_ids
 
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+    def __call__(
+        self, instances: Sequence[Dict] | Sequence[Sequence[Dict]]
+    ) -> Dict[str, torch.Tensor]:
+        if isinstance(instances[0], Sequence):
+            instances = [inst for instance in instances for inst in instance]
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels")
         )
