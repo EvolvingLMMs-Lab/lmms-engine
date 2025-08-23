@@ -1,3 +1,4 @@
+from .blip3o_dataset import Blip3oSFTDataset
 from .config import DatasetConfig
 from .fineweb_edu_dataset import FinewebEduDataset
 from .vision_audio_dataset import VisionAudioSFTDataset
@@ -8,4 +9,5 @@ __all__ = [
     "VisionSFTDataset",
     "VisionAudioSFTDataset",
     "FinewebEduDataset",
+    "Blip3oSFTDataset",
 ]
