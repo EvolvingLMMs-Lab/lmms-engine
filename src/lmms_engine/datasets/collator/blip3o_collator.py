@@ -1,8 +1,6 @@
-import collections
 from dataclasses import dataclass
 from typing import Dict, Sequence
 
-import numpy as np
 import torch
 import transformers
 
