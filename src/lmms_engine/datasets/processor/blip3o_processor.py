@@ -271,6 +271,7 @@ class Blip3oProcessor(Processor):
                 "Unknown source type. Please check the 'type' in 'sources'."
             )
 
+        all_images = images
         processed_images = []
 
         if images:
@@ -282,14 +283,13 @@ class Blip3oProcessor(Processor):
                         raise ValueError(
                             "Unknown source type. Please check the 'type' in 'sources'."
                         )
-                    processed_images.append(self.process_image(img))
+                    all_images.append(img)
                 except Exception as e:
                     Logging.error(f"Error opening image {img}: {e}")
-                    import traceback
-
-                    traceback.print_exc()
-                    processed_images = []
+                    all_images = []
                     break  # Skip to the next image if there's an error
+
+        processed_images = [self.process_image(img) for img in all_images]
 
         sources = preprocess_multimodal(
             copy.deepcopy([sources["conversations"]]), self.data_args
@@ -308,7 +308,7 @@ class Blip3oProcessor(Processor):
         if len(processed_images) > 0:
             data_dict["image"] = processed_images
             data_dict["target_image"] = [
-                self.process_target_image(f) for f in processed_images
+                self.process_target_image(f) for f in all_images
             ]
 
         data_dict["ids"] = "unk"  # TODO: add id
