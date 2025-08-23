@@ -203,6 +203,12 @@ class Blip3oProcessor(Processor):
         image = self.target_transform(image)
         return image
 
+    def process_image(self, image):
+        processor = self.data_args.image_processor
+        image_size = image.size
+        image = processor.preprocess(image, return_tensors="pt")["pixel_values"][0]
+        return image, image_size, self.modality
+
     def process(
         self,
         images: list[Image.Image],
@@ -259,19 +265,20 @@ class Blip3oProcessor(Processor):
 
         processed_images = []
 
-        for img in images:
-            try:
-                if self.processor_type == "T2I" or self.processor_type == "I2I":
-                    img = img.convert("RGB")
-                else:
-                    raise ValueError(
-                        "Unknown source type. Please check the 'type' in 'sources'."
-                    )
-                processed_images.append(img)
-            except Exception as e:
-                print(f"Error opening image {img}: {e}")
-                processed_images = None
-                break  # Skip to the next image if there's an error
+        if images:
+            for img in images:
+                try:
+                    if self.processor_type == "T2I" or self.processor_type == "I2I":
+                        img = img.convert("RGB")
+                    else:
+                        raise ValueError(
+                            "Unknown source type. Please check the 'type' in 'sources'."
+                        )
+                    processed_images.append(self.process_image(img))
+                except Exception as e:
+                    print(f"Error opening image {img}: {e}")
+                    processed_images = None
+                    break  # Skip to the next image if there's an error
 
         sources = preprocess_multimodal(
             copy.deepcopy([sources["conversations"]]), self.data_args
