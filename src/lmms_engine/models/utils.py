@@ -29,6 +29,7 @@ VALID_CONFIG_TYPE = {
     "minicpmv",
     "minicpmo",
     "llava_onevision",
+    "blip3o_qwen",
 }
 
 
@@ -61,6 +62,7 @@ class FlopsCounter:
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
+            "blip3o_qwen": self._estimate_qwen2_flops,
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
