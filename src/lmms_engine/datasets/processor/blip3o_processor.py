@@ -271,8 +271,7 @@ class Blip3oProcessor(Processor):
                 "Unknown source type. Please check the 'type' in 'sources'."
             )
 
-        all_images = images
-        processed_images = []
+        all_images = []
 
         if images:
             for img in images:
