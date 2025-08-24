@@ -24,7 +24,9 @@ TrainingArgumentType = Union[TrainingArguments]
 
 @dataclass
 class TrainerConfig:
-    trainer_type: Literal["hf_trainer", "fsdp2_trainer"]
+    trainer_type: Literal[
+        "hf_trainer", "fsdp2_trainer", "blip3o_trainer", "dllm_trainer"
+    ]
     dataset_config: DatasetConfig
     model_config: ModelConfig
     trainer_args: TrainingArgumentType

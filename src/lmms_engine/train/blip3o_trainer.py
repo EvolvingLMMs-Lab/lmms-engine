@@ -2,57 +2,23 @@ from datetime import timedelta
 from typing import List, Optional
 
 import torch
-import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import GradientAccumulationPlugin, InitProcessGroupKwargs
-from torch.utils.data import DataLoader, Dataset, Sampler
-from transformers import Trainer
+from torch.utils.data import Sampler
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from transformers.trainer import (
-    ALL_LAYERNORM_LAYERS,
     get_parameter_names,
     has_length,
     is_accelerate_available,
-    is_datasets_available,
     is_sagemaker_mp_enabled,
-    logger,
 )
 from transformers.trainer_pt_utils import (
     get_length_grouped_indices as get_length_grouped_indices_hf,
 )
-from transformers.trainer_utils import seed_worker
 
-if is_datasets_available():
-    import datasets
+from lmms_engine.models.blip3o.utils import rank0_print
 
-from blip3o.utils import rank0_print
-
-
-def maybe_zero_3(param, ignore_status=False, name=None):
-    from deepspeed import zero
-    from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
-
-    if hasattr(param, "ds_id"):
-        if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
-            if not ignore_status:
-                print(name, "no ignore status")
-        with zero.GatheredParameters([param]):
-            param = param.data.detach().cpu().clone()
-    else:
-        param = param.detach().cpu().clone()
-    return param
-
-
-def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
-    to_return = {
-        k: t
-        for k, t in named_params
-        if any(key_match in k for key_match in keys_to_match)
-    }
-    to_return = {
-        k: maybe_zero_3(v, ignore_status=True, name=k).cpu()
-        for k, v in to_return.items()
-    }
-    return to_return
+from .trainer import Trainer
 
 
 def split_to_even_chunks(indices, lengths, num_chunks):
@@ -458,53 +424,6 @@ class Blip3oTrainer(Trainer):
             )
         else:
             return super()._get_train_sampler()
-
-    def get_train_dataloader(self) -> DataLoader:
-        """
-        Returns the training [`~torch.utils.data.DataLoader`].
-
-        Will use no sampler if `train_dataset` does not implement `__len__`, a random sampler (adapted to distributed
-        training if necessary) otherwise.
-
-        Subclass and override this method if you want to inject some custom behavior.
-        """
-        if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
-
-        train_dataset = self.train_dataset
-        data_collator = self.data_collator
-        if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
-            train_dataset = self._remove_unused_columns(
-                train_dataset, description="training"
-            )
-        else:
-            data_collator = self._get_collator_with_removed_columns(
-                data_collator, description="training"
-            )
-
-        dataloader_params = {
-            "batch_size": self._train_batch_size,
-            "collate_fn": data_collator,
-            "num_workers": self.args.dataloader_num_workers,
-            "pin_memory": self.args.dataloader_pin_memory,
-            "persistent_workers": self.args.dataloader_persistent_workers,
-        }
-
-        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
-            # dataloader_params["sampler"] = self._get_train_sampler()
-            dataloader_params["drop_last"] = self.args.dataloader_drop_last
-            dataloader_params["worker_init_fn"] = seed_worker
-            dataloader_params["prefetch_factor"] = (
-                self.args.dataloader_num_workers * 2
-                if self.args.dataloader_num_workers != 0
-                else None
-            )
-
-        dataloader = self.accelerator.prepare(
-            DataLoader(train_dataset, **dataloader_params)
-        )
-
-        return dataloader
 
     def create_optimizer(self):
         """
