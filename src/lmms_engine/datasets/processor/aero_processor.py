@@ -2,6 +2,7 @@ from typing import List, Optional
 
 import numpy as np
 import torch
+from dacite import from_dict
 from PIL import Image
 
 from lmms_engine.mapping_func import register_processor
@@ -13,7 +14,9 @@ from .processor import Processor
 
 @register_processor("aero")
 class AeroDataProcessor(Processor):
-    def __init__(self, config: ProcessorConfig) -> None:
+    def __init__(self, config: ProcessorConfig | dict) -> None:
+        if isinstance(config, dict):
+            config = from_dict(ProcessorConfig, config)
         self.config = config
 
     def build(self):

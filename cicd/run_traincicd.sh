@@ -1,7 +1,3 @@
-
-
-
-
 # Test the training scripts
 torchrun --nproc_per_node="1" \
     --nnodes="1" \
