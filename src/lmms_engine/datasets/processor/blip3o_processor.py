@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 
 import dacite
 import numpy as np
@@ -189,6 +190,13 @@ class Blip3oProcessor(Processor):
         self.vision_tower = build_vision_tower(qwen3_config, delay_load=True)
         self.image_processor = self.vision_tower.image_processor
         self.modality = torch.tensor(0)  # 0 is for und task, 1 is for gen task
+
+    def save_pretrained(self, save_directory: str):
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)
+
+        self.tokenizer.save_pretrained(save_directory)
+        self.image_processor.save_pretrained(save_directory)
 
     def build(self):
         self.target_transform = transforms.Compose(

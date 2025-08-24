@@ -8,13 +8,13 @@ from lmms_engine.utils import Logging
 def rank0_print(*args):
     if dist.is_initialized():
         if dist.get_rank() == 0:
-            Logging.info(f"Rank {dist.get_rank()}: ", *args)
+            Logging.info(f"Rank {dist.get_rank()}: {' '.join(map(str, args))}")
     else:
-        Logging.info(*args)
+        Logging.info(" ".join(map(str, args)))
 
 
 def rank_print(*args):
     if dist.is_initialized():
-        Logging.info(f"Rank {dist.get_rank()}: ", *args)
+        Logging.info(f"Rank {dist.get_rank()}: {' '.join(map(str, args))}")
     else:
-        Logging.info(*args)
+        Logging.info(" ".join(map(str, args)))

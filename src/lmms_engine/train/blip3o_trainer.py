@@ -315,29 +315,19 @@ class Blip3oTrainer(Trainer):
         accelerator_kwargs = InitProcessGroupKwargs(timeout=timedelta(weeks=52))
         rank0_print("Setting NCCL timeout to INF to avoid running errors.")
 
-        try:
-            from accelerate import DataLoaderConfiguration
+        from accelerate import DataLoaderConfiguration
 
-            # Define DataLoaderConfiguration
-            dataloader_config = DataLoaderConfiguration(
-                dispatch_batches=self.args.dispatch_batches,
-                split_batches=self.args.split_batches,
-            )
-            self.accelerator = Accelerator(
-                dataloader_config=dataloader_config,
-                deepspeed_plugin=self.args.deepspeed_plugin,
-                gradient_accumulation_plugin=gradient_accumulation_plugin,
-                kwargs_handlers=[accelerator_kwargs],
-            )
-        except:
-            # create accelerator object
-            self.accelerator = Accelerator(
-                dispatch_batches=self.args.dispatch_batches,
-                split_batches=self.args.split_batches,
-                deepspeed_plugin=self.args.deepspeed_plugin,
-                gradient_accumulation_plugin=gradient_accumulation_plugin,
-                kwargs_handlers=[accelerator_kwargs],
-            )
+        # Define DataLoaderConfiguration
+        dataloader_config = DataLoaderConfiguration(
+            dispatch_batches=None,
+            split_batches=False,
+        )
+        self.accelerator = Accelerator(
+            dataloader_config=dataloader_config,
+            deepspeed_plugin=self.args.deepspeed_plugin,
+            gradient_accumulation_plugin=gradient_accumulation_plugin,
+            kwargs_handlers=[accelerator_kwargs],
+        )
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
         self.gather_function = self.accelerator.gather_for_metrics
 
@@ -347,6 +337,9 @@ class Blip3oTrainer(Trainer):
         )
         self.is_fsdp_enabled = (
             getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+        )
+        self.is_tp_enabled = (
+            getattr(self.accelerator.state, "torch_tp_plugin", None) is not None
         )
 
         # post accelerator creation setup
@@ -375,12 +368,14 @@ class Blip3oTrainer(Trainer):
         ):
             self.propagate_args_to_deepspeed()
 
-    def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
-        if self.train_dataset is None or not has_length(self.train_dataset):
+    def _get_train_sampler(
+        self, train_dataset: Optional[torch.utils.data.Dataset] = None
+    ) -> Optional[torch.utils.data.Sampler]:
+        if train_dataset is None or not has_length(train_dataset):
             return None
 
         if self.args.group_by_length:
-            lengths = self.train_dataset.lengths
+            lengths = train_dataset.modality_length
             return LengthGroupedSampler(
                 # self.args.train_batch_size * self.args.gradient_accumulation_steps, # TODO: seems that we should not have gradient_accumulation_steps
                 self.args.train_batch_size,
@@ -390,7 +385,7 @@ class Blip3oTrainer(Trainer):
                 lengths=lengths,
             )
         elif self.args.group_by_modality_length:
-            lengths = self.train_dataset.modality_lengths
+            lengths = train_dataset.modality_length
             return LengthGroupedSampler(
                 # self.args.train_batch_size * self.args.gradient_accumulation_steps, # TODO: seems that we should not have gradient_accumulation_steps
                 self.args.train_batch_size,
@@ -401,7 +396,7 @@ class Blip3oTrainer(Trainer):
                 group_by_modality=True,
             )
         elif self.args.group_by_modality_length_auto:
-            lengths = self.train_dataset.modality_lengths
+            lengths = train_dataset.modality_length
             return LengthGroupedSampler(
                 # self.args.train_batch_size * self.args.gradient_accumulation_steps, # TODO: seems that we should not have gradient_accumulation_steps
                 self.args.train_batch_size,
@@ -412,7 +407,7 @@ class Blip3oTrainer(Trainer):
                 group_by_modality_auto=True,
             )
         elif self.args.group_by_varlen:
-            lengths = self.train_dataset.lengths
+            lengths = train_dataset.modality_length
             return LengthGroupedSampler(
                 self.args.train_batch_size * self.args.gradient_accumulation_steps,
                 # self.args.train_batch_size, # TODO: seems that we should have gradient_accumulation_steps
@@ -422,8 +417,6 @@ class Blip3oTrainer(Trainer):
                 lengths=lengths,
                 variable_length=True,
             )
-        else:
-            return super()._get_train_sampler()
 
     def create_optimizer(self):
         """

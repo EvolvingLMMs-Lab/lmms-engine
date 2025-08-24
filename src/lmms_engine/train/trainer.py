@@ -351,7 +351,11 @@ class Trainer(HFTrainer):
                 checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
                 run_dir = self._get_output_dir(trial=trial)
                 output_dir = os.path.join(run_dir, checkpoint_folder)
-                if self.processing_class is not None:
+                if (
+                    hasattr(self, "processing_class")
+                    and self.processing_class is not None
+                    and hasattr(self.processing_class, "save_pretrained")
+                ):
                     self.processing_class.save_pretrained(output_dir)
             super(Trainer, self)._save_checkpoint(model, trial)
 

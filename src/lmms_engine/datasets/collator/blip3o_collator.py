@@ -35,6 +35,31 @@ class Blip3oCollator:
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels")
         )
+
+        # Replace invalid token IDs with pad_token_id and convert to tensors
+        input_ids = [
+            torch.tensor(
+                [
+                    token_id
+                    if 0 <= token_id < self.tokenizer.vocab_size
+                    else self.tokenizer.pad_token_id
+                    for token_id in _input_ids
+                ]
+            )
+            for _input_ids in input_ids
+        ]
+        labels = [
+            torch.tensor(
+                [
+                    label_id
+                    if 0 <= label_id < self.tokenizer.vocab_size
+                    else Blip3oConstants.IGNORE_INDEX
+                    for label_id in _labels
+                ]
+            )
+            for _labels in labels
+        ]
+
         input_ids = [
             _input_ids[: self.tokenizer.model_max_length] for _input_ids in input_ids
         ]

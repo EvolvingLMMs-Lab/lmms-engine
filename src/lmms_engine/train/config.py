@@ -17,6 +17,7 @@ class TrainingArguments(transformers.TrainingArguments):
     sp_ulysses_degree: Optional[int] = 1
     reduce_dtype: Optional[str] = "bfloat16"
     output_dtype: Optional[str] = "bfloat16"
+    mm_vision_tower_lr: Optional[float] = None
 
 
 TrainingArgumentType = Union[TrainingArguments]
