@@ -30,7 +30,7 @@
 
     # Training arguments, mostly compatible with HuggingFace Trainer
     per_device_train_batch_size: 1
-    learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+    learning_rate: 1.0e-05 # we should use 1.0 to makes YAML recognize it as a float
     weight_decay: 0.0
     gradient_accumulation_steps: 1
     gradient_checkpointing: true

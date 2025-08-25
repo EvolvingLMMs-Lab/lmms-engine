@@ -1,13 +1,17 @@
+import atexit
 import functools
 import importlib.metadata
 import inspect
 import os
+import signal
+import sys
 import time
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import datasets
 import torch
+import torch.distributed as dist
 from accelerate import Accelerator, FullyShardedDataParallelPlugin
 from accelerate.data_loader import DataLoaderShard
 from accelerate.utils import DataLoaderConfiguration, send_to_device
@@ -35,6 +39,7 @@ import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
 )
+from lmms_engine.utils import Logging
 
 from ..utils.train_utils import TrainUtilities
 
@@ -54,6 +59,76 @@ TRAINER_STATE_NAME = "trainer_state.json"
 
 
 class Trainer(HFTrainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Register cleanup handlers to prevent NCCL warnings
+        self._cleanup_registered = False
+        self._register_cleanup_handlers()
+
+    def _register_cleanup_handlers(self):
+        """Register cleanup handlers to properly destroy process groups"""
+        if self._cleanup_registered:
+            return
+
+        # Register atexit handler
+        atexit.register(self._cleanup_distributed)
+
+        # Register signal handlers for common termination signals
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            try:
+                signal.signal(sig, self._signal_handler)
+            except (ValueError, OSError):
+                # Ignore if we can't register the signal (e.g., not main thread)
+                pass
+
+        self._cleanup_registered = True
+
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        self._cleanup_distributed()
+        sys.exit(0)
+
+    def _cleanup_distributed(self):
+        """Clean up distributed training resources"""
+        try:
+            if hasattr(self, "accelerator") and self.accelerator is not None:
+                # Wait for all processes before cleanup
+                if hasattr(self.accelerator, "wait_for_everyone"):
+                    self.accelerator.wait_for_everyone()
+
+            # Cleanup distributed process groups
+            if dist.is_initialized():
+                if dist.get_rank() == 0:
+                    Logging.info("Cleaning up distributed process groups...")
+
+                # Synchronize all processes before destroying
+                try:
+                    dist.barrier()
+                except Exception:
+                    pass  # Ignore barrier errors during cleanup
+
+                # Destroy process groups to prevent warnings
+                try:
+                    dist.destroy_process_group()
+                    if dist.get_rank() == 0:
+                        Logging.info("Distributed cleanup completed.")
+                except Exception:
+                    # If destroy_process_group fails, it might already be cleaned up
+                    pass
+
+        except Exception as e:
+            # Don't raise exceptions during cleanup
+            try:
+                if dist.is_initialized() and dist.get_rank() == 0:
+                    Logging.warning(f"Error during distributed cleanup: {e}")
+            except Exception:
+                pass
+
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        self._cleanup_distributed()
+
     def create_accelerator_and_postprocess(self):
         if self.args.fsdp2:
             if self.args.bf16:
