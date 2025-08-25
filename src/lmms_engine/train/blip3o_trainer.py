@@ -1,7 +1,11 @@
+import atexit
+import signal
+import sys
 from datetime import timedelta
 from typing import List, Optional
 
 import torch
+import torch.distributed as dist
 from accelerate import Accelerator
 from accelerate.utils import GradientAccumulationPlugin, InitProcessGroupKwargs
 from torch.utils.data import Sampler
@@ -307,6 +311,10 @@ class Blip3oTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Register cleanup handlers to prevent NCCL warnings
+        self._cleanup_registered = False
+        self._register_cleanup_handlers()
+
     def create_accelerator_and_postprocess(self):
         grad_acc_kwargs = {"num_steps": self.args.gradient_accumulation_steps}
         grad_acc_kwargs["sync_with_dataloader"] = False
@@ -367,6 +375,67 @@ class Blip3oTrainer(Trainer):
             and getattr(self.args, "hf_deepspeed_config", None) is None
         ):
             self.propagate_args_to_deepspeed()
+
+    def _register_cleanup_handlers(self):
+        """Register cleanup handlers to properly destroy process groups"""
+        if self._cleanup_registered:
+            return
+
+        # Register atexit handler
+        atexit.register(self._cleanup_distributed)
+
+        # Register signal handlers for common termination signals
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            try:
+                signal.signal(sig, self._signal_handler)
+            except (ValueError, OSError):
+                # Ignore if we can't register the signal (e.g., not main thread)
+                pass
+
+        self._cleanup_registered = True
+
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        self._cleanup_distributed()
+        sys.exit(0)
+
+    def _cleanup_distributed(self):
+        """Clean up distributed training resources"""
+        try:
+            if hasattr(self, "accelerator") and self.accelerator is not None:
+                # Wait for all processes before cleanup
+                if hasattr(self.accelerator, "wait_for_everyone"):
+                    self.accelerator.wait_for_everyone()
+
+            # Cleanup distributed process groups
+            if dist.is_initialized():
+                rank0_print("Cleaning up distributed process groups...")
+
+                # Synchronize all processes before destroying
+                try:
+                    dist.barrier()
+                except Exception:
+                    pass  # Ignore barrier errors during cleanup
+
+                # Destroy process groups to prevent warnings
+                try:
+                    dist.destroy_process_group()
+                    rank0_print("Distributed cleanup completed.")
+                except Exception:
+                    # If destroy_process_group fails, it might already be cleaned up
+                    pass
+
+        except Exception as e:
+            # Don't raise exceptions during cleanup
+            try:
+                if dist.is_initialized() and dist.get_rank() == 0:
+                    print(f"Warning: Error during distributed cleanup: {e}")
+            except Exception:
+                pass
+
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        self._cleanup_distributed()
 
     def _get_train_sampler(
         self, train_dataset: Optional[torch.utils.data.Dataset] = None

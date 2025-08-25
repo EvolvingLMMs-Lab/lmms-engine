@@ -268,24 +268,30 @@ class TrainRunner:
         return trainer
 
     def run(self, **kwargs):
-        self.save_config()
-        if self.config.trainer_args.freeze_modules:
-            for modules in self.config.trainer_args.freeze_modules:
-                cls = getattr(self.model, modules, None)
-                if cls is not None:
-                    for param in cls.parameters():
-                        param.requires_grad = False
+        try:
+            self.save_config()
+            if self.config.trainer_args.freeze_modules:
+                for modules in self.config.trainer_args.freeze_modules:
+                    cls = getattr(self.model, modules, None)
+                    if cls is not None:
+                        for param in cls.parameters():
+                            param.requires_grad = False
 
-        if list(pathlib.Path(self.config.trainer_args.output_dir).glob("checkpoint-*")):
-            self.trainer.train(resume_from_checkpoint=True)
-        else:
-            self.trainer.train()
-        # Save the state for hf_trainer
-        if hasattr(self.trainer, "save_state"):
-            self.trainer.save_state()
-            self.safe_save_model_for_hf_trainer(
-                self.trainer, self.config.trainer_args.output_dir
-            )
+            if list(
+                pathlib.Path(self.config.trainer_args.output_dir).glob("checkpoint-*")
+            ):
+                self.trainer.train(resume_from_checkpoint=True)
+            else:
+                self.trainer.train()
+            # Save the state for hf_trainer
+            if hasattr(self.trainer, "save_state"):
+                self.trainer.save_state()
+                self.safe_save_model_for_hf_trainer(
+                    self.trainer, self.config.trainer_args.output_dir
+                )
+        finally:
+            # Ensure distributed cleanup happens even if training fails
+            self._cleanup_distributed()
 
     def safe_save_model_for_hf_trainer(self, trainer: Trainer, output_dir: str):
         """Collects the state dict and dump to disk."""
@@ -332,3 +338,40 @@ class TrainRunner:
             cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
             del state_dict
             trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
+
+    def _cleanup_distributed(self):
+        """Clean up distributed training resources"""
+        try:
+            import torch.distributed as dist
+
+            from lmms_engine.models.blip3o.utils import rank0_print
+
+            if hasattr(self, "trainer") and self.trainer is not None:
+                # If trainer has cleanup method, call it
+                if hasattr(self.trainer, "_cleanup_distributed"):
+                    self.trainer._cleanup_distributed()
+                    return
+
+            # Fallback cleanup if trainer doesn't have cleanup method
+            if dist.is_initialized():
+                rank0_print("TrainRunner: Cleaning up distributed process groups...")
+                try:
+                    # Synchronize all processes before destroying
+                    dist.barrier()
+                except Exception:
+                    pass  # Ignore barrier errors during cleanup
+
+                try:
+                    dist.destroy_process_group()
+                    rank0_print("TrainRunner: Distributed cleanup completed.")
+                except Exception as e:
+                    try:
+                        if dist.get_rank() == 0:
+                            print(
+                                f"Warning: Error during TrainRunner distributed cleanup: {e}"
+                            )
+                    except Exception:
+                        pass
+        except Exception:
+            # Don't raise exceptions during cleanup
+            pass
