@@ -547,6 +547,15 @@ wheels = [
 ]
 
 [[package]]
+name = "easydict"
+version = "1.13"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/9f/d18d6b5e19244788a6d09c14a8406376b4f4bfcc008e6d17a4f4c15362e8/easydict-1.13.tar.gz", hash = "sha256:b1135dedbc41c8010e2bc1f77ec9744c7faa42bce1a1c87416791449d6c87780", size = 6809, upload-time = "2024-03-04T12:04:41.251Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/ec/fa6963f1198172c2b75c9ab6ecefb3045991f92f75f5eb41b6621b198123/easydict-1.13-py3-none-any.whl", hash = "sha256:6b787daf4dcaf6377b4ad9403a5cee5a86adbc0ca9a5bcf5410e9902002aeac2", size = 6804, upload-time = "2024-03-04T12:04:39.508Z" },
+]
+
+[[package]]
 name = "einops"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1008,6 +1017,7 @@ dependencies = [
     { name = "decord" },
     { name = "deepspeed" },
     { name = "diffusers" },
+    { name = "easydict" },
     { name = "einops" },
     { name = "flash-attn" },
     { name = "hf-transfer" },
@@ -1061,6 +1071,7 @@ requires-dist = [
     { name = "decord" },
     { name = "deepspeed" },
     { name = "diffusers", specifier = ">=0.35.0" },
+    { name = "easydict", specifier = ">=1.13" },
     { name = "einops" },
     { name = "flash-attn", specifier = ">=2.8.3" },
     { name = "google-cloud-storage", marker = "extra == 'storage'" },

@@ -8,7 +8,7 @@ from diffusers.training_utils import (
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
-from transformers import Qwen3Config, Qwen3ForCausalLM, Qwen3Model
+from transformers import AutoTokenizer, Qwen3Config, Qwen3ForCausalLM, Qwen3Model
 from transformers.generation.utils import GenerateOutput
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
@@ -40,6 +40,50 @@ class Blip3oQwenForCausalLM(Qwen3ForCausalLM, Blip3oMetaForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path,
+        *model_args,
+        **kwargs,
+    ):
+        # Pop custom arguments for initialization
+        model_config = kwargs.pop("model_config", None)
+        training_args = kwargs.pop("training_args", None)
+
+        model = super().from_pretrained(
+            pretrained_model_name_or_path,
+            *model_args,
+            **kwargs,
+        )
+
+        # Tie weights after loading
+        if hasattr(model, "tie_weights"):
+            model.tie_weights()
+
+        # Perform model-specific initializations if configs are provided
+        if model_config and training_args:
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path,
+                model_max_length=getattr(training_args, "model_max_length", None),
+                padding_side="right",
+            )
+            if tokenizer.unk_token is not None:
+                tokenizer.pad_token = tokenizer.unk_token
+
+            if getattr(model_config, "vision_tower", None) is None:
+                model.get_model().initialize_vision_modules(
+                    model_args=model_config, fsdp=training_args.fsdp
+                )
+                vision_tower = model.get_vision_tower()
+                vision_tower.to(
+                    dtype=torch.bfloat16 if training_args.bf16 else torch.float16,
+                    device=training_args.device,
+                )
+                model.initialize_vision_tokenizer(model_config, tokenizer=tokenizer)
+
+        return model
 
     def get_model(self):
         return self.model

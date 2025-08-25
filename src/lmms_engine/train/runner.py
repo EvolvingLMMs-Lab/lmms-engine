@@ -79,6 +79,8 @@ class TrainRunner:
                 load_from_pretrained_path,
                 attn_implementation=self.model_config.attn_implementation,
                 torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+                model_config=self.model_config,
+                training_args=self.config.trainer_args,
             )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)

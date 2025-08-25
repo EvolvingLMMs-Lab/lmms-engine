@@ -89,7 +89,7 @@ class TextAlignedTokenizer(nn.Module):
 
     @classmethod
     def from_checkpoint(cls, ckpt, load_teacher=True, **kwargs):
-        ckpt = torch.load(ckpt_path, map_location="cpu")
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         ckpt_kwargs = ckpt["model"]["args"]
         model = cls(**kwargs, **ckpt_kwargs)
         sd = ckpt["model"]["sd"]

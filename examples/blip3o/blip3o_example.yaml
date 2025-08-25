@@ -26,6 +26,15 @@
     # Model configuration
     model_config:
       load_from_pretrained_path: "BLIP3o/BLIP3o-NEXT-Pretrain-3B"
+      vision_tower: null
+      mm_vision_select_layer: -1
+      mm_use_im_start_end: false
+      mm_patch_merge_type: "flat"
+      mm_vision_select_feature: "patch"
+      image_token_format: "<I{}>"
+      scale_token_format: "<S{}>"
+      num_image_tokens: -1
+      num_scale_tokens: 3
       attn_implementation: "flash_attention_2"
 
     # Training arguments, mostly compatible with HuggingFace Trainer
@@ -35,6 +44,7 @@
     gradient_accumulation_steps: 1
     gradient_checkpointing: true
     num_train_epochs: 1
+    max_steps: 10
     save_steps: 100
     save_total_limit: 1
     report_to: "wandb"

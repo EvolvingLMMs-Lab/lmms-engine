@@ -51,6 +51,7 @@ dependencies = [
     "pandas",
     "trl>=0.16.1",
     "dacite>=1.9.2",
+    "easydict>=1.13",
 ]
 
 [project.optional-dependencies]
