@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Union
 
+from lmms_engine.protocol import Args
+
 from .processor import ProcessorConfig
 
 
-@dataclass
-class DatasetConfig:
+class DatasetConfig(Args):
     dataset_type: Literal["vision", "vision_audio"]
     dataset_format: Literal["json", "jsonl", "csv", "yaml", "hf_dataset", "arrow"]
     processor_config: Union[dict, ProcessorConfig]
