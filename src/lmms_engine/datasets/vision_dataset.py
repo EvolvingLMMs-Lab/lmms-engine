@@ -8,12 +8,12 @@ from PIL import Image
 from lmms_engine.mapping_func import register_dataset
 
 from ..utils.train_utils import TrainUtilities
-from .base_dataset import BaseDataset
 from .collator import VisionCollator
+from .multimodal_dataset import MultiModalDataset
 
 
 @register_dataset("vision")
-class VisionSFTDataset(BaseDataset):
+class VisionSFTDataset(MultiModalDataset):
     def load_from_csv(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
         """Load from CSV data directly without intermediate transformation."""
         images_list = []
