@@ -18,7 +18,6 @@ def save_image(image: Image.Image, id: str, output_path: str):
 
 
 if __name__ == "__main__":
-    """
     data_path = snapshot_download(repo_id="BLIP3o/BLIP3o-60k", repo_type="dataset")
     data_files = glob.glob(os.path.join(data_path, "*.tar"))
     train_dataset = load_dataset(
@@ -55,10 +54,9 @@ if __name__ == "__main__":
                     },
                 ],
             }
-    """
+    
     # dataset.push_to_hub("pufanyi/BLIP3o-60k", num_proc=64)
     output_path = os.path.join(os.path.dirname(__file__), "data", "blip3o-60k")
-    """
     os.makedirs(output_path, exist_ok=True)
     dataset = Dataset.from_generator(
         generator,
@@ -67,7 +65,6 @@ if __name__ == "__main__":
     )
     dataset.save_to_disk(output_path)
     print(f"Dataset saved to {output_path}. Now uploading to Hub...")
-    """
     # Make sure you are logged in with `huggingface-cli login`
     api = HfApi()
     repo_id = "lmms-lab/blip3o-60k"
