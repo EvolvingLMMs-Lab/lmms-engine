@@ -11,7 +11,7 @@
       datasets:
         - path: /data/pufanyi/lmms-engine-mini/tools/blip-3o-data-prep/data/blip3o-60k
           data_folder: /data/pufanyi/lmms-engine-mini/tools/blip-3o-data-prep/data/blip3o-60k
-          data_type: arrow
+          data_type: json
 
       # Processor configuration
       processor_config:
@@ -19,32 +19,20 @@
         processor_type: "blip3o"
 
       # Packing configuration
-      packing: true
-      packing_strategy: first_fit
-      packing_length: 16384
+      packing: false
 
     # Model configuration
     model_config:
       load_from_pretrained_path: "BLIP3o/BLIP3o-NEXT-Pretrain-3B"
-      vision_tower: null
-      mm_vision_select_layer: -1
-      mm_use_im_start_end: false
-      mm_patch_merge_type: "flat"
-      mm_vision_select_feature: "patch"
-      image_token_format: "<I{}>"
-      scale_token_format: "<S{}>"
-      num_image_tokens: -1
-      num_scale_tokens: 3
       attn_implementation: "flash_attention_2"
 
     # Training arguments, mostly compatible with HuggingFace Trainer
     per_device_train_batch_size: 1
-    learning_rate: 1.0e-05 # we should use 1.0 to makes YAML recognize it as a float
+    learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
     weight_decay: 0.0
     gradient_accumulation_steps: 1
     gradient_checkpointing: true
     num_train_epochs: 1
-    max_steps: 10
     save_steps: 100
     save_total_limit: 1
     report_to: "wandb"
@@ -53,14 +41,8 @@
     run_name: "blip3o_config"
     eval_strategy: "no"
     logging_steps: 1
-    group_by_length: true
+    group_by_length: false
     dataloader_num_workers: 8
     bf16: true
     lr_scheduler_type: "cosine"
-    freeze_modules: ["visual"]
-    use_liger_kernel: false
-    use_rmpad: false
     fsdp2: false
-    # fsdp_config:
-    #   transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
-    #   reshard_after_forward: false
