@@ -54,7 +54,7 @@ if __name__ == "__main__":
                     },
                 ],
             }
-    
+
     # dataset.push_to_hub("pufanyi/BLIP3o-60k", num_proc=64)
     output_path = os.path.join(os.path.dirname(__file__), "data", "blip3o-60k")
     os.makedirs(output_path, exist_ok=True)
