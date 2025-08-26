@@ -1,6 +1,6 @@
 - type: trainer
   config:
-    trainer_type: blip3o_trainer
+    trainer_type: hf_trainer
 
     # Dataset configuration - now includes the actual dataset definitions
     dataset_config:

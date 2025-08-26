@@ -27,7 +27,6 @@ from ..models.monkey_patch import (
 )
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
-from .blip3o_trainer import Blip3oTrainer
 from .config import TrainerConfig
 from .dllm_trainer import DLLMTrainer
 from .fsdp2_trainer import FSDP2SFTTrainer
@@ -249,8 +248,6 @@ class TrainRunner:
             trainer_cls = FSDP2SFTTrainer
         elif self.config.trainer_type == "dllm_trainer":
             trainer_cls = DLLMTrainer
-        elif self.config.trainer_type == "blip3o_trainer":
-            trainer_cls = Blip3oTrainer
         else:
             raise ValueError(
                 f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"
