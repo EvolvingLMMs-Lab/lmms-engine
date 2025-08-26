@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import transformers
 
@@ -20,20 +20,22 @@ class TrainingArguments(transformers.TrainingArguments):
     mm_vision_tower_lr: Optional[float] = None
 
 
-TrainingArgumentType = Union[TrainingArguments]
-
-
 @dataclass
 class TrainerConfig:
     trainer_type: Literal[
         "hf_trainer", "fsdp2_trainer", "blip3o_trainer", "dllm_trainer"
     ]
     dataset_config: DatasetConfig
+    trainer_args: TrainingArguments
     model_config: ModelConfig
-    trainer_args: TrainingArgumentType
+    extra_kwargs: Dict[str, Any] = None
 
     def to_dict(self):
         trainer_args_dict = self.trainer_args.to_dict()
+        model_config_dict = self.model_config.to_dict()
+        dataset_config_dict = self.dataset_config.to_dict()
         final_dict = asdict(self)
         final_dict["trainer_args"] = trainer_args_dict
+        final_dict["model_config"] = model_config_dict
+        final_dict["dataset_config"] = dataset_config_dict
         return final_dict

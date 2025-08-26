@@ -1,9 +1,9 @@
-from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
+from lmms_engine.protocol import Args
 
-@dataclass
-class ModelConfig:
+
+class ModelConfig(Args):
     # model_name_or_path: str
     load_from_pretrained_path: Optional[str] = None
     load_from_config: Optional[Dict[str, str]] = None
