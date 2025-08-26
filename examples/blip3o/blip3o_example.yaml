@@ -9,8 +9,8 @@
 
       # Inline dataset definitions (no dataset_path needed)
       datasets:
-        - path: /data/pufanyi/lmms-engine-mini/tools/blip-3o-data-prep/data/blip3o-60k
-          data_folder: /data/pufanyi/lmms-engine-mini/tools/blip-3o-data-prep/data/blip3o-60k
+        - path: tools/blip-3o-data-prep/data/blip3o-60k
+          data_folder: tools/blip-3o-data-prep/data/blip3o-60k
           data_type: arrow
 
       # Processor configuration
