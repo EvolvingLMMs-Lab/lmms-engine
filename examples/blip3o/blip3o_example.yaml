@@ -40,7 +40,7 @@
     report_to: "wandb"
     output_dir: "./output/debug"
     warmup_ratio: 0.0
-    run_name: "blip3o_config"
+    run_name: "blip3o"
     eval_strategy: "no"
     logging_steps: 1
     group_by_length: true
