@@ -51,6 +51,7 @@ dependencies = [
     "pandas",
     "trl>=0.16.1",
     "dacite>=1.9.2",
+    "ipykernel>=6.30.1",
 ]
 
 [project.optional-dependencies]
