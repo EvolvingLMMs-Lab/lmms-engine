@@ -92,29 +92,6 @@ class BagelConfig(PretrainedConfig):
         self.finetune_from_hf = finetune_from_hf
 
 
-def load_ae(local_path: str) -> AutoEncoder:
-    ae_params = AutoEncoderParams(
-        resolution=256,
-        in_channels=3,
-        downsample=8,
-        ch=128,
-        out_ch=3,
-        ch_mult=[1, 2, 4, 4],
-        num_res_blocks=2,
-        z_channels=16,
-        scale_factor=0.3611,
-        shift_factor=0.1159,
-    )
-
-    # Loading the autoencoder
-    ae = AutoEncoder(ae_params)
-
-    if local_path is not None:
-        sd = load_sft(local_path)
-        missing, unexpected = ae.load_state_dict(sd, strict=False, assign=True)
-    return ae, ae_params
-
-
 class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
