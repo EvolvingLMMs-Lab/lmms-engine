@@ -20,10 +20,10 @@ def parse_argument():
 
 def create_train_task(config):
     dataset_config = config.pop("dataset_config")
-    dataset_config = DatasetConfig(**dataset_config)
+    dataset_config = DatasetConfig.model_validate(dataset_config)
 
     model_config = config.pop("model_config")
-    model_config = ModelConfig(**model_config)
+    model_config = ModelConfig.model_validate(model_config)
 
     trainer_type = config.pop("trainer_type")
     global_rank = int(os.environ["RANK"])

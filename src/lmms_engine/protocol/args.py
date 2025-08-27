@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class Args(BaseModel):
-    extra_kwargs: Dict[str, Any] = None
+    extra_kwargs: Dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.extra_kwargs is None:

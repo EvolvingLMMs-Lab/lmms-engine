@@ -1,5 +1,9 @@
+import json
+import os
 from typing import Literal
 
+from pathlib import Path
+import json5
 from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
     AutoModel,
@@ -9,6 +13,8 @@ from transformers import (  # AutoModelForVision2Seq,
     PretrainedConfig,
 )
 from transformers.modeling_utils import PreTrainedModel
+
+from lmms_engine.utils import Logging
 
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
@@ -68,7 +74,19 @@ def register_model(
 
 def create_model_from_pretrained(load_from_pretrained_path):
     # Handle both config object and model name/path
-    config = AutoConfig.from_pretrained(load_from_pretrained_path)
+    try:
+        config = AutoConfig.from_pretrained(load_from_pretrained_path)
+    except Exception:
+        # really weird, but some models' config.json (Bagel) is not valid json
+        Logging.warning(f"Model {load_from_pretrained_path} config.json is not valid json, trying to fix it.")
+        for file in Path(load_from_pretrained_path).iterdir():
+            if file.is_file() and file.suffix == ".json":
+                config_path = file
+            with open(config_path, "r") as f:
+                json5_dict = json5.load(f)
+            with open(config_path, "w") as f:
+                json.dump(json5_dict, f, indent=2)
+            config = AutoConfig.from_pretrained(load_from_pretrained_path)
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
