@@ -1,9 +1,9 @@
 import os
+import re
 from typing import Dict
 
 import torch
 from PIL import Image
-import re
 
 from lmms_engine.mapping_func import register_dataset
 
@@ -111,7 +111,9 @@ class VisionSFTDataset(MultiModalDataset):
                 if content["type"] == "image_url":
                     images.append(content["image_url"]["url"])
                 elif content["type"] == "image_col":
-                    image_col, image_idx = re.match(r"(\w+)\[(\d+)\]", content["image_col"]).groups()
+                    image_col, image_idx = re.match(
+                        r"(\w+)\[(\d+)\]", content["image_col"]
+                    ).groups()
                     images.append(data[image_col][int(image_idx)])
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
         inputs = self.processor.process(images=images, hf_messages=hf_messages)
