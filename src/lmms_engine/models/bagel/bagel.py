@@ -2,25 +2,28 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import json5
 import torch
 import torch.nn.functional as F
+from pydantic import BaseModel, Field
 from torch import nn
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
 from transformers import (
     Qwen2Config,
     Qwen2ForCausalLM,
-    Qwen2Tokenizer,
     SiglipVisionConfig,
     SiglipVisionModel,
 )
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 
-from lmms_engine.datasets.processor.bagel_processor import add_special_tokens
+from lmms_engine.mapping_func import register_loader
 
 from .autoencoder import load_ae
 from .cache_utils import cache_init
@@ -50,19 +53,6 @@ class BagelConfig(PretrainedConfig):
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
         timestep_shift=1.0,
-        # layer_module: str = "Qwen2MoTDecoderLayer",
-        # llm_qk_norm: bool = True,
-        # tie_word_embeddings: bool = False,
-        # freeze_und: bool = False,
-        # copy_init_moe: bool = True,
-        # vit_path: str = "HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit",
-        # vit_select_layer: int = -2,
-        # vit_rope: bool = False,
-        # vae_path: str = "flux/vae/ae.safetensors",
-        # finetune_from_hf: bool = False,
-        # freeze_vae: bool = True,
-        # freeze_llm: bool = False,
-        # freeze_vit: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -78,53 +68,168 @@ class BagelConfig(PretrainedConfig):
         self.interpolate_pos = interpolate_pos
         self.timestep_shift = timestep_shift
 
-@register_model_with_custom_loader("bagel")
-def load_bagel_from_pretrained(model_path: str, **kwargs):
-    pass
+
+class BagelLoaderExtraConfig(BaseModel):
+    visual_gen: bool = Field(default=True)
+    visual_und: bool = Field(default=True)
+    llm_path: str = Field(default="Qwen/Qwen2.5-7B-Instruct")
+    layer_module: str = Field(default="Qwen2MoTDecoderLayer")
+    llm_qk_norm: bool = Field(default=True)
+    tie_word_embeddings: bool = Field(default=False)
+    freeze_und: bool = Field(default=False)
+    copy_init_moe: bool = Field(default=True)
+    vit_path: str = Field(
+        default="HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit"
+    )
+    vit_select_layer: int = Field(default=-2)
+    vit_rope: bool = Field(default=False)
+    vae_path: str = Field(default="flux/vae/ae.safetensors")
+    finetune_from_hf: bool = Field(default=False)
+    freeze_vae: bool = Field(default=True)
+    freeze_llm: bool = Field(default=False)
+    freeze_vit: bool = Field(default=False)
+    latent_patch_size: int = 2
+    max_latent_size: int = 32
+    vit_max_num_patch_per_side: int = 70
+    connector_act: str = "gelu_pytorch_tanh"
+    interpolate_pos: bool = False
+    timestep_shift: float = 1.0
+
+
+@register_loader(name="bagel")
+def load_bagel_from_pretrained(model_path: str, extra_kwargs: dict[str, Any]):
+    training_config = BagelLoaderExtraConfig.model_validate(extra_kwargs)
+
+    if training_config.finetune_from_hf:
+        llm_config = Qwen2Config.from_json_file(
+            os.path.join(model_path, "llm_config.json")
+        )
+    else:
+        llm_config = Qwen2Config.from_pretrained(training_config.llm_path)
+    llm_config.layer_module = training_config.layer_module
+    llm_config.qk_norm = training_config.llm_qk_norm
+    llm_config.tie_word_embeddings = training_config.tie_word_embeddings
+    llm_config.freeze_und = training_config.freeze_und
+    if training_config.finetune_from_hf:
+        language_model = Qwen2ForCausalLM(llm_config)
+    else:
+        language_model = Qwen2ForCausalLM.from_pretrained(
+            training_config.llm_path, config=llm_config
+        )
+    if training_config.copy_init_moe:
+        language_model.init_moe()
+
+    if training_config.visual_und:
+        if training_config.finetune_from_hf:
+            vit_config = SiglipVisionConfig.from_json_file(
+                os.path.join(model_path, "vit_config.json")
+            )
+        else:
+            vit_config = SiglipVisionConfig.from_pretrained(training_config.vit_path)
+        vit_config.num_hidden_layers = (
+            vit_config.num_hidden_layers + 1 + training_config.vit_select_layer
+        )
+        vit_config.rope = training_config.vit_rope
+        if training_config.finetune_from_hf:
+            vit_model = SiglipVisionModel(vit_config)
+        else:
+            vit_model = SiglipVisionModel.from_pretrained(
+                training_config.vit_path, config=vit_config
+            )
+
+    if training_config.visual_gen:
+        vae_model, vae_config = load_ae(
+            local_path=os.path.join(model_path, "ae.safetensors")
+            if training_config.finetune_from_hf
+            else training_config.vae_path
+        )
+
+    if training_config.visual_gen:
+        vae_model, vae_config = load_ae(
+            local_path=os.path.join(model_path, "ae.safetensors")
+            if training_config.finetune_from_hf
+            else training_config.vae_path
+        )
+
+    bagel_config = BagelConfig(
+        visual_gen=training_config.visual_gen,
+        visual_und=training_config.visual_und,
+        llm_config=llm_config,
+        vit_config=vit_config if training_config.visual_und else None,
+        vae_config=vae_config if training_config.visual_gen else None,
+        latent_patch_size=training_config.latent_patch_size,
+        max_latent_size=training_config.max_latent_size,
+        vit_max_num_patch_per_side=training_config.vit_max_num_patch_per_side,
+        connector_act=training_config.connector_act,
+        interpolate_pos=training_config.interpolate_pos,
+        timestep_shift=training_config.timestep_shift,
+    )
+    model = Bagel(
+        language_model, vit_model if training_config.visual_und else None, bagel_config
+    )
+
+    if training_config.visual_und:
+        model.vit_model.vision_model.embeddings.convert_conv2d_to_linear(
+            training_config.vit_config
+        )
+
+    if training_config.freeze_vae and training_config.visual_gen:
+        for param in vae_model.parameters():
+            param.requires_grad = False
+    if training_config.freeze_llm:
+        model.language_model.eval()
+        for param in model.language_model.parameters():
+            param.requires_grad = False
+    if training_config.freeze_vit and training_config.visual_und:
+        model.vit_model.eval()
+        for param in model.vit_model.parameters():
+            param.requires_grad = False
+
+    return model
+
+
+class BagelConfig(PretrainedConfig):
+    def __init__(
+        self,
+        visual_gen=True,
+        visual_und=True,
+        llm_config=None,
+        vit_config=None,
+        vae_config=None,
+        latent_patch_size=2,
+        max_latent_size=32,
+        vit_max_num_patch_per_side=70,
+        connector_act="gelu_pytorch_tanh",
+        interpolate_pos=False,
+        timestep_shift=1.0,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.visual_gen = visual_gen
+        self.visual_und = visual_und
+        self.llm_config = llm_config
+        self.vit_config = vit_config
+        self.vae_config = vae_config
+        self.latent_patch_size = latent_patch_size
+        self.max_latent_size = max_latent_size
+        self.vit_max_num_patch_per_side = vit_max_num_patch_per_side
+        self.connector_act = connector_act
+        self.interpolate_pos = interpolate_pos
+        self.timestep_shift = timestep_shift
 
 
 class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
 
-    def __init__(self, config: BagelConfig):
+    def __init__(self, language_model, vit_model, config: BagelConfig):
         super().__init__(config)
-
-        finetune_from_hf = config.finetune_from_hf
-
-        model_path = config.llm_config.model_path
-
-        if finetune_from_hf:
-            llm_config = Qwen2Config.from_json_file(
-                os.path.join(model_path, "llm_config.json")
-            )
-        else:
-            llm_config = Qwen2Config.from_pretrained(model_path)
-        llm_config.layer_module = config.layer_module
-        llm_config.qk_norm = config.llm_qk_norm
-        llm_config.tie_word_embeddings = config.tie_word_embeddings
-        llm_config.freeze_und = config.freeze_und
-
-        if finetune_from_hf:
-            self.language_model = Qwen2ForCausalLM.from_pretrained(
-                model_path, config=llm_config
-            )
-        else:
-            self.language_model = Qwen2ForCausalLM(llm_config)
-        if config.copy_init_moe:
-            self.language_model.init_moe()
-
+        self.language_model = language_model
         self.hidden_size = config.llm_config.hidden_size
         self.use_moe = "Mo" in config.llm_config.layer_module
         self.num_heads = config.llm_config.num_attention_heads
 
         if config.visual_gen:
-            if finetune_from_hf:
-                vae_model, vae_config = load_ae(
-                    os.path.join(model_path, "ae.safetensors")
-                )
-            else:
-                vae_model, vae_config = load_ae(config.vae_path)
             self.latent_patch_size = config.latent_patch_size
             self.timestep_shift = config.timestep_shift
             self.latent_downsample = (
@@ -139,27 +244,9 @@ class Bagel(PreTrainedModel):
             self.latent_pos_embed = PositionEmbedding(
                 self.max_latent_size, self.hidden_size
             )
-            config.vae_config = vae_config
 
         if config.visual_und:
-            if os.path.exists(model_path):
-                vit_config = SiglipVisionConfig.from_json_file(
-                    os.path.join(model_path, "vit_config.json")
-                )
-            else:
-                vit_config = SiglipVisionConfig.from_pretrained(config.vit_path)
-
-            vit_config.num_hidden_layers = (
-                vit_config.num_hidden_layers + 1 + config.vit_select_layer
-            )
-            vit_config.rope = config.vit_rope
-            if os.path.exists(config.vit_path):
-                self.vit_model = SiglipVisionModel.from_pretrained(
-                    config.vit_path, config=vit_config
-                )
-            else:
-                self.vit_model = SiglipVisionModel(vit_config)
-
+            self.vit_model = vit_model
             self.vit_patch_size = config.vit_config.patch_size
             self.vit_max_num_patch_per_side = config.vit_max_num_patch_per_side
             self.vit_hidden_size = config.vit_config.hidden_size
@@ -169,24 +256,6 @@ class Bagel(PreTrainedModel):
             self.vit_pos_embed = PositionEmbedding(
                 self.vit_max_num_patch_per_side, self.hidden_size
             )
-            config.vit_config = vit_config
-
-        config.llm_config = llm_config
-
-        if config.visual_und:
-            self.vit_model.vision_model.embeddings.convert_conv2d_to_linear(vit_config)
-
-            if config.freeze_vae and config.visual_gen:
-                for param in self.vae_model.parameters():
-                    param.requires_grad = False
-            if config.freeze_llm:
-                self.language_model.eval()
-                for param in self.language_model.parameters():
-                    param.requires_grad = False
-            if config.freeze_vit and config.visual_und:
-                self.vit_model.eval()
-                for param in self.vit_model.parameters():
-                    param.requires_grad = False
 
         if config.interpolate_pos:
             self.get_flattened_position_ids = get_flattened_position_ids_interpolate
@@ -195,13 +264,6 @@ class Bagel(PreTrainedModel):
 
         self.config = config
         self._init_weights()
-
-        tokenizer = Qwen2Tokenizer.from_pretrained(config.llm_config.model_path)
-        tokenizer, _, num_new_tokens = add_special_tokens(tokenizer)
-        if num_new_tokens > 0:
-            self.language_model.resize_token_embeddings(len(tokenizer))
-            self.config.llm_config.vocab_size = len(tokenizer)
-            self.language_model.config.vocab_size = len(tokenizer)
 
     def _init_weights(self):
         if self.config.visual_gen:

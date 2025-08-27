@@ -93,7 +93,10 @@ class TrainRunner:
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class.from_config(m_config)
         elif load_with_custom_loader is not None:
-            model = create_model_with_custom_loader(load_with_custom_loader.model_type, **load_with_custom_loader.extra_kwargs)
+            model = create_model_with_custom_loader(
+                load_with_custom_loader.model_type,
+                **load_with_custom_loader.extra_kwargs,
+            )
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."

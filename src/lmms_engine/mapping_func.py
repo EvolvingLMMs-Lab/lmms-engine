@@ -20,8 +20,9 @@ DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
 
 
-from lmms_engine.utils import Logging
 from typing import Callable
+
+from lmms_engine.utils import Logging
 
 try:
     import fla
@@ -74,34 +75,30 @@ def register_model(
     AutoConfig.register(model_type, model_config)
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
-def register_model_with_custom_loader(
-    model_type: str,
-    loader: Callable,
+
+def register_loader(
+    name: str,
 ):
-    CUSTOM_LOADER_MAPPING[model_type] = loader
+    def decorator(cls):
+        if name in CUSTOM_LOADER_MAPPING:
+            raise ValueError(f"Loader name {name} is already registered.")
+        CUSTOM_LOADER_MAPPING[name] = cls
+        return cls
+
+    return decorator
+
 
 def create_model_with_custom_loader(model_type: str, **kwargs):
     if model_type not in CUSTOM_LOADER_MAPPING:
-        raise ValueError(f"Model type {model_type} is not registered with custom loader.")
+        raise ValueError(
+            f"Model type {model_type} is not registered with custom loader."
+        )
     return CUSTOM_LOADER_MAPPING[model_type](**kwargs)
+
 
 def create_model_from_pretrained(load_from_pretrained_path):
     # Handle both config object and model name/path
-    try:
-        config = AutoConfig.from_pretrained(load_from_pretrained_path)
-    except Exception:
-        # really weird, but some models' config.json (Bagel) is not valid json
-        Logging.warning(
-            f"Model {load_from_pretrained_path} config.json is not valid json, trying to fix it."
-        )
-        config_path = Path(load_from_pretrained_path) / "config.json"
-        with open(config_path, "r") as f:
-            json5_dict = json5.load(f)
-        if "BAGEL-7B-MoT" in json5_dict.get("name", []) and "model_type" not in json5_dict:
-            json5_dict["model_type"] = "bagel"
-        with open(config_path, "w") as f:
-            json.dump(json5_dict, f, indent=2)
-        config = AutoConfig.from_pretrained(load_from_pretrained_path)
+    config = AutoConfig.from_pretrained(load_from_pretrained_path)
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():
