@@ -7,6 +7,7 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
+from .bagel import BagelConfig, Bagel
 
 __all__ = [
     "ModelConfig",
@@ -20,4 +21,6 @@ __all__ = [
     "Qwen3DLLMForMaskedLM",
     "Blip3oQwenConfig",
     "Blip3oQwenForCausalLM",
+    "BagelConfig",
+    "Bagel",
 ]

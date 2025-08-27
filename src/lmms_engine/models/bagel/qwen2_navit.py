@@ -17,14 +17,14 @@ from typing import List, Optional, Tuple
 
 import torch
 from flash_attn import flash_attn_varlen_func
-from modeling.cache_utils.taylorseer import (
+from .cache_utils import (
     cal_type,
     derivative_approximation,
     taylor_cache_init,
     taylor_formula,
 )
-from modeling.qwen2.configuration_qwen2 import Qwen2Config as _Qwen2Config
-from modeling.qwen2.modeling_qwen2 import (
+from transformers.models.qwen2.configuration_qwen2 import Qwen2Config as _Qwen2Config
+from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2Attention,
     Qwen2MLP,
     Qwen2PreTrainedModel,

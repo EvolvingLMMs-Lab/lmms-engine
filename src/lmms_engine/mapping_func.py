@@ -84,6 +84,8 @@ def create_model_from_pretrained(load_from_pretrained_path):
                 config_path = file
             with open(config_path, "r") as f:
                 json5_dict = json5.load(f)
+            if file.name == "config.json" and "BAGEL-7B-MoT" in json5_dict.get("name", []) and "model_type" not in json5_dict:
+                json5_dict["model_type"] = "bagel"
             with open(config_path, "w") as f:
                 json.dump(json5_dict, f, indent=2)
             config = AutoConfig.from_pretrained(load_from_pretrained_path)
