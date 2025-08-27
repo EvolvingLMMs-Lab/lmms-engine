@@ -23,7 +23,7 @@ from transformers.modeling_utils import PreTrainedModel
 
 from lmms_engine.datasets.processor.bagel_processor import add_special_tokens
 
-from .autoencoder import AutoEncoder, load_ae
+from .autoencoder import load_ae
 from .cache_utils import cache_init
 from .data_utils import (
     create_sparse_mask,
