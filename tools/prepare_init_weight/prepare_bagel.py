@@ -1,4 +1,5 @@
 import os
+
 import yaml
 from huggingface_hub import snapshot_download
 from rich.console import Console
@@ -21,7 +22,7 @@ console.print(f"Model downloaded to: [green]{path}[/]")
 # These paths are now defined upfront
 vae_path = os.path.join(path, "ae.safetensors")
 vit_path = "hf/siglip-so400m-14-980-flash-attn2-navit"
-llm_path = "hf/Qwen2.5-0.5B-Instruct" # This remains illustrative
+llm_path = "hf/Qwen2.5-0.5B-Instruct"  # This remains illustrative
 
 # --- 3. Update YAML Configuration ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +62,9 @@ except FileNotFoundError:
     console.print(f"[bold red]Error: YAML file not found at {yaml_path}[/]")
     exit(1)
 except KeyError as e:
-    console.print(f"[bold red]Error: Could not find key {e} in the YAML file. Structure might be wrong.[/]")
+    console.print(
+        f"[bold red]Error: Could not find key {e} in the YAML file. Structure might be wrong.[/]"
+    )
     exit(1)
 except Exception as e:
     console.print(f"[bold red]An error occurred: {e}[/]")
