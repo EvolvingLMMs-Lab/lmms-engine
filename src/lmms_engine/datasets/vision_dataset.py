@@ -3,6 +3,7 @@ from typing import Dict
 
 import torch
 from PIL import Image
+import re
 
 from lmms_engine.mapping_func import register_dataset
 
@@ -102,12 +103,17 @@ class VisionSFTDataset(MultiModalDataset):
         return inputs
 
     def load_from_hf(self, data) -> Dict[str, torch.Tensor]:
+        # TODO: Add video support
         messages = data["messages"]
+        images = []
+        for message in messages:
+            for content in message["content"]:
+                if content["type"] == "image_url":
+                    images.append(content["image_url"]["url"])
+                elif content["type"] == "image_col":
+                    image_col, image_idx = re.match(r"(\w+)\[(\d+)\]", content["image_col"]).groups()
+                    images.append(data[image_col][int(image_idx)])
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
-        if isinstance(data["image"], list):
-            images = data["image"]
-        else:
-            images = [data["image"]]
         inputs = self.processor.process(images=images, hf_messages=hf_messages)
         return inputs
 

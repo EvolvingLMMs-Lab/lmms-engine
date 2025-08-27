@@ -25,7 +25,7 @@ class TrainUtilities:
         for message in messages:
             new_message = {"role": message["role"], "content": []}
             for content in message["content"]:
-                if content["type"] == "image_url":
+                if content["type"] == "image_url" or content["type"] == "image_col":
                     new_message["content"].append({"type": "image"})
                 elif content["type"] == "audio_url":
                     new_message["content"].append(
