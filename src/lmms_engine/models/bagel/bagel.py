@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-from huggingface_hub import snapshot_download
 from torch import nn
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
