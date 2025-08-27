@@ -95,7 +95,11 @@ class TrainRunner:
         elif load_with_custom_loader is not None:
             model = create_model_with_custom_loader(
                 load_with_custom_loader.model_type,
-                **load_with_custom_loader.extra_kwargs,
+                model_path=load_with_custom_loader.model_path,
+                config=load_with_custom_loader.config,
+                **load_with_custom_loader.extra_kwargs
+                if load_with_custom_loader.extra_kwargs is not None
+                else {},
             )
         else:
             raise ValueError(

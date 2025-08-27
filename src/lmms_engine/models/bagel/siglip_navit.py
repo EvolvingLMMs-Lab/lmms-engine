@@ -14,13 +14,9 @@ import torch
 from flash_attn import flash_attn_varlen_func
 from torch import nn
 from transformers.activations import ACT2FN
-from transformers.models.siglip.configuration_siglip import (
-    SiglipVisionConfig as _SiglipVisionConfig,
-)
-from transformers.models.siglip.modeling_siglip import (
-    SiglipAttention,
-    SiglipPreTrainedModel,
-)
+
+from .siglip.configuration_siglip import SiglipVisionConfig as _SiglipVisionConfig
+from .siglip.modeling_siglip import SiglipAttention, SiglipPreTrainedModel
 
 
 class SiglipVisionConfig(_SiglipVisionConfig):

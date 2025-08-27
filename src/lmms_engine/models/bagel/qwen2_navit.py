@@ -21,15 +21,6 @@ from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import flex_attention
 from torch.nn.functional import scaled_dot_product_attention
-from transformers.models.qwen2.configuration_qwen2 import Qwen2Config as _Qwen2Config
-from transformers.models.qwen2.modeling_qwen2 import (
-    Qwen2Attention,
-    Qwen2MLP,
-    Qwen2PreTrainedModel,
-    Qwen2RMSNorm,
-    Qwen2RotaryEmbedding,
-    apply_rotary_pos_emb,
-)
 from transformers.utils import ModelOutput
 
 from .cache_utils import (
@@ -37,6 +28,15 @@ from .cache_utils import (
     derivative_approximation,
     taylor_cache_init,
     taylor_formula,
+)
+from .qwen2.configuration_qwen2 import Qwen2Config as _Qwen2Config
+from .qwen2.modeling_qwen2 import (
+    Qwen2Attention,
+    Qwen2MLP,
+    Qwen2PreTrainedModel,
+    Qwen2RMSNorm,
+    Qwen2RotaryEmbedding,
+    apply_rotary_pos_emb,
 )
 
 torch._dynamo.config.cache_size_limit = 512

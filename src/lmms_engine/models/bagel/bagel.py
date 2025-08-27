@@ -10,16 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import json5
 import torch
 import torch.nn.functional as F
+from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from torch import nn
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
-from transformers import (
-    Qwen2Config,
-    Qwen2ForCausalLM,
-    SiglipVisionConfig,
-    SiglipVisionModel,
-)
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 
@@ -34,7 +29,8 @@ from .data_utils import (
     patchify,
 )
 from .modeling_utils import MLPconnector, PositionEmbedding, TimestepEmbedder
-from .qwen2_navit import NaiveCache
+from .qwen2_navit import NaiveCache, Qwen2Config, Qwen2ForCausalLM
+from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
 
 
 class BagelConfig(PretrainedConfig):
@@ -97,8 +93,11 @@ class BagelLoaderExtraConfig(BaseModel):
 
 
 @register_loader(name="bagel")
-def load_bagel_from_pretrained(model_path: str, extra_kwargs: dict[str, Any]):
-    training_config = BagelLoaderExtraConfig.model_validate(extra_kwargs)
+def load_bagel_from_pretrained(model_path: str, config: dict[str, Any]):
+    training_config = BagelLoaderExtraConfig.model_validate(config)
+
+    if training_config.finetune_from_hf and not os.path.exists(model_path):
+        model_path = snapshot_download(model_path)
 
     if training_config.finetune_from_hf:
         llm_config = Qwen2Config.from_json_file(
@@ -106,6 +105,7 @@ def load_bagel_from_pretrained(model_path: str, extra_kwargs: dict[str, Any]):
         )
     else:
         llm_config = Qwen2Config.from_pretrained(training_config.llm_path)
+
     llm_config.layer_module = training_config.layer_module
     llm_config.qk_norm = training_config.llm_qk_norm
     llm_config.tie_word_embeddings = training_config.tie_word_embeddings
@@ -189,6 +189,8 @@ def load_bagel_from_pretrained(model_path: str, extra_kwargs: dict[str, Any]):
 
 
 class BagelConfig(PretrainedConfig):
+    model_type = "bagel"
+
     def __init__(
         self,
         visual_gen=True,
