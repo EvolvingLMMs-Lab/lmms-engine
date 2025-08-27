@@ -35,6 +35,8 @@ from .qwen2_navit import NaiveCache
 
 
 class BagelConfig(PretrainedConfig):
+    model_type = "bagel"
+
     def __init__(
         self,
         visual_gen=True,
