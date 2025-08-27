@@ -1,8 +1,8 @@
 import json
 import os
+from pathlib import Path
 from typing import Literal
 
-from pathlib import Path
 import json5
 from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
@@ -78,13 +78,19 @@ def create_model_from_pretrained(load_from_pretrained_path):
         config = AutoConfig.from_pretrained(load_from_pretrained_path)
     except Exception:
         # really weird, but some models' config.json (Bagel) is not valid json
-        Logging.warning(f"Model {load_from_pretrained_path} config.json is not valid json, trying to fix it.")
+        Logging.warning(
+            f"Model {load_from_pretrained_path} config.json is not valid json, trying to fix it."
+        )
         for file in Path(load_from_pretrained_path).iterdir():
             if file.is_file() and file.suffix == ".json":
                 config_path = file
             with open(config_path, "r") as f:
                 json5_dict = json5.load(f)
-            if file.name == "config.json" and "BAGEL-7B-MoT" in json5_dict.get("name", []) and "model_type" not in json5_dict:
+            if (
+                file.name == "config.json"
+                and "BAGEL-7B-MoT" in json5_dict.get("name", [])
+                and "model_type" not in json5_dict
+            ):
                 json5_dict["model_type"] = "bagel"
             with open(config_path, "w") as f:
                 json.dump(json5_dict, f, indent=2)

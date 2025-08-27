@@ -17,12 +17,10 @@ from typing import List, Optional, Tuple
 
 import torch
 from flash_attn import flash_attn_varlen_func
-from .cache_utils import (
-    cal_type,
-    derivative_approximation,
-    taylor_cache_init,
-    taylor_formula,
-)
+from torch import nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.attention.flex_attention import flex_attention
+from torch.nn.functional import scaled_dot_product_attention
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config as _Qwen2Config
 from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2Attention,
@@ -32,11 +30,14 @@ from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2RotaryEmbedding,
     apply_rotary_pos_emb,
 )
-from torch import nn
-from torch.nn.attention import SDPBackend, sdpa_kernel
-from torch.nn.attention.flex_attention import flex_attention
-from torch.nn.functional import scaled_dot_product_attention
 from transformers.utils import ModelOutput
+
+from .cache_utils import (
+    cal_type,
+    derivative_approximation,
+    taylor_cache_init,
+    taylor_formula,
+)
 
 torch._dynamo.config.cache_size_limit = 512
 torch._dynamo.config.accumulated_cache_size_limit = 4096

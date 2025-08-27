@@ -1,4 +1,5 @@
 from .aero import AeroConfig, AeroForConditionalGeneration, AeroProcessor
+from .bagel import Bagel, BagelConfig
 from .blip3o import Blip3oQwenConfig, Blip3oQwenForCausalLM
 from .config import ModelConfig
 from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
@@ -7,7 +8,6 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
-from .bagel import BagelConfig, Bagel
 
 __all__ = [
     "ModelConfig",
