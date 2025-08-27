@@ -58,6 +58,9 @@ class BagelConfig(PretrainedConfig):
         vit_rope: bool = False,
         vae_path: str = "flux/vae/ae.safetensors",
         finetune_from_hf: bool = False,
+        freeze_vae: bool = True,
+        freeze_llm: bool = False,
+        freeze_vit: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -87,6 +90,11 @@ class BagelConfig(PretrainedConfig):
 
         # VAE config
         self.vae_path = vae_path
+
+        # Freezing
+        self.freeze_vae = freeze_vae
+        self.freeze_llm = freeze_llm
+        self.freeze_vit = freeze_vit
 
         self.finetune_from_hf = finetune_from_hf
 
@@ -146,6 +154,7 @@ class Bagel(PreTrainedModel):
             self.latent_pos_embed = PositionEmbedding(
                 self.max_latent_size, self.hidden_size
             )
+            config.vae_config = vae_config
 
         if config.visual_und:
             if os.path.exists(model_path):
@@ -175,6 +184,24 @@ class Bagel(PreTrainedModel):
             self.vit_pos_embed = PositionEmbedding(
                 self.vit_max_num_patch_per_side, self.hidden_size
             )
+            config.vit_config = vit_config
+
+        config.llm_config = llm_config
+
+        if config.visual_und:
+            self.vit_model.vision_model.embeddings.convert_conv2d_to_linear(vit_config)
+
+            if config.freeze_vae and config.visual_gen:
+                for param in vae_model.parameters():
+                    param.requires_grad = False
+            if config.freeze_llm:
+                self.language_model.eval()
+                for param in self.language_model.parameters():
+                    param.requires_grad = False
+            if config.freeze_vit and config.visual_und:
+                self.vit_model.eval()
+                for param in self.vit_model.parameters():
+                    param.requires_grad = False
 
         if config.interpolate_pos:
             self.get_flattened_position_ids = get_flattened_position_ids_interpolate
@@ -185,7 +212,7 @@ class Bagel(PreTrainedModel):
         self._init_weights()
 
         tokenizer = Qwen2Tokenizer.from_pretrained(config.llm_config.model_path)
-        tokenizer, new_token_ids, num_new_tokens = add_special_tokens(tokenizer)
+        tokenizer, _, num_new_tokens = add_special_tokens(tokenizer)
         if num_new_tokens > 0:
             self.language_model.resize_token_embeddings(len(tokenizer))
             self.config.llm_config.vocab_size = len(tokenizer)
