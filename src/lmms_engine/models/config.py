@@ -1,6 +1,12 @@
-from typing import Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from lmms_engine.protocol import Args
+
+
+class LoadWithCustomLoaderConfig(Args):
+    model_path: str
+    model_type: str
+    config: Dict[str, Any]
 
 
 class ModelConfig(Args):
@@ -10,3 +16,4 @@ class ModelConfig(Args):
     pretrain_mm_mlp_adapter: Optional[str] = None
     attn_implementation: Optional[Literal["flash_attention_2", "sdpa"]] = "sdpa"
     overwrite_config: Optional[Dict[str, str]] = None
+    load_with_custom_loader: Optional[LoadWithCustomLoaderConfig] = None

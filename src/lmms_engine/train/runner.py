@@ -15,6 +15,7 @@ from lmms_engine.mapping_func import (
     DATASET_MAPPING,
     create_model_from_config,
     create_model_from_pretrained,
+    create_model_with_custom_loader,
 )
 from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.sequence_parallel.ulysses import (
@@ -70,6 +71,7 @@ class TrainRunner:
         self.trainer = self._build_trainer()
 
     def _build_model(self):
+        load_with_custom_loader = self.model_config.load_with_custom_loader
         load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
         if load_from_pretrained_path is not None:
@@ -90,6 +92,8 @@ class TrainRunner:
                 }
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class.from_config(m_config)
+        elif load_with_custom_loader is not None:
+            model = create_model_with_custom_loader(load_with_custom_loader.model_type, **load_with_custom_loader.extra_kwargs)
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."

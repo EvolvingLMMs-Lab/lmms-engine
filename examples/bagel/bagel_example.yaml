@@ -14,10 +14,12 @@
       packing_strategy: first_fit
       packing_length: 16384
     model_config:
-      load_from_pretrained_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30
-      attn_implementation: flash_attention_2
-      vae_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30/ae.safetensors
-      vit_path: hf/siglip-so400m-14-980-flash-attn2-navit
+      load_with_custom_loader:
+        model_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30
+        model_type: bagel
+        extra_kwargs:
+          vae_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30/ae.safetensors
+          vit_path: hf/siglip-so400m-14-980-flash-attn2-navit
     per_device_train_batch_size: 1
     learning_rate: 1.0e-05
     weight_decay: 0.0

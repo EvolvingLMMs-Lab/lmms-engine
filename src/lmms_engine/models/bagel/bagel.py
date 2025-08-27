@@ -50,19 +50,19 @@ class BagelConfig(PretrainedConfig):
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
         timestep_shift=1.0,
-        layer_module: str = "Qwen2MoTDecoderLayer",
-        llm_qk_norm: bool = True,
-        tie_word_embeddings: bool = False,
-        freeze_und: bool = False,
-        copy_init_moe: bool = True,
-        vit_path: str = "HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit",
-        vit_select_layer: int = -2,
-        vit_rope: bool = False,
-        vae_path: str = "flux/vae/ae.safetensors",
-        finetune_from_hf: bool = False,
-        freeze_vae: bool = True,
-        freeze_llm: bool = False,
-        freeze_vit: bool = False,
+        # layer_module: str = "Qwen2MoTDecoderLayer",
+        # llm_qk_norm: bool = True,
+        # tie_word_embeddings: bool = False,
+        # freeze_und: bool = False,
+        # copy_init_moe: bool = True,
+        # vit_path: str = "HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit",
+        # vit_select_layer: int = -2,
+        # vit_rope: bool = False,
+        # vae_path: str = "flux/vae/ae.safetensors",
+        # finetune_from_hf: bool = False,
+        # freeze_vae: bool = True,
+        # freeze_llm: bool = False,
+        # freeze_vit: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -78,27 +78,9 @@ class BagelConfig(PretrainedConfig):
         self.interpolate_pos = interpolate_pos
         self.timestep_shift = timestep_shift
 
-        # LLM config
-        self.layer_module = layer_module
-        self.llm_qk_norm = llm_qk_norm
-        self.tie_word_embeddings = tie_word_embeddings
-        self.freeze_und = freeze_und
-        self.copy_init_moe = copy_init_moe
-
-        # VIT config
-        self.vit_path = vit_path
-        self.vit_select_layer = vit_select_layer
-        self.vit_rope = vit_rope
-
-        # VAE config
-        self.vae_path = vae_path
-
-        # Freezing
-        self.freeze_vae = freeze_vae
-        self.freeze_llm = freeze_llm
-        self.freeze_vit = freeze_vit
-
-        self.finetune_from_hf = finetune_from_hf
+@register_model_with_custom_loader("bagel")
+def load_bagel_from_pretrained(model_path: str, **kwargs):
+    pass
 
 
 class Bagel(PreTrainedModel):
@@ -110,7 +92,8 @@ class Bagel(PreTrainedModel):
 
         finetune_from_hf = config.finetune_from_hf
 
-        model_path = config.load_from_pretrained_path
+        model_path = config.llm_config.model_path
+
         if finetune_from_hf:
             llm_config = Qwen2Config.from_json_file(
                 os.path.join(model_path, "llm_config.json")
@@ -194,7 +177,7 @@ class Bagel(PreTrainedModel):
             self.vit_model.vision_model.embeddings.convert_conv2d_to_linear(vit_config)
 
             if config.freeze_vae and config.visual_gen:
-                for param in vae_model.parameters():
+                for param in self.vae_model.parameters():
                     param.requires_grad = False
             if config.freeze_llm:
                 self.language_model.eval()
