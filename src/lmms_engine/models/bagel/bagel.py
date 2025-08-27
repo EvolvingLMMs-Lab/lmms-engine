@@ -2,16 +2,20 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
+from huggingface_hub import snapshot_download
 from torch import nn
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
-from transformers import Qwen2Tokenizer
+from transformers import Qwen2Config, Qwen2Tokenizer
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
+from transformers import Qwen2ForCausalLM
+from transformers import SiglipVisionConfig, SiglipVisionModel
 
 from lmms_engine.datasets.processor.bagel_processor import add_special_tokens
 
@@ -24,6 +28,7 @@ from .data_utils import (
 )
 from .modeling_utils import MLPconnector, PositionEmbedding, TimestepEmbedder
 from .qwen2_navit import NaiveCache
+from .autoencoder import load_ae, AutoEncoder
 
 
 class BagelConfig(PretrainedConfig):
@@ -31,8 +36,8 @@ class BagelConfig(PretrainedConfig):
         self,
         visual_gen=True,
         visual_und=True,
-        llm_config=None,
-        vit_config=None,
+        llm_config: Qwen2Config | None = None,
+        vit_config: SiglipVisionConfig | None = None,
         vae_config=None,
         latent_patch_size=2,
         max_latent_size=32,
@@ -40,6 +45,21 @@ class BagelConfig(PretrainedConfig):
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
         timestep_shift=1.0,
+
+        layer_module: str = "Qwen2MoTDecoderLayer",
+        llm_qk_norm: bool = True,
+        tie_word_embeddings: bool = False,
+        freeze_und: bool = False,
+        copy_init_moe: bool = True,
+
+        vit_path: str = "HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit",
+        vit_select_layer: int = -2,
+        vit_rope: bool = False,
+
+        vae_path: str = "flux/vae/ae.safetensors",
+        
+        finetune_from_hf: bool = False,
+
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -55,19 +75,83 @@ class BagelConfig(PretrainedConfig):
         self.interpolate_pos = interpolate_pos
         self.timestep_shift = timestep_shift
 
+        # LLM config
+        self.layer_module = layer_module
+        self.llm_qk_norm = llm_qk_norm
+        self.tie_word_embeddings = tie_word_embeddings
+        self.freeze_und = freeze_und
+        self.copy_init_moe = copy_init_moe
+        
+        # VIT config
+        self.vit_path = vit_path
+        self.vit_select_layer = vit_select_layer
+        self.vit_rope = vit_rope
+        
+        # VAE config
+        self.vae_path = vae_path
+        
+        self.finetune_from_hf = finetune_from_hf
+
+def load_ae(local_path: str) -> AutoEncoder:
+    ae_params = AutoEncoderParams(
+            resolution=256,
+            in_channels=3,
+            downsample=8,
+            ch=128,
+            out_ch=3,
+            ch_mult=[1, 2, 4, 4],
+            num_res_blocks=2,
+            z_channels=16,
+            scale_factor=0.3611,
+            shift_factor=0.1159,
+    )
+
+    # Loading the autoencoder
+    ae = AutoEncoder(ae_params)
+
+    if local_path is not None:
+        sd = load_sft(local_path)
+        missing, unexpected = ae.load_state_dict(sd, strict=False, assign=True)
+    return ae, ae_params
+
 
 class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
 
-    def __init__(self, language_model, vit_model, config: BagelConfig):
+    def __init__(self, config: BagelConfig):
         super().__init__(config)
-        self.language_model = language_model
+        
+        finetune_from_hf = config.finetune_from_hf
+
+        model_path = config.load_from_pretrained_path
+        if finetune_from_hf:
+            llm_config = Qwen2Config.from_json_file(
+                os.path.join(model_path, "llm_config.json")
+            )
+        else:
+            llm_config = Qwen2Config.from_pretrained(model_path)
+        llm_config.layer_module = config.layer_module
+        llm_config.qk_norm = config.llm_qk_norm
+        llm_config.tie_word_embeddings = config.tie_word_embeddings
+        llm_config.freeze_und = config.freeze_und
+
+        if finetune_from_hf:
+            self.language_model = Qwen2ForCausalLM.from_pretrained(model_path, config=llm_config)
+        else:
+            self.language_model = Qwen2ForCausalLM(llm_config)
+        if config.copy_init_moe:
+            self.language_model.init_moe()
+
         self.hidden_size = config.llm_config.hidden_size
         self.use_moe = "Mo" in config.llm_config.layer_module
         self.num_heads = config.llm_config.num_attention_heads
 
         if config.visual_gen:
+            if finetune_from_hf:
+                vae_model, vae_config = load_ae(os.path.join(model_path, "ae.safetensors"))
+            else:
+                vae_model, vae_config = load_ae(config.vae_path)
             self.latent_patch_size = config.latent_patch_size
             self.timestep_shift = config.timestep_shift
             self.latent_downsample = (
@@ -82,9 +166,20 @@ class Bagel(PreTrainedModel):
             self.latent_pos_embed = PositionEmbedding(
                 self.max_latent_size, self.hidden_size
             )
+        
+        if config.visual_und:  
+            if os.path.exists(model_path):
+                vit_config = SiglipVisionConfig.from_json_file(os.path.join(model_path, "vit_config.json"))
+            else:
+                vit_config = SiglipVisionConfig.from_pretrained(config.vit_path)
+                
+            vit_config.num_hidden_layers = vit_config.num_hidden_layers + 1 + config.vit_select_layer
+            vit_config.rope = config.vit_rope
+            if os.path.exists(config.vit_path):
+                self.vit_model = SiglipVisionModel.from_pretrained(config.vit_path, config=vit_config)
+            else:
+                self.vit_model = SiglipVisionModel(vit_config)
 
-        if config.visual_und:
-            self.vit_model = vit_model
             self.vit_patch_size = config.vit_config.patch_size
             self.vit_max_num_patch_per_side = config.vit_max_num_patch_per_side
             self.vit_hidden_size = config.vit_config.hidden_size

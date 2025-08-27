@@ -1,55 +1,43 @@
 - type: trainer
   config:
     trainer_type: hf_trainer
-
-    # Dataset configuration - now includes the actual dataset definitions
     dataset_config:
       dataset_type: bagel
-      dataset_format: yaml # Uses 'yaml' format for both external files and inline definitions
-
-      # Inline dataset definitions (no dataset_path needed)
+      dataset_format: yaml
       datasets:
-        - path: lmms-lab/bagel-example
-          data_type: hf
-
-      # Processor configuration
+      - path: lmms-lab/bagel-example
+        data_type: hf
       processor_config:
-        processor_name: "ByteDance-Seed/BAGEL-7B-MoT"
-        processor_type: "bagel"
-
-      # Packing configuration
+        processor_name: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30
+        processor_type: bagel
       packing: true
       packing_strategy: first_fit
       packing_length: 16384
-
-    # Model configuration
     model_config:
-      load_from_pretrained_path: "ByteDance-Seed/BAGEL-7B-MoT"
-      attn_implementation: "flash_attention_2"
-
-    # Training arguments, mostly compatible with HuggingFace Trainer
+      load_from_pretrained_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30
+      attn_implementation: flash_attention_2
+      vae_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30/ae.safetensors
+      vit_path: hf/siglip-so400m-14-980-flash-attn2-navit
     per_device_train_batch_size: 1
-    learning_rate: 1.0e-05 # we should use 1.0 to makes YAML recognize it as a float
+    learning_rate: 1.0e-05
     weight_decay: 0.0
     gradient_accumulation_steps: 1
     gradient_checkpointing: true
     num_train_epochs: 1
     save_steps: 100
     save_total_limit: 1
-    report_to: "wandb"
-    output_dir: "./output/debug"
+    report_to: wandb
+    output_dir: ./output/debug
     warmup_ratio: 0.0
-    run_name: "blip3o"
-    eval_strategy: "no"
+    run_name: blip3o
+    eval_strategy: 'no'
     logging_steps: 1
     group_by_length: true
     dataloader_num_workers: 8
     bf16: true
-    lr_scheduler_type: "cosine"
-    freeze_modules: ["visual"]
+    lr_scheduler_type: cosine
+    freeze_modules:
+    - visual
     use_liger_kernel: false
     use_rmpad: false
     fsdp2: false
-    # fsdp_config:
-    #   transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
-    #   reshard_after_forward: false
