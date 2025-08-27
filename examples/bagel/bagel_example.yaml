@@ -9,14 +9,13 @@
 
       # Inline dataset definitions (no dataset_path needed)
       datasets:
-        - path: tools/bagel-data-prep/data/bagel-60k
-          data_folder: tools/bagel-data-prep/data/bagel-60k
-          data_type: arrow
+        - path: lmms-lab/bagel-example
+          data_type: hf
 
       # Processor configuration
       processor_config:
-        processor_name: "BLIP3o/BLIP3o-NEXT-Pretrain-3B"
-        processor_type: "blip3o"
+        processor_name: "ByteDance-Seed/BAGEL-7B-MoT"
+        processor_type: "bagel"
 
       # Packing configuration
       packing: true
@@ -25,7 +24,7 @@
 
     # Model configuration
     model_config:
-      load_from_pretrained_path: "BLIP3o/BLIP3o-NEXT-Pretrain-3B"
+      load_from_pretrained_path: "ByteDance-Seed/BAGEL-7B-MoT"
       attn_implementation: "flash_attention_2"
 
     # Training arguments, mostly compatible with HuggingFace Trainer

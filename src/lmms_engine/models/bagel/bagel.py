@@ -9,8 +9,11 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
+from transformers import Qwen2Tokenizer
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
+
+from lmms_engine.datasets.processor.bagel_processor import add_special_tokens
 
 from .cache_utils import cache_init
 from .data_utils import (
@@ -99,6 +102,13 @@ class Bagel(PreTrainedModel):
 
         self.config = config
         self._init_weights()
+
+        tokenizer = Qwen2Tokenizer.from_pretrained(config.llm_config.model_path)
+        tokenizer, new_token_ids, num_new_tokens = add_special_tokens(tokenizer)
+        if num_new_tokens > 0:
+            self.language_model.resize_token_embeddings(len(tokenizer))
+            self.config.llm_config.vocab_size = len(tokenizer)
+            self.language_model.config.vocab_size = len(tokenizer)
 
     def _init_weights(self):
         if self.config.visual_gen:
