@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import random
-from PIL import Image
 
 import cv2
 import numpy as np
 import torch
+from PIL import Image
 from torchvision import transforms
-from torchvision.transforms import functional as F
 from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as F
 
 
 class MaxLongEdgeMinShortEdgeResize(torch.nn.Module):
@@ -30,13 +30,13 @@ class MaxLongEdgeMinShortEdgeResize(torch.nn.Module):
     """
 
     def __init__(
-        self, 
-        max_size: int, 
-        min_size: int, 
-        stride: int, 
+        self,
+        max_size: int,
+        min_size: int,
+        stride: int,
         max_pixels: int,
-        interpolation=InterpolationMode.BICUBIC, 
-        antialias=True
+        interpolation=InterpolationMode.BICUBIC,
+        antialias=True,
     ):
         super().__init__()
         self.max_size = max_size
@@ -84,29 +84,33 @@ class MaxLongEdgeMinShortEdgeResize(torch.nn.Module):
             scale = self.max_size / max(new_width, new_height)
             new_width, new_height = self._apply_scale(new_width, new_height, scale)
 
-        return F.resize(img, (new_height, new_width), self.interpolation, antialias=self.antialias)
+        return F.resize(
+            img, (new_height, new_width), self.interpolation, antialias=self.antialias
+        )
 
 
 class ImageTransform:
     def __init__(
-        self, 
-        max_image_size, 
-        min_image_size, 
-        image_stride, 
-        max_pixels=14*14*9*1024,
-        image_mean=[0.5, 0.5, 0.5], 
-        image_std=[0.5, 0.5, 0.5]
+        self,
+        max_image_size,
+        min_image_size,
+        image_stride,
+        max_pixels=14 * 14 * 9 * 1024,
+        image_mean=[0.5, 0.5, 0.5],
+        image_std=[0.5, 0.5, 0.5],
     ):
         self.stride = image_stride
 
         self.resize_transform = MaxLongEdgeMinShortEdgeResize(
-            max_size=max_image_size, 
-            min_size=min_image_size, 
+            max_size=max_image_size,
+            min_size=min_image_size,
             stride=image_stride,
             max_pixels=max_pixels,
         )
         self.to_tensor_transform = transforms.ToTensor()
-        self.normalize_transform = transforms.Normalize(mean=image_mean, std=image_std, inplace=True)
+        self.normalize_transform = transforms.Normalize(
+            mean=image_mean, std=image_std, inplace=True
+        )
 
     def __call__(self, img, img_num=1):
         img = self.resize_transform(img, img_num=img_num)
@@ -116,8 +120,12 @@ class ImageTransform:
 
 
 def decolorization(image):
-    gray_image = image.convert('L')
-    return Image.merge(image.mode, [gray_image] * 3) if image.mode in ('RGB', 'L') else gray_image
+    gray_image = image.convert("L")
+    return (
+        Image.merge(image.mode, [gray_image] * 3)
+        if image.mode in ("RGB", "L")
+        else gray_image
+    )
 
 
 def downscale(image, scale_factor):
@@ -138,7 +146,10 @@ def crop(image, crop_factors):
     x = random.randint(0, img_w - target_w)
     y = random.randint(0, img_h - target_h)
 
-    return image.crop((x, y, x + target_w, y + target_h)), [[x, y], [x + target_w, y + target_h]]
+    return image.crop((x, y, x + target_w, y + target_h)), [
+        [x, y],
+        [x + target_w, y + target_h],
+    ]
 
 
 def motion_blur_opencv(image, kernel_size=15, angle=0):
@@ -161,13 +172,15 @@ def motion_blur_opencv(image, kernel_size=15, angle=0):
         # For color images, convolve each channel independently
         blurred = np.zeros_like(img)
         for c in range(img.shape[2]):
-            blurred[..., c] = cv2.filter2D(img[..., c], -1, rotated_kernel, borderType=cv2.BORDER_REFLECT)
+            blurred[..., c] = cv2.filter2D(
+                img[..., c], -1, rotated_kernel, borderType=cv2.BORDER_REFLECT
+            )
 
     return Image.fromarray(blurred.astype(np.uint8))
 
 
 def shuffle_patch(image, num_splits, gap_size=2):
-    """Splits the image into patches (allowing for non-divisible dimensions), shuffles them randomly, 
+    """Splits the image into patches (allowing for non-divisible dimensions), shuffles them randomly,
     and then stitches them back together, leaving a gap between the patches."""
     h_splits, w_splits = num_splits
     img_w, img_h = image.size
@@ -187,7 +200,9 @@ def shuffle_patch(image, num_splits, gap_size=2):
         patch_h = patch_heights[i]
         for j in range(w_splits):
             patch_w = patch_widths[j]
-            patch = image.crop((current_x, current_y, current_x + patch_w, current_y + patch_h))
+            patch = image.crop(
+                (current_x, current_y, current_x + patch_w, current_y + patch_h)
+            )
             patches.append(patch)
             current_x += patch_w
         current_y += patch_h
@@ -196,7 +211,9 @@ def shuffle_patch(image, num_splits, gap_size=2):
 
     total_width = sum(patch_widths) + (w_splits - 1) * gap_size
     total_height = sum(patch_heights) + (h_splits - 1) * gap_size
-    new_image = Image.new(image.mode, (total_width, total_height), color=(255, 255, 255))
+    new_image = Image.new(
+        image.mode, (total_width, total_height), color=(255, 255, 255)
+    )
 
     current_y = 0  # Starting Y coordinate of the current row
     patch_idx = 0  # Index of the current patch being processed
@@ -221,14 +238,14 @@ def shuffle_patch(image, num_splits, gap_size=2):
 def inpainting(image, num_splits, blank_ratio=0.3, blank_color=(255, 255, 255)):
     """
     Randomly blanks out some patches after splitting the image, for inpainting tasks.
-    
+
     Args:
         image (PIL.Image): Input image (RGB mode).
         h_splits (int): Number of row splits (number of vertical patches).
         w_splits (int): Number of column splits (number of horizontal patches).
         blank_ratio (float): The proportion of patches to be blanked out (0-1).
         blank_color (tuple): The color of the blank area (RGB, e.g., white (255,255,255)).
-    
+
     Returns:
         PIL.Image: The processed and stitched image.
     """
@@ -250,7 +267,9 @@ def inpainting(image, num_splits, blank_ratio=0.3, blank_color=(255, 255, 255)):
         patch_h = patch_heights[i]
         for j in range(w_splits):
             patch_w = patch_widths[j]
-            patch = image.crop((current_x, current_y, current_x + patch_w, current_y + patch_h))
+            patch = image.crop(
+                (current_x, current_y, current_x + patch_w, current_y + patch_h)
+            )
             patches.append(patch)
             current_x += patch_w
         current_y += patch_h
