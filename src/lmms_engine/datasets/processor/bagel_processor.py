@@ -5,8 +5,22 @@ from transformers import Qwen2Tokenizer
 
 from lmms_engine.mapping_func import register_processor
 
+from .bagel_utils.video_utils import FrameSampler
+from .bagel_utils.transforms import ImageTransform
 from .config import ProcessorConfig
 from .processor import Processor
+
+
+def pil_img2rgb(image):
+    if image.mode == "RGBA" or image.info.get("transparency", None) is not None:
+        image = image.convert("RGBA")
+        white = Image.new(mode="RGB", size=image.size, color=(255, 255, 255))
+        white.paste(image, mask=image.split()[3])
+        image = white
+    else:
+        image = image.convert("RGB")
+
+    return image
 
 
 def add_special_tokens(tokenizer):
@@ -47,12 +61,25 @@ def add_special_tokens(tokenizer):
     return tokenizer, new_token_ids, num_new_tokens
 
 
+
 @register_processor("bagel")
 class BagelProcessor(Processor):
     def __init__(self, config: ProcessorConfig | dict) -> None:
         if isinstance(config, dict):
             config = from_dict(ProcessorConfig, config)
         self.config = config
+
+        dataset_args = self.config.kwargs
+        
+        if 'frame_sampler_args' in dataset_args.keys():
+            frame_sampler = FrameSampler(**dataset_args.pop('frame_sampler_args'))
+            dataset_args['frame_sampler'] = frame_sampler
+        if 'image_transform_args' in dataset_args.keys():
+            transform = ImageTransform(**dataset_args.pop('image_transform_args'))
+            dataset_args['transform'] = transform
+        if 'vit_image_transform_args' in dataset_args.keys():
+            vit_transform = ImageTransform(**dataset_args.pop('vit_image_transform_args'))
+            dataset_args['vit_transform'] = vit_transform
 
     def build(self):
         self.tokenizer = self._build_processor()
@@ -61,6 +88,12 @@ class BagelProcessor(Processor):
         tokenizer = Qwen2Tokenizer.from_pretrained(self.config.processor_name)
         tokenizer, _, _ = add_special_tokens(tokenizer)
         return tokenizer
+    
+    def _process_t2i(self, user_text, user_images, result_image):
+        pass
+    
+    def _process_t2t(self, user_text, user_images, assistant_text):
+        pass
 
     def process(
         self,
@@ -77,11 +110,35 @@ class BagelProcessor(Processor):
         if len(hf_messages) != 2:
             raise ValueError("BagelProcessor only supports two-turn conversations")
 
-        input_images = []
-        output_images = []
-        input_text = ""
-        output_text = ""
+        text = {
+            "user": [],
+            "assistant": [],
+        }
+        processed_images = {
+            "user": [],
+            "assistant": [],
+        }
+
+        current_image_ptr = 0
+
         for message in hf_messages:
             role = message["role"]
             for content in message["content"]:
-                if 
+                if content["type"] == "text":
+                    text[role].append(content["text"])
+                elif content["type"] == "image":
+                    processed_images[role].append(pil_img2rgb(images[current_image_ptr]))
+                    current_image_ptr += 1
+        
+        user_text = "\n".join(text["user"])
+        assistant_text = "\n".join(text["assistant"])
+        user_images = processed_images["user"]
+        assistant_images = processed_images["assistant"]
+
+        if assistant_images:
+            assert len(assistant_text) == 0, "BagelProcessor only supports image-to-image generation, but assistant text is provided"
+            assert len(assistant_images) == 1, "BagelProcessor only supports one assistant image"
+            
+            return self._process_t2i(user_text, user_images, assistant_images[0])
+        else:
+            return self._process_t2t(user_text, user_images, assistant_text)
