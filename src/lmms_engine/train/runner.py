@@ -31,6 +31,7 @@ from .config import TrainerConfig
 from .dllm_trainer import DLLMTrainer
 from .fsdp2_trainer import FSDP2SFTTrainer
 from .trainer import Trainer
+from .wan_trainer import WanVideoTrainer
 
 # from transformers import Trainer
 
@@ -98,6 +99,8 @@ class TrainRunner:
         if self.model_config.overwrite_config:
             for key, value in self.model_config.overwrite_config.items():
                 setattr(model.config, key, value)
+                if getattr(model, key, None) is not None:
+                    setattr(model, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
 
         setup_flops_counter(model.config)
@@ -248,6 +251,8 @@ class TrainRunner:
             trainer_cls = FSDP2SFTTrainer
         elif self.config.trainer_type == "dllm_trainer":
             trainer_cls = DLLMTrainer
+        elif self.config.trainer_type == "wan_trainer":
+            trainer_cls = WanVideoTrainer
         else:
             raise ValueError(
                 f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"

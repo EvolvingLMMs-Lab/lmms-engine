@@ -6,7 +6,7 @@ from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
-from transformers import Trainer
+from transformers import Trainer as HFTrainer
 from transformers.utils import is_torch_xla_available
 
 
@@ -50,7 +50,7 @@ def dllm_loss(
     return d_loss, nll
 
 
-class DLLMTrainer(Trainer):
+class DLLMTrainer(HFTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.epsilon: float = 0.1

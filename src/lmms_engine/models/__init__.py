@@ -8,9 +8,9 @@ from .wanvideo import (
 )
 
 __all__ = [
-    "ModelConfig",
     "AeroForConditionalGeneration",
     "AeroConfig",
+    "ModelConfig",
     "AeroProcessor",
     "WanVideoConfig",
     "WanVideoForConditionalGeneration",

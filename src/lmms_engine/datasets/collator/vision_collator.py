@@ -49,8 +49,10 @@ class VisionCollator:
             )
             batched_inputs["labels"] = labels
 
+        inputs.pop("attention_mask")
         attention_mask = input_ids.ne(self.processor.tokenizer.pad_token_id)
         batched_inputs["attention_mask"] = attention_mask
+
         # for the other keys
         for key, values in inputs.items():
             batched_inputs[key] = torch.concatenate(values, dim=0)

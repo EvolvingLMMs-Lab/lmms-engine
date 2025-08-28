@@ -27,7 +27,8 @@
         "enabled": true
     },
     "zero_optimization": {
-        "stage": 0,
+        "stage": 3,
+        "stage3_gather_16bit_weights_on_model_save": true,
         "contiguous_gradients" : true,
         "overlap_comm": false,
         "stage3_max_live_parameters": 5e8,

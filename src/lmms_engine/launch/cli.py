@@ -72,6 +72,7 @@ def main():
         else:
             raise ValueError(f"Unknown task type: {task_type}")
         task.run()
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":
