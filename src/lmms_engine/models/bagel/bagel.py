@@ -144,13 +144,6 @@ def load_bagel_from_pretrained(model_path: str, config: dict[str, Any]):
             else training_config.vae_path
         )
 
-    if training_config.visual_gen:
-        vae_model, vae_config = load_ae(
-            local_path=os.path.join(model_path, "ae.safetensors")
-            if training_config.finetune_from_hf
-            else training_config.vae_path
-        )
-
     bagel_config = BagelConfig(
         visual_gen=training_config.visual_gen,
         visual_und=training_config.visual_und,

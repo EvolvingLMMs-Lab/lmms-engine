@@ -76,3 +76,12 @@ class BagelProcessor(Processor):
 
         if len(hf_messages) != 2:
             raise ValueError("BagelProcessor only supports two-turn conversations")
+
+        input_images = []
+        output_images = []
+        input_text = ""
+        output_text = ""
+        for message in hf_messages:
+            role = message["role"]
+            for content in message["content"]:
+                if 
