@@ -7,7 +7,7 @@ from .processor import ProcessorConfig
 
 
 class DatasetConfig(Args):
-    dataset_type: Literal["vision", "vision_audio"]
+    dataset_type: Literal["vision", "vision_audio", "fineweb_edu"]
     dataset_format: Literal["json", "jsonl", "csv", "yaml", "hf_dataset", "arrow"]
     processor_config: Union[dict, ProcessorConfig]
     dataset_path: Optional[str] = None  # Optional - used for external files
