@@ -8,7 +8,7 @@ import jsonlines
 import numpy as np
 import pandas as pd
 import yaml
-from datasets import Dataset, concatenate_datasets, load_from_disk
+from datasets import Dataset, concatenate_datasets, load_from_disk, load_dataset
 from librosa import resample
 from tqdm import tqdm
 
@@ -60,14 +60,16 @@ class DataUtilities:
 
     @staticmethod
     def maybe_load_by_type(
-        path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]
+        path: str, data_type: Literal["json", "jsonl", "csv", "arrow", "hf"], **kwargs
     ) -> Union[List[Dict[str, List]], Dataset]:
         if data_type == "arrow":
-            dataset = load_from_disk(path)
+            dataset = load_from_disk(path, **kwargs)
         elif data_type == "parquet":
-            dataset = Dataset.from_parquet(path)
+            dataset = Dataset.from_parquet(path, **kwargs)
+        elif data_type == "hf":
+            dataset = load_dataset(path, **kwargs)
         else:
-            dataset = DataUtilities.maybe_load_json_or_jsonlines_or_csv(path, data_type)
+            dataset = DataUtilities.maybe_load_json_or_jsonlines_or_csv(path, data_type, **kwargs)
 
         # Force to load in Dataset format if load in yaml
         # For better streaming data
@@ -77,8 +79,8 @@ class DataUtilities:
 
     @staticmethod
     def wrap_func(args):
-        path, data_type = args
-        return DataUtilities.maybe_load_by_type(path, data_type)
+        path, data_type, kwargs = args
+        return DataUtilities.maybe_load_by_type(path, data_type, **kwargs)
 
     @staticmethod
     def load_yaml(path: str) -> Tuple[List[Dict[str, List]], List[str]]:
@@ -90,10 +92,11 @@ class DataUtilities:
             data_paths = [dataset.get("path") for dataset in datasets]
             data_folders = [dataset.get("data_folder") for dataset in datasets]
             data_types = [dataset.get("data_type") for dataset in datasets]
+            kwargs = [dataset.get("kwargs", {}) for dataset in datasets]
             with Pool(cpu_count()) as p:
                 Logging.info("Loading data with multiprocess...")
                 nested_data_list = list(
-                    p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
+                    p.imap(DataUtilities.wrap_func, zip(data_paths, data_types, kwargs))
                 )
 
             for data, data_folder, data_path in zip(
@@ -221,11 +224,12 @@ class DataUtilities:
         data_paths = [dataset.get("path") for dataset in datasets]
         data_folders = [dataset.get("data_folder", "") for dataset in datasets]
         data_types = [dataset.get("data_type", "json") for dataset in datasets]
+        kwargs = [dataset.get("kwargs", {}) for dataset in datasets]
 
         with Pool(cpu_count()) as p:
             Logging.info("Loading data with multiprocess...")
             nested_data_list = list(
-                p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
+                p.imap(DataUtilities.wrap_func, zip(data_paths, data_types, kwargs))
             )
 
         for data, data_folder, data_path in zip(

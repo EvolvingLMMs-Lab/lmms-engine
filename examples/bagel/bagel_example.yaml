@@ -7,6 +7,8 @@
       datasets:
       - path: lmms-lab/bagel-example
         data_type: hf
+        kwargs:
+          split: train
       processor_config:
         processor_name: /mnt/raid10/pufanyi/Bagel-ckpt/BAGEL-7B-MoT
         processor_type: bagel
