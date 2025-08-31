@@ -1,10 +1,13 @@
 import os
 import re
+import base64
 from typing import Dict
+from io import BytesIO
 
 import torch
 from PIL import Image
-
+import pathlib
+import os
 from lmms_engine.mapping_func import register_dataset
 
 from ..utils.train_utils import TrainUtilities
@@ -64,6 +67,44 @@ class VisionSFTDataset(MultiModalDataset):
             images=images, hf_messages=hf_messages, videos=videos, **kwargs
         )
         return inputs
+    
+    def get_pil_image(self, image: os.PathLike | pathlib.Path | str | pathlib.Path | Image.Image | bytes, data_folder: os.PathLike | pathlib.Path | None = None) -> Image.Image:
+        """
+        Load an image from various input types and return a PIL Image.
+        
+        Args:
+            image: Can be a file path, URL, PIL Image object, bytes data, or base64 string
+            
+        Returns:
+            PIL Image object
+        """
+        if data_folder is not None:
+            data_folder = pathlib.Path(data_folder)
+        if isinstance(image, Image.Image):
+            return image
+        elif isinstance(image, bytes):
+            # Handle raw bytes data
+            return Image.open(BytesIO(image))
+        elif isinstance(image, (str, os.PathLike, pathlib.Path)):
+            # Check if it's a base64 data URI (e.g., "data:image/jpeg;base64,...")
+            if isinstance(image, str) and image.startswith('data:image/'):
+                # Extract base64 data after the comma
+                header, base64_data = image.split(',', 1)
+                image_bytes = base64.b64decode(base64_data)
+                return Image.open(BytesIO(image_bytes))
+            
+            # Check if it's a URL
+            if isinstance(image, str) and image.startswith(('http://', 'https://')):
+                import requests
+                response = requests.get(image)
+                response.raise_for_status()
+                return Image.open(BytesIO(response.content))
+            else:
+                # Local file path
+                image = data_folder / image if data_folder is not None else image
+                return Image.open(image)
+        else:
+            raise ValueError(f"Unsupported image type: {type(image)}")
 
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
         # TODO Write a protocol for vision openai input
@@ -75,6 +116,11 @@ class VisionSFTDataset(MultiModalDataset):
             for content in message["content"]:
                 if content["type"] == "image_url":
                     images_list.append(content["image_url"]["url"])
+                elif content["type"] == "image_col":
+                    image_col, image_idx = re.match(
+                        r"(\w+)\[(\d+)\]", content["image_col"]
+                    ).groups()
+                    images_list.append(data[image_col][int(image_idx)])
                 elif content["type"] == "video_url":
                     # Loading videos with fps
                     frames, sample_fps = self.load_videos(
@@ -87,12 +133,7 @@ class VisionSFTDataset(MultiModalDataset):
                     kwargs["fps"] = sample_fps
 
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
-        if data_folder is not None:
-            images = [
-                Image.open(os.path.join(data_folder, image)) for image in images_list
-            ]
-        else:
-            images = [Image.open(image) for image in images_list]
+        images = [self.get_pil_image(image, data_folder=data_folder) for image in images_list]
         if len(images) == 0:
             images = None
         if len(videos) == 0:

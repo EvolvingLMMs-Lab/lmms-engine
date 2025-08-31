@@ -33,7 +33,7 @@
     learning_rate: 1.0e-05
     weight_decay: 0.0
     gradient_accumulation_steps: 1
-    gradient_checkpointing: true
+    # gradient_checkpointing: true
     num_train_epochs: 1
     save_steps: 100
     save_total_limit: 1
