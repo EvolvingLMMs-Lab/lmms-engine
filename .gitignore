@@ -172,3 +172,4 @@ checkpoints/
 
 blip3o-60k/
 tmp*wandb*/
+temp/
