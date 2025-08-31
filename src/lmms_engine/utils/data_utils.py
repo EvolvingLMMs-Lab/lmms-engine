@@ -8,7 +8,7 @@ import jsonlines
 import numpy as np
 import pandas as pd
 import yaml
-from datasets import Dataset, concatenate_datasets, load_from_disk, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
 from librosa import resample
 from tqdm import tqdm
 
@@ -69,7 +69,9 @@ class DataUtilities:
         elif data_type == "hf":
             dataset = load_dataset(path, **kwargs)
         else:
-            dataset = DataUtilities.maybe_load_json_or_jsonlines_or_csv(path, data_type, **kwargs)
+            dataset = DataUtilities.maybe_load_json_or_jsonlines_or_csv(
+                path, data_type, **kwargs
+            )
 
         # Force to load in Dataset format if load in yaml
         # For better streaming data

@@ -4,6 +4,7 @@
     dataset_config:
       dataset_type: bagel
       dataset_format: yaml
+      shuffle: false
       datasets:
       - path: lmms-lab/bagel-example
         data_type: hf

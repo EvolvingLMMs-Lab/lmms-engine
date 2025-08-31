@@ -390,7 +390,7 @@ class MultiModalDataset(BaseDataset):
             for cont in content:
                 precomputed_tokens = getattr(cont, "precomputed_tokens", None)
                 # In case arrow where every place has a field
-                if cont["type"] == "image_url":
+                if cont["type"] == "image_url" or cont["type"] == "image_col":
                     if precomputed_tokens is not None:
                         cur_len += precomputed_tokens
                     else:
