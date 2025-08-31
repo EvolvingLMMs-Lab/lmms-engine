@@ -14,7 +14,7 @@
       processor_config:
         processor_name: WanVideo/Wan2.1-T2V-3B
         processor_type: wanvideo
-        kwargs:
+        extra_kwargs:
           do_resize: true
           size:
             height: 480
