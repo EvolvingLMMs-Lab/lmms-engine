@@ -245,26 +245,35 @@ class MultiModalDataset(BaseDataset):
         Load video using Qwen VL utils.
         This is a placeholder for the actual implementation.
         """
-        is_even = self.config.frame_num % 2 == 0
-        n_frames = self.config.frame_num if is_even else self.config.frame_num + 1
-        video_dict = {
-            "type": "video",
-            "video": f"file://{video_path}",
-            "fps": fps,
-            "min_frames": 1,
-            "nframes": n_frames,
-            "max_pixels": self.processor_config.max_pixels,
-        }
         if self.config.video_sampling_strategy == "frame_num":
-            video_dict.pop("fps", None)
-
-        video_dict.pop("max_pixels", None)
-        frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
-        frames = frames.numpy()
-        if is_even:
+            is_even = self.config.frame_num % 2 == 0
+            n_frames = self.config.frame_num if is_even else self.config.frame_num + 1
+            video_dict = {
+                "type": "video",
+                "video": f"file://{video_path}",
+                "min_frames": 1,
+                "nframes": n_frames,
+            }
+            frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
+            frames = frames.numpy()
+            if is_even:
+                return frames, sample_fps
+            else:
+                return frames[:-1], sample_fps
+        elif self.config.video_sampling_strategy == "fps":
+            video_dict = {
+                "type": "video",
+                "video": f"file://{video_path}",
+                "fps": fps,
+                "max_pixels": self.processor_config.max_pixels,
+            }
+            frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
+            frames = frames.numpy()
             return frames, sample_fps
         else:
-            return frames[:-1], sample_fps
+            raise ValueError(
+                f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
+            )
 
     def filter_overlong(self):
         """Filter out data samples that are too long for packing."""
