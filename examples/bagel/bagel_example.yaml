@@ -18,10 +18,10 @@
         model_path: /mnt/raid10/pufanyi/Bagel-ckpt/BAGEL-7B-MoT
         model_type: bagel
         config:
-          finetune_from_hf: true
-          # vae_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30/ae.safetensors
-          # vit_path: /mnt/raid10/pufanyi/hf/hub/models--HuggingFaceM4--siglip-so400m-14-980-flash-attn2-navit/snapshots/d66538faeba44480d0bfaa42145eef26f9423199
-          # llm_path: /mnt/raid10/pufanyi/hf/hub/models--Qwen--Qwen2.5-0.5B-Instruct/snapshots/7ae557604adf67be50417f59c2c2f167def9a775
+          finetune_from_hf: false
+          vae_path: /mnt/raid10/pufanyi/hf/hub/models--ByteDance-Seed--BAGEL-7B-MoT/snapshots/570026eca23479ee7df5a6ce9fb50a835530da30/ae.safetensors
+          vit_path: HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit
+          llm_path: Qwen/Qwen2.5-0.5B-Instruct
     per_device_train_batch_size: 1
     learning_rate: 1.0e-05
     weight_decay: 0.0
@@ -37,7 +37,7 @@
     eval_strategy: 'no'
     logging_steps: 1
     group_by_length: true
-    dataloader_num_workers: 8
+    dataloader_num_workers: 2
     bf16: true
     lr_scheduler_type: cosine
     freeze_modules:

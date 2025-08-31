@@ -4,6 +4,7 @@ from .fineweb_edu_dataset import FinewebEduDataset
 from .multimodal_dataset import MultiModalDataset
 from .vision_audio_dataset import VisionAudioSFTDataset
 from .vision_dataset import VisionSFTDataset
+from .bagel_dataset import BagelSFTDataset
 
 __all__ = [
     "DatasetConfig",
@@ -12,4 +13,5 @@ __all__ = [
     "VisionAudioSFTDataset",
     "FinewebEduDataset",
     "Blip3oSFTDataset",
+    "BagelSFTDataset",
 ]

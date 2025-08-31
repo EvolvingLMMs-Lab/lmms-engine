@@ -1,8 +1,9 @@
+import json
+
 import numpy
 from dacite import from_dict
 from PIL import Image
 from transformers import Qwen2Tokenizer
-import json
 
 from lmms_engine.mapping_func import register_processor
 
@@ -74,9 +75,13 @@ class BagelProcessor(Processor):
         self.tokenizer = self._build_processor()
 
         if "frame_sampler_args" in self.dataset_args.keys():
-            self.frame_sampler = FrameSampler(**self.dataset_args.pop("frame_sampler_args"))
+            self.frame_sampler = FrameSampler(
+                **self.dataset_args.pop("frame_sampler_args")
+            )
         if "image_transform_args" in self.dataset_args.keys():
-            self.transform = ImageTransform(**self.dataset_args.pop("image_transform_args"))
+            self.transform = ImageTransform(
+                **self.dataset_args.pop("image_transform_args")
+            )
             self.transform_stride = self.transform.stride
         if "vit_image_transform_args" in self.dataset_args.keys():
             self.vit_transform = ImageTransform(
@@ -87,37 +92,40 @@ class BagelProcessor(Processor):
         tokenizer = Qwen2Tokenizer.from_pretrained(self.config.processor_name)
         tokenizer, _, _ = add_special_tokens(tokenizer)
         return tokenizer
-    
 
     def _process_t2i(self, user_text, user_images, result_image):
         assert not user_images, "current we do not support user images"
         num_tokens = 0
         image_tensor = self.transform(result_image)
         height, width = image_tensor.shape[1:]
-        num_tokens += width * height // self.transform_stride ** 2
+        num_tokens += width * height // self.transform_stride**2
         caption_token = self.tokenizer.encode(user_text)
         sequence_plan, text_ids_list = [], []
         text_ids = caption_token
         num_tokens += len(caption_token)
         text_ids_list.append(text_ids)
-        sequence_plan.append({
-            'type': 'text',
-            'enable_cfg': 1,
-            'loss': 0,
-            'special_token_loss': 0,
-            'special_token_label': None,
-        })
-    
-        sequence_plan.append({
-            'type': 'vae_image',
-            'enable_cfg': 0,
-            'loss': 1,
-            'special_token_loss': 0,
-            'special_token_label': None,
-        })
+        sequence_plan.append(
+            {
+                "type": "text",
+                "enable_cfg": 1,
+                "loss": 0,
+                "special_token_loss": 0,
+                "special_token_label": None,
+            }
+        )
+
+        sequence_plan.append(
+            {
+                "type": "vae_image",
+                "enable_cfg": 0,
+                "loss": 1,
+                "special_token_loss": 0,
+                "special_token_label": None,
+            }
+        )
 
         sample = {
-            "image_tensor_list": [image_tensor], 
+            "image_tensor_list": [image_tensor],
             "text_ids_list": text_ids_list,
             "num_tokens": num_tokens,
             "sequence_plan": sequence_plan,
@@ -127,13 +135,13 @@ class BagelProcessor(Processor):
             #     "dataset_name": self.dataset_name,
             # }
         }
-        
+
         return sample
 
-
     def _process_t2t(self, user_text, user_images, assistant_text):
-        raise NotImplementedError("BagelProcessor does not support text-to-text generation")
-        
+        raise NotImplementedError(
+            "BagelProcessor does not support text-to-text generation"
+        )
 
     def process(
         self,
@@ -188,4 +196,3 @@ class BagelProcessor(Processor):
             return self._process_t2i(user_text, user_images, assistant_images[0])
         else:
             return self._process_t2t(user_text, user_images, assistant_text)
-        

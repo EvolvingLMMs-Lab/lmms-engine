@@ -163,7 +163,7 @@ def load_bagel_from_pretrained(model_path: str, config: dict[str, Any]):
 
     if training_config.visual_und:
         model.vit_model.vision_model.embeddings.convert_conv2d_to_linear(
-            training_config.vit_config
+            bagel_config.vit_config
         )
 
     if training_config.freeze_vae and training_config.visual_gen:
