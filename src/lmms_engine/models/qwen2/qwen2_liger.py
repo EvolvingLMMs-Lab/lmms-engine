@@ -2,6 +2,8 @@ from typing import List, Optional, Tuple, Union
 
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+from lmms_engine.utils import Logging
+
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad
 
 try:
@@ -11,6 +13,12 @@ try:
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
 import torch
+
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    calculate_seq_len_per_rank,
+    get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
+)
 
 
 def qwen2_lce_forward(
@@ -97,12 +105,22 @@ def qwen2_lce_forward(
 
     hidden_states = outputs[0]
 
+    # if we are using sequence parallel, we need to slice the hidden states and labels
+    labels_unpad = labels.view(-1)[word_idx.long()]
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        seq_lens = (
+            calculate_seq_len_per_rank(seq_lens.tolist())
+            if seq_lens is not None
+            else None
+        )
+        labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
+    labels = labels_unpad
+
     logits = None
     loss = None
     # if in training mode, don't materialize logits
     if self.training and (labels is not None):
         if use_rmpad:
-            labels = labels.view(-1)[word_idx.long()]
             # We need to shift the tokens according to seq lens
             # Otherwise, the first labels of the next seq will be the last labels of the current seq
             shift_hidden_states = []
