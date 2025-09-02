@@ -177,30 +177,40 @@ class MultiModalDataset(BaseDataset):
         Returns:
             Tuple of (video frames, sample fps)
         """
-        if isinstance(video_path, str) or isinstance(video_path, BytesIO):
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-        elif isinstance(video_path, list):
-            vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
+        try:
+            if isinstance(video_path, str) or isinstance(video_path, BytesIO):
+                vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+            elif isinstance(video_path, list):
+                vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
+            else:
+                raise ValueError(f"Unsupported video path type: {type(video_path)}")
 
-        total_frames, video_fps = len(vr), vr.get_avg_fps()
-        if self.config.video_sampling_strategy == "fps":
-            nframes = DataUtilities.smart_nframes(
-                total_frames, video_fps=video_fps, fps=fps
+            total_frames, video_fps = len(vr), vr.get_avg_fps()
+            if self.config.video_sampling_strategy == "fps":
+                nframes = DataUtilities.smart_nframes(
+                    total_frames, video_fps=video_fps, fps=fps
+                )
+            elif self.config.video_sampling_strategy == "frame_num":
+                nframes = self.config.frame_num
+            else:
+                raise ValueError(
+                    f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
+                )
+            uniform_sampled_frames = np.linspace(
+                0, total_frames - 1, nframes, dtype=int
             )
-        elif self.config.video_sampling_strategy == "frame_num":
-            nframes = self.config.frame_num
-        else:
-            raise ValueError(
-                f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
-            )
-        uniform_sampled_frames = np.linspace(0, total_frames - 1, nframes, dtype=int)
-        frame_idx = uniform_sampled_frames.tolist()
-        spare_frames = vr.get_batch(frame_idx).asnumpy()
-        spare_frames = torch.tensor(spare_frames).permute(
-            0, 3, 1, 2
-        )  # Convert to TCHW format
-        sample_fps = nframes / max(total_frames, 1e-6) * video_fps
-        return spare_frames, sample_fps  # (frames, height, width, channels)
+            frame_idx = uniform_sampled_frames.tolist()
+            spare_frames = vr.get_batch(frame_idx).asnumpy()
+            spare_frames = torch.tensor(spare_frames).permute(
+                0, 3, 1, 2
+            )  # Convert to TCHW format
+            sample_fps = nframes / max(total_frames, 1e-6) * video_fps
+            return spare_frames, sample_fps  # (frames, height, width, channels)
+        except Exception as e:
+            Logging.error(f"Failed to load video with Decord: {e}")
+            if isinstance(video_path, str):
+                Logging.error(f"Video path: {video_path}")
+            raise
 
     def load_video_qwen_vl_utils(
         self,
@@ -209,34 +219,52 @@ class MultiModalDataset(BaseDataset):
     ) -> Tuple[np.ndarray, float]:
         """
         Load video using Qwen VL utils.
-        This is a placeholder for the actual implementation.
+
+        Args:
+            video_path: Path to video file
+            fps: Target frames per second
+
+        Returns:
+            Tuple of (video frames, sample fps)
         """
-        video_dict = {
-            "type": "video",
-            "video": f"file://{video_path}",
-            "min_frames": 1,
-            "max_pixels": self.config.video_max_pixels,
-            "max_frames": self.config.video_max_frames,
-        }
-        if self.config.video_sampling_strategy == "frame_num":
-            is_even = self.config.frame_num % 2 == 0
-            n_frames = self.config.frame_num if is_even else self.config.frame_num + 1
-            video_dict["nframes"] = n_frames
-            frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
-            frames = frames.numpy()
-            if is_even:
+        try:
+            video_dict = {
+                "type": "video",
+                "video": f"file://{video_path}",
+                "min_frames": 1,
+                "max_pixels": self.config.video_max_pixels,
+                "max_frames": self.config.video_max_frames,
+            }
+
+            if self.config.video_sampling_strategy == "frame_num":
+                is_even = self.config.frame_num % 2 == 0
+                n_frames = (
+                    self.config.frame_num if is_even else self.config.frame_num + 1
+                )
+                video_dict["nframes"] = n_frames
+                frames, sample_fps = fetch_video(
+                    video_dict, return_video_sample_fps=True
+                )
+                frames = frames.numpy()
+                if is_even:
+                    return frames, sample_fps
+                else:
+                    return frames[:-1], sample_fps
+            elif self.config.video_sampling_strategy == "fps":
+                video_dict["fps"] = fps
+                frames, sample_fps = fetch_video(
+                    video_dict, return_video_sample_fps=True
+                )
+                frames = frames.numpy()
                 return frames, sample_fps
             else:
-                return frames[:-1], sample_fps
-        elif self.config.video_sampling_strategy == "fps":
-            video_dict["fps"] = fps
-            frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
-            frames = frames.numpy()
-            return frames, sample_fps
-        else:
-            raise ValueError(
-                f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
-            )
+                raise ValueError(
+                    f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
+                )
+        except Exception as e:
+            Logging.error(f"Failed to load video with qwen_vl_utils: {e}")
+            Logging.error(f"Video path: {video_path}")
+            raise
 
     def filter_overlong(self):
         """Filter out data samples that are too long for packing."""
