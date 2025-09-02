@@ -6,19 +6,29 @@ from transformers import Qwen2_5_VLProcessor
 
 from lmms_engine.mapping_func import register_processor
 
-from .base_qwen2_5_vl_processor import BaseQwen2_5_DataProcessor
+from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 
 
 @register_processor("qwen2_5_vl")
 class Qwen2_5_VLDataProcessor(BaseQwen2_5_DataProcessor):
     def _build_processor(self):
         processor = Qwen2_5_VLProcessor.from_pretrained(self.config.processor_name)
-        if self.config.max_pixels:
-            processor.image_processor.max_pixels = self.config.max_pixels
-            processor.video_processor.max_pixels = self.config.max_pixels
-        if self.config.min_pixels:
-            processor.image_processor.min_pixels = self.config.min_pixels
-            processor.video_processor.min_pixels = self.config.min_pixels
+
+        # Set image processor parameters
+        image_max_pixels = self.config.extra_kwargs.get("image_max_pixels", None)
+        image_min_pixels = self.config.extra_kwargs.get("image_min_pixels", None)
+        if image_max_pixels:
+            processor.image_processor.max_pixels = image_max_pixels
+        if image_min_pixels:
+            processor.image_processor.min_pixels = image_min_pixels
+
+        # Set video processor parameters
+        video_max_pixels = self.config.extra_kwargs.get("video_max_pixels", None)
+        video_min_pixels = self.config.extra_kwargs.get("video_min_pixels", None)
+        if video_max_pixels:
+            processor.video_processor.max_pixels = video_max_pixels
+        if video_min_pixels:
+            processor.video_processor.min_pixels = video_min_pixels
         return processor
 
     def process(

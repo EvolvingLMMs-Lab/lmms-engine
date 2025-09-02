@@ -1,5 +1,5 @@
 from .aero_processor import AeroDataProcessor
-from .base_qwen2_5_vl_processor import BaseQwen2_5_DataProcessor
+from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
 from .pure_text_processor import PureTextDataProcessor

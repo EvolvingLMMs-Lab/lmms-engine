@@ -7,7 +7,7 @@ from transformers import AutoProcessor
 
 from lmms_engine.mapping_func import register_processor
 
-from .base_qwen2_5_vl_processor import BaseQwen2_5_DataProcessor
+from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 
 
 @register_processor("qwen2")
