@@ -464,6 +464,7 @@ class Qwen3DLLMForMaskedLM(Qwen3DLLMPreTrainedModel, GenerationMixin):
     @can_return_tuple
     def forward(
         self,
+        output_logits: Optional[bool] = False,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
@@ -488,19 +489,22 @@ class Qwen3DLLMForMaskedLM(Qwen3DLLMPreTrainedModel, GenerationMixin):
 
         hidden_states = outputs.last_hidden_state
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        slice_indices = (
-            slice(-logits_to_keep, None)
-            if isinstance(logits_to_keep, int)
-            else logits_to_keep
-        )
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        if output_logits:
+            slice_indices = (
+                slice(-logits_to_keep, None)
+                if isinstance(logits_to_keep, int)
+                else logits_to_keep
+            )
+            logits = self.lm_head(hidden_states[:, slice_indices, :])
+        else:
+            logits = None
 
         loss = None
 
         return MaskedLMOutput(
             loss=loss,
             logits=logits,
-            hidden_states=outputs.hidden_states,
+            hidden_states=hidden_states,
             # attentions=outputs.attentions,
         )
 

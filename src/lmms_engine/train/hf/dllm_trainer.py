@@ -1,8 +1,9 @@
 import contextlib
 import os
+import pdb
 import shutil
 import time
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -10,46 +11,6 @@ from transformers import Trainer as HFTrainer
 from transformers.utils import is_torch_xla_available
 
 from ..registry import TRAINER_REGISTER
-
-
-def dllm_loss(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    mlm_prob: torch.Tensor,
-    num_items_in_batch: Optional[torch.Tensor] = None,
-    ignore_index: int = -100,
-):
-    # Upcast to float if we need to compute the loss to avoid potential precision issues
-    logits = logits.float()
-    # Flatten the tokens
-    B, seq_len = labels.shape
-
-    logits = logits.view(B * seq_len, -1)  # [B * seq_len, vocab_size]
-    labels = labels.view(-1)
-    reciprocal_t = 1 / (mlm_prob.view(-1) + 1e-6)
-
-    labels = labels.to(logits.device)
-    reciprocal_t = reciprocal_t.to(logits.device)
-
-    loss = nn.functional.cross_entropy(
-        logits, labels, ignore_index=ignore_index, reduction="none"
-    )
-    nll = loss.detach()
-    d_loss = loss.view(B, seq_len) * reciprocal_t.view(-1).unsqueeze(-1)
-
-    reduction = "sum" if num_items_in_batch is not None else "mean"
-    if reduction == "sum":
-        d_loss = d_loss.sum()
-        nll = nll.sum()
-        # just in case users pass an int for num_items_in_batch, which could be the case for custom trainer
-        if torch.is_tensor(num_items_in_batch):
-            num_items_in_batch = num_items_in_batch.to(d_loss.device)
-        d_loss = d_loss / num_items_in_batch
-        nll = nll / num_items_in_batch
-    else:
-        d_loss = d_loss.mean()
-        nll = nll.mean()
-    return d_loss, nll
 
 
 @TRAINER_REGISTER.register("dllm_trainer")
@@ -71,24 +32,21 @@ class DLLMTrainer(HFTrainer):
         assert "labels" in inputs, "labels must be in inputs"
         assert "mlm_prob" in inputs, "mlm_prob must be in inputs"
         assert "attention_mask" in inputs, "attention_mask must be in inputs"
-        labels = inputs.pop("labels")
-        mlm_prob = inputs.pop("mlm_prob")
         if self.model_accepts_loss_kwargs:
             kwargs = {}
             if num_items_in_batch is not None:
                 kwargs["num_items_in_batch"] = num_items_in_batch
             inputs = {**inputs, **kwargs}
 
+        zero_config = model.config.get("zero_optimization", None)
+        if zero_config:
+            zero_stage = zero_config.get("stage", None)
+            inputs["zero_stage"] = zero_stage
+
         self.step += 1
         do_log_nll_step = (self.step + 1) % self.args.gradient_accumulation_steps == 0
         outputs = model(**inputs)
-        d_loss, nll = dllm_loss(
-            outputs["logits"],
-            labels,
-            mlm_prob,
-            num_items_in_batch,
-        )
-
+        d_loss, nll = outputs.nll, outputs.loss
         if (
             self.args.average_tokens_across_devices
             and (self.model_accepts_loss_kwargs or self.compute_loss_func)
