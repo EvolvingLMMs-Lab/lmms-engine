@@ -1,3 +1,4 @@
+import gc
 import os
 import random
 import shutil
@@ -308,6 +309,12 @@ class FSDP2SFTTrainer:
                     )
                 if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
                     break
+
+                if (
+                    self.args.torch_empty_cache_steps is not None
+                    and self.global_step % self.args.torch_empty_cache_steps == 0
+                ):
+                    self.empty_cache()
                 pbar.update(1)
             pbar.close()
 
@@ -442,3 +449,7 @@ class FSDP2SFTTrainer:
         torch.set_rng_state(rng_state["cpu"])
         np.random.set_state(rng_state["numpy"])
         random.setstate(rng_state["random"])
+
+    def empty_cache(self):
+        torch.cuda.empty_cache()
+        gc.collect()
