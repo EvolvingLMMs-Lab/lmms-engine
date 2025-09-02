@@ -157,8 +157,6 @@ class MultiModalDataset(BaseDataset):
 
         if self.config.video_backend == "decord":
             return self.load_video_decord(video_path, fps)
-        elif self.config.video_backend == "torchvision":
-            return self.load_video_torchvision(video_path, fps)
         elif self.config.video_backend == "qwen_vl_utils":
             return self.load_video_qwen_vl_utils(video_path, fps)
         else:
@@ -204,38 +202,6 @@ class MultiModalDataset(BaseDataset):
         sample_fps = nframes / max(total_frames, 1e-6) * video_fps
         return spare_frames, sample_fps  # (frames, height, width, channels)
 
-    def load_video_torchvision(
-        self,
-        video_path: str,
-        fps: int,
-    ) -> Tuple[np.ndarray, float]:
-        """
-        Load video using Torchvision backend.
-
-        Args:
-            video_path: Path to video file
-            fps: Target frames per second
-
-        Returns:
-            Tuple of (video frames, sample fps)
-        """
-        # Right now by default load the whole video
-        video, audio, info = torchvision.io.read_video(
-            video_path,
-            start_pts=0.0,
-            end_pts=None,
-            pts_unit="sec",
-            output_format="TCHW",
-        )
-        total_frames, video_fps = video.size(0), info["video_fps"]
-        nframes = DataUtilities.smart_nframes(
-            total_frames=total_frames, video_fps=video_fps, fps=fps
-        )
-        idx = torch.linspace(0, total_frames - 1, nframes).round().long()
-        sample_fps = nframes / max(total_frames, 1e-6) * video_fps
-        video = video[idx]
-        return video, sample_fps
-
     def load_video_qwen_vl_utils(
         self,
         video_path: str,
@@ -245,15 +211,17 @@ class MultiModalDataset(BaseDataset):
         Load video using Qwen VL utils.
         This is a placeholder for the actual implementation.
         """
+        video_dict = {
+            "type": "video",
+            "video": f"file://{video_path}",
+            "min_frames": 1,
+            "max_pixels": self.config.video_max_pixels,
+            "max_frames": self.config.video_max_frames,
+        }
         if self.config.video_sampling_strategy == "frame_num":
             is_even = self.config.frame_num % 2 == 0
             n_frames = self.config.frame_num if is_even else self.config.frame_num + 1
-            video_dict = {
-                "type": "video",
-                "video": f"file://{video_path}",
-                "min_frames": 1,
-                "nframes": n_frames,
-            }
+            video_dict["nframes"] = n_frames
             frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
             frames = frames.numpy()
             if is_even:
@@ -261,12 +229,7 @@ class MultiModalDataset(BaseDataset):
             else:
                 return frames[:-1], sample_fps
         elif self.config.video_sampling_strategy == "fps":
-            video_dict = {
-                "type": "video",
-                "video": f"file://{video_path}",
-                "fps": fps,
-                "max_pixels": self.processor_config.max_pixels,
-            }
+            video_dict["fps"] = fps
             frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
             frames = frames.numpy()
             return frames, sample_fps
@@ -277,7 +240,7 @@ class MultiModalDataset(BaseDataset):
 
     def filter_overlong(self):
         """Filter out data samples that are too long for packing."""
-        if self.config.packing:
+        if self.config.packing and self.config.filter_overlong:
             Logging.info(
                 f"Filter overlong data, max length: {self.config.packing_length}"
             )
