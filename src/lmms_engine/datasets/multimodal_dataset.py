@@ -196,7 +196,9 @@ class MultiModalDataset(BaseDataset):
                 raise ValueError(
                     f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
                 )
-            uniform_sampled_frames = np.linspace(0, total_frames - 1, nframes, dtype=int)
+            uniform_sampled_frames = np.linspace(
+                0, total_frames - 1, nframes, dtype=int
+            )
             frame_idx = uniform_sampled_frames.tolist()
             spare_frames = vr.get_batch(frame_idx).asnumpy()
             spare_frames = torch.tensor(spare_frames).permute(
@@ -217,11 +219,11 @@ class MultiModalDataset(BaseDataset):
     ) -> Tuple[np.ndarray, float]:
         """
         Load video using Qwen VL utils.
-        
+
         Args:
             video_path: Path to video file
             fps: Target frames per second
-            
+
         Returns:
             Tuple of (video frames, sample fps)
         """
@@ -233,12 +235,16 @@ class MultiModalDataset(BaseDataset):
                 "max_pixels": self.config.video_max_pixels,
                 "max_frames": self.config.video_max_frames,
             }
-            
+
             if self.config.video_sampling_strategy == "frame_num":
                 is_even = self.config.frame_num % 2 == 0
-                n_frames = self.config.frame_num if is_even else self.config.frame_num + 1
+                n_frames = (
+                    self.config.frame_num if is_even else self.config.frame_num + 1
+                )
                 video_dict["nframes"] = n_frames
-                frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
+                frames, sample_fps = fetch_video(
+                    video_dict, return_video_sample_fps=True
+                )
                 frames = frames.numpy()
                 if is_even:
                     return frames, sample_fps
@@ -246,7 +252,9 @@ class MultiModalDataset(BaseDataset):
                     return frames[:-1], sample_fps
             elif self.config.video_sampling_strategy == "fps":
                 video_dict["fps"] = fps
-                frames, sample_fps = fetch_video(video_dict, return_video_sample_fps=True)
+                frames, sample_fps = fetch_video(
+                    video_dict, return_video_sample_fps=True
+                )
                 frames = frames.numpy()
                 return frames, sample_fps
             else:

@@ -35,8 +35,10 @@ class DatasetConfig(Args):
     frame_num: Optional[int] = 64
     fps: Optional[int] = 1
     video_backend: Optional[Literal["decord", "qwen_vl_utils"]] = "qwen_vl_utils"
-    
-    @field_validator("video_max_pixels", "video_max_frames", "frame_num", "fps", "packing_length")
+
+    @field_validator(
+        "video_max_pixels", "video_max_frames", "frame_num", "fps", "packing_length"
+    )
     @classmethod
     def validate_positive_values(cls, v, info):
         """Validate that numeric video and packing parameters are positive."""
@@ -44,7 +46,7 @@ class DatasetConfig(Args):
             field_name = info.field_name
             raise ValueError(f"{field_name} must be positive, got {v}")
         return v
-    
+
     @field_validator("video_backend")
     @classmethod
     def validate_video_backend_migration(cls, v):
