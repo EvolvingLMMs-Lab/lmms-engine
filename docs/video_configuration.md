@@ -10,7 +10,7 @@ The following parameters can be configured in the `dataset_config` section of yo
 
 - **`video_backend`** (Optional[str], default: "qwen_vl_utils")
   - Specifies the backend to use for video loading
-  - Available options: `"decord"`, `"qwen_vl_utils"`
+  - Available options: `"decord"`, `"qwen_vl_utils (recommended)"`
   - Note: The `"torchvision"` backend has been removed. See [Migration Guide](#migration-from-torchvision-backend) below.
 
 - **`video_sampling_strategy`** (Optional[str], default: "fps")
@@ -82,7 +82,7 @@ processor_config:
 
 ## Migration from Torchvision Backend
 
-The `torchvision` video backend has been removed in favor of more efficient alternatives. If your configuration uses `video_backend: "torchvision"`, you'll need to update it.
+The `torchvision` video backend has been removed since it was implemented as a fallback in qwen-vl-utils
 
 ### Migration Steps
 
@@ -92,7 +92,7 @@ The `torchvision` video backend has been removed in favor of more efficient alte
    video_backend: "torchvision"
    
    # New configuration (recommended)
-   video_backend: "decord"
+   video_backend: "qwen_vl_utils"
    ```
 
 2. **Install the new backend:**
@@ -105,23 +105,14 @@ The `torchvision` video backend has been removed in favor of more efficient alte
    ```
 
 3. **Verify compatibility:**
-   - `decord` provides similar functionality to torchvision with better performance
+   - `decord` naive decord video loading, used in load from cloud storage
    - `qwen_vl_utils` is optimized for Qwen models and provides additional features
-
-### Backend Comparison
-
-| Feature | decord | qwen_vl_utils |
-|---------|--------|---------------|
-| Performance | Fast | Moderate |
-| Memory Usage | Low | Moderate |
-| Format Support | Wide | Standard |
-| Qwen Integration | Basic | Native |
 
 ## Training Performance Optimization
 
 ### Memory Management
 
-The new `torch_empty_cache_steps` parameter in the trainer configuration helps manage GPU memory:
+The `torch_empty_cache_steps` parameter in the trainer configuration helps manage GPU memory:
 
 ```yaml
 # Clear CUDA cache every 100 steps
@@ -155,8 +146,8 @@ This periodically clears the CUDA memory cache to prevent fragmentation during l
 2. **Monitor memory usage:** Use tools like `nvidia-smi` to track GPU memory during training.
 
 3. **Choose the right backend:**
-   - Use `decord` for general-purpose video loading with good performance
-   - Use `qwen_vl_utils` when working with Qwen models for better integration
+   - We recommend to use `qwen_vl_utils` as it has much more features to config video loading
+   - If you want to load from the cloud storage, `decord` is the only option now and is currently not configurable for video options
 
 4. **Optimize sampling strategy:**
    - Use `"fps"` for videos with consistent motion
