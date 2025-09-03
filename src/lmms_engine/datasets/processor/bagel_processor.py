@@ -74,18 +74,18 @@ class BagelProcessor(Processor):
     def build(self):
         self.tokenizer = self._build_processor()
 
-        if "frame_sampler_args" in self.dataset_args.keys():
+        if self.config.extra_kwargs and "frame_sampler_args" in self.config.extra_kwargs.keys():
             self.frame_sampler = FrameSampler(
-                **self.dataset_args.pop("frame_sampler_args")
+                **self.config.extra_kwargs.pop("frame_sampler_args")
             )
-        if "image_transform_args" in self.dataset_args.keys():
+        if self.config.extra_kwargs and "image_transform_args" in self.config.extra_kwargs.keys():
             self.transform = ImageTransform(
-                **self.dataset_args.pop("image_transform_args")
+                **self.config.extra_kwargs.pop("image_transform_args")
             )
             self.transform_stride = self.transform.stride
-        if "vit_image_transform_args" in self.dataset_args.keys():
+        if self.config.extra_kwargs and "vit_image_transform_args" in self.config.extra_kwargs.keys():
             self.vit_transform = ImageTransform(
-                **self.dataset_args.pop("vit_image_transform_args")
+                **self.config.extra_kwargs.pop("vit_image_transform_args")
             )
 
     def _build_processor(self):

@@ -13,10 +13,11 @@
       processor_config:
         processor_name: /mnt/raid10/pufanyi/Bagel-ckpt/BAGEL-7B-MoT
         processor_type: bagel
-        image_transform_args:
-          image_stride: 16
-          max_image_size: 1024
-          min_image_size: 512
+        extra_kwargs:
+          image_transform_args:
+            image_stride: 16
+            max_image_size: 1024
+            min_image_size: 512
       packing: true
       packing_strategy: first_fit
       packing_length: 16384

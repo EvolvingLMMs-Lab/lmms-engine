@@ -426,6 +426,14 @@ class BagelCollator:
     def __call__(
         self, instances: Sequence[Dict] | Sequence[Sequence[Dict]]
     ) -> Dict[str, torch.Tensor]:
+        final_instances = []
+        for instance in instances:
+            if isinstance(instance, list):
+                final_instances.extend(instance)
+            else:
+                final_instances.append(instance)
+        instances = final_instances
+    
         sequence_status = dict(
             curr=0,
             sample_lens=list(),
