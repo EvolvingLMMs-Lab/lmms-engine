@@ -63,12 +63,12 @@ class Tracking:
             )
             self.logger["wandb"] = wandb
 
-    def log(self, data):
+    def log(self, data, step=None):
         if "wandb" in self.logger:
-            self.logger["wandb"].log(data)
+            self.logger["wandb"].log(data, step=step)
 
         # format console log
-        print(f"{data}")
+        print(f"{data}, step={step}")
 
     def __del__(self):
         if "wandb" in self.logger:

@@ -260,7 +260,8 @@ class FSDP2SFTTrainer:
             # if the checkpoint is loaded, we need to update the pbar
             # but we only need to update the pbar once
             if need_update_pbar:
-                pbar.update(self.global_step)
+                update_step = self.global_step % self.steps_per_epoch
+                pbar.update(update_step)
                 need_update_pbar = False
             for step, batch in enumerate(self.train_dataloader):
                 # send batch to device
@@ -296,7 +297,7 @@ class FSDP2SFTTrainer:
                 epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
                 train_metrics["epoch"] = float(epoch_progress)
                 if rank == 0:
-                    self.tracking.log(train_metrics)
+                    self.tracking.log(train_metrics, step=self.global_step)
                 self.global_step += 1
                 if self.should_save:
                     output_dir = os.path.join(
@@ -451,5 +452,5 @@ class FSDP2SFTTrainer:
         random.setstate(rng_state["random"])
 
     def empty_cache(self):
-        torch.cuda.empty_cache()
         gc.collect()
+        torch.cuda.empty_cache()
