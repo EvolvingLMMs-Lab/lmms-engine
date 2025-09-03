@@ -8,6 +8,7 @@ from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
 
 from lmms_engine.models.wanvideo.wan_video_scheduler import FlowMatchScheduler
+from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import Logging
 
 
@@ -19,6 +20,7 @@ class WanVideoCallback(TrainerCallback):
         )
 
 
+@TRAINER_REGISTER.register("wan_trainer")
 class WanVideoTrainer(HFTrainer):
     def __init__(self, *args, **kwargs):
         kwargs["callbacks"] = [WanVideoCallback()]

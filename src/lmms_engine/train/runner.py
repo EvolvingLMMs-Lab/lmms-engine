@@ -20,6 +20,7 @@ from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
+from lmms_engine.train.hf import Trainer
 
 from ..models.monkey_patch import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
 from ..models.monkey_patch import (
@@ -28,10 +29,7 @@ from ..models.monkey_patch import (
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
-from .dllm_trainer import DLLMTrainer
-from .fsdp2_trainer import FSDP2SFTTrainer
-from .trainer import Trainer
-from .wan_trainer import WanVideoTrainer
+from .registry import TRAINER_REGISTER
 
 # from transformers import Trainer
 
@@ -213,20 +211,7 @@ class TrainRunner:
         set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
 
     def _build_trainer(self):
-        if self.config.trainer_type == "hf_trainer":
-            trainer_cls = Trainer
-        elif self.config.trainer_type == "fsdp2_trainer":
-            trainer_cls = FSDP2SFTTrainer
-        elif self.config.trainer_type == "dllm_trainer":
-            trainer_cls = DLLMTrainer
-        elif self.config.trainer_type == "wan_trainer":
-            trainer_cls = WanVideoTrainer
-        else:
-            raise ValueError(
-                f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"
-            )
-        from transformers.trainer_pt_utils import AcceleratorConfig
-
+        trainer_cls = TRAINER_REGISTER[self.config.trainer_type]
         trainer = trainer_cls(
             model=self.model,
             args=self.config.trainer_args,

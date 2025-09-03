@@ -9,6 +9,8 @@ import torch.nn as nn
 from transformers import Trainer as HFTrainer
 from transformers.utils import is_torch_xla_available
 
+from ..registry import TRAINER_REGISTER
+
 
 def dllm_loss(
     logits: torch.Tensor,
@@ -50,6 +52,7 @@ def dllm_loss(
     return d_loss, nll
 
 
+@TRAINER_REGISTER.register("dllm_trainer")
 class DLLMTrainer(HFTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

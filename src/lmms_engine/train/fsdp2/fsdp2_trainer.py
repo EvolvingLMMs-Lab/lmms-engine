@@ -19,6 +19,8 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.train.config import TrainingArguments
+from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
@@ -29,9 +31,8 @@ from lmms_engine.utils.fsdp2_utils import (
 from lmms_engine.utils.logging_utils import Logging
 from lmms_engine.utils.tracking import Tracking
 
-from .config import TrainingArguments
 
-
+@TRAINER_REGISTER.register("fsdp2_trainer")
 class FSDP2SFTTrainer:
     def __init__(
         self,
