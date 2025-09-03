@@ -62,8 +62,6 @@ class TrainRunner:
         else:
             self.eval_dataset = None
         self.train_dataset = self._build_train_dataset()
-        if self.model_config.pretrain_mm_mlp_adapter is not None:
-            self._load_mm_projector()
         if self.config.trainer_args.use_liger_kernel:
             self._apply_liger_kernel()
             # Set to False as we already apply the liger kernel by ourselves
@@ -161,36 +159,6 @@ class TrainRunner:
                 Logging.error(
                     f"Try to apply liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
                 )
-
-    def _load_mm_projector(self):
-        pretrain_mm_mlp_adapter = self.config.model_config.pretrain_mm_mlp_adapter
-        mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location="cpu")
-
-        def get_w(weights, keyword):
-            return {
-                k.split(keyword + ".")[1]: v for k, v in weights.items() if keyword in k
-            }
-
-        deepspeed3_enabled = hasattr(
-            [p for p in self.model.multi_modal_projector.parameters()][0], "ds_id"
-        )
-
-        TrainUtilities.load_zero_partitions(
-            self.model.multi_modal_projector,
-            get_w(mm_projector_weights, "multi_modal_projector"),
-            deepspeed3_enabled,
-            pretrain_mm_mlp_adapter,
-        )
-        TrainUtilities.load_zero_partitions(
-            self.model.audio_modal_projector,
-            get_w(mm_projector_weights, "audio_modal_projector"),
-            deepspeed3_enabled,
-            pretrain_mm_mlp_adapter,
-        )
-
-        Logging.info(
-            f"Loaded multi_modal_projector,audio_modal_projector weights from {pretrain_mm_mlp_adapter}."
-        )
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]

@@ -11,7 +11,6 @@ from ..models import ModelConfig
 class TrainingArguments(transformers.TrainingArguments):
     use_muon: Optional[bool] = False
     freeze_modules: Optional[List[str]] = None
-    only_save_mm_adapter: Optional[bool] = False
     use_rmpad: Optional[bool] = False
     fsdp2: Optional[bool] = False
     sp_ulysses_degree: Optional[int] = 1
