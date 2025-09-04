@@ -186,7 +186,7 @@ class BagelConfig(PretrainedConfig):
 
     def __init__(
         self,
-        visual_gen=True,
+        visual_gen=False,
         visual_und=True,
         llm_config=None,
         vit_config=None,
