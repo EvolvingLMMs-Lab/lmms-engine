@@ -16,16 +16,13 @@ from lmms_engine.mapping_func import (
     create_model_from_config,
     create_model_from_pretrained,
 )
+from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
 from lmms_engine.train.hf import Trainer
 
-from ..models.monkey_patch import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
-from ..models.monkey_patch import (
-    _apply_liger_kernel_to_instance as _apply_liger_kernel_to_custom_instance,
-)
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
@@ -60,10 +57,7 @@ class TrainRunner:
         else:
             self.eval_dataset = None
         self.train_dataset = self._build_train_dataset()
-        if self.config.trainer_args.use_liger_kernel:
-            self._apply_liger_kernel()
-            # Set to False as we already apply the liger kernel by ourselves
-            self.config.trainer_args.use_liger_kernel = False
+        self._apply_monkey_patch()
         self.trainer = self._build_trainer()
 
     def _build_model(self):
@@ -106,57 +100,14 @@ class TrainRunner:
         )
         return model
 
-    def _apply_liger_kernel(self):
+    def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
-        try:
-            from liger_kernel.transformers import _apply_liger_kernel_to_instance
-            from liger_kernel.transformers.monkey_patch import (
-                MODEL_TYPE_TO_APPLY_LIGER_FN,
-            )
-        except ImportError as e:
-            Logging.error(
-                "You have set `use_liger_kernel` to `True` but liger-kernel >= 0.3.0 is not available. "
-                "Please install it with `pip install liger-kernel`"
-            )
+        if self.config.trainer_args.use_liger_kernel:
+            kwargs["patch_type"] = "liger"
+            # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
+            self.config.trainer_args.use_liger_kernel = False
 
-        model_type = getattr(self.model, "config", None) and getattr(
-            self.model.config, "model_type", None
-        )
-        if model_type in CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN:
-            Logging.info(f"Try to apply liger kernel on the model {model_type}")
-            _apply_liger_kernel_to_custom_instance(self.model, **kwargs)
-        # If the model itself is already in liger kernel,
-        # we should not apply the liger kernel again
-        elif model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
-            Logging.info(f"Try to apply liger kernel on the model {model_type}")
-            _apply_liger_kernel_to_instance(self.model)
-        else:
-            Logging.info(
-                f"Try to apply custom liger kernel on the language model of the model {model_type}"
-            )
-            try:
-                _apply_liger_kernel_to_custom_instance(
-                    self.model.language_model, **kwargs
-                )
-                Logging.info(
-                    f"Successfully apply custom liger kernel on the language model of the model {model_type}"
-                )
-                return
-            except Exception as e:
-                Logging.error(
-                    f"Try to apply custom liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
-                )
-
-            try:
-                _apply_liger_kernel_to_instance(self.model.language_model)
-                Logging.info(
-                    f"Successfully apply liger kernel on the language model of the model {model_type}"
-                )
-                return
-            except Exception as e:
-                Logging.error(
-                    f"Try to apply liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
-                )
+        MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]
