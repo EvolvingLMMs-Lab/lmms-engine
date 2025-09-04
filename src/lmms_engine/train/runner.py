@@ -107,7 +107,12 @@ class TrainRunner:
             # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
             self.config.trainer_args.use_liger_kernel = False
 
-        MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
+        if self.model_config.monkey_patch_kwargs:
+            kwargs.update(self.model_config.monkey_patch_kwargs)
+        try:
+            MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
+        except Exception as e:
+            Logging.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]

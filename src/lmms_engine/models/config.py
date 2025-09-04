@@ -9,3 +9,4 @@ class ModelConfig(Args):
     load_from_config: Optional[Dict[str, Any]] = None
     attn_implementation: Optional[Literal["flash_attention_2", "sdpa"]] = "sdpa"
     overwrite_config: Optional[Dict[str, str]] = None
+    monkey_patch_kwargs: Optional[Dict[str, Any]] = None
