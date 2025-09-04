@@ -39,7 +39,7 @@ class BagelConfig(PretrainedConfig):
     def __init__(
         self,
         visual_gen=True,
-        visual_und=True,
+        visual_und=False,
         llm_config: Qwen2Config | None = None,
         vit_config: SiglipVisionConfig | None = None,
         vae_config=None,
@@ -67,7 +67,7 @@ class BagelConfig(PretrainedConfig):
 
 class BagelLoaderExtraConfig(BaseModel):
     visual_gen: bool = Field(default=True)
-    visual_und: bool = Field(default=True)
+    visual_und: bool = Field(default=False)
     llm_path: str = Field(default="Qwen/Qwen2.5-7B-Instruct")
     layer_module: str = Field(default="Qwen2MoTDecoderLayer")
     llm_qk_norm: bool = Field(default=True)
@@ -186,8 +186,8 @@ class BagelConfig(PretrainedConfig):
 
     def __init__(
         self,
-        visual_gen=False,
-        visual_und=True,
+        visual_gen=True,
+        visual_und=False,
         llm_config=None,
         vit_config=None,
         vae_config=None,
