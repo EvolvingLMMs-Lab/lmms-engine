@@ -463,13 +463,13 @@ class Trainer(HFTrainer):
             self.total_seq_len.clear()
 
         # Calculate the total number of tokens, sum at the row dimension
-        self.total_seq_len.extend(
-            inputs.get("attention_mask", torch.tensor(0))
-            .sum(dim=1)
-            .detach()
-            .cpu()
-            .tolist()
-        )
+        # self.total_seq_len.extend(
+        #     inputs.get("attention_mask", torch.tensor(0))
+        #     .sum(dim=1)
+        #     .detach()
+        #     .cpu()
+        #     .tolist()
+        # )
         loss, outputs = super().compute_loss(
             model=model,
             inputs=inputs,

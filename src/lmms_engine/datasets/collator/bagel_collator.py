@@ -11,6 +11,29 @@ from torch.nn.attention.flex_attention import and_masks, or_masks
 
 from ...protocol import Processable
 
+class DataConfig:
+    def __init__(
+        self, 
+        text_cond_dropout_prob=0.1,
+        vit_cond_dropout_prob=0.4,
+        vae_cond_dropout_prob=0.1,
+        vae_image_downsample=16,
+        max_latent_size=32,
+        vit_patch_size=14,
+        max_num_patch_per_side=70,
+        interpolate_pos=False,
+        use_flex=False,
+    ):
+        self.text_cond_dropout_prob = text_cond_dropout_prob
+        self.vit_cond_dropout_prob = vit_cond_dropout_prob
+        self.vit_patch_size = vit_patch_size
+        self.max_num_patch_per_side = max_num_patch_per_side
+        self.vae_cond_dropout_prob = vae_cond_dropout_prob
+        self.vae_image_downsample = vae_image_downsample
+        self.max_latent_size = max_latent_size
+        self.interpolate_pos = interpolate_pos
+        self.use_flex = use_flex
+
 
 def create_sparse_mask(document_lens, split_lens, attn_modes, device):
     def causal_mask(b, h, q_idx, kv_idx):
@@ -202,6 +225,22 @@ def len2weight(x, loss_reduction="square"):
 @dataclass
 class BagelCollator:
     processor: Processable
+    new_token_ids: dict | None = None
+    data_config: DataConfig | None = None
+
+    def __post_init__(self):
+        if self.data_config is None:
+            self.data_config = DataConfig()
+        if self.new_token_ids:
+            for k, v in self.new_token_ids.items():
+                setattr(self, k, v)
+        self.interpolate_pos = self.data_config.interpolate_pos
+        if self.interpolate_pos:
+            self.get_flattened_position_ids = get_flattened_position_ids_interpolate
+        else:
+            self.get_flattened_position_ids = get_flattened_position_ids_extrapolate
+        self.use_flex = self.data_config.use_flex
+
 
     @property
     def tokenizer(self) -> transformers.PreTrainedTokenizer:

@@ -158,7 +158,7 @@ def load_bagel_from_pretrained(model_path: str, config: dict[str, Any]):
         timestep_shift=training_config.timestep_shift,
     )
     model = Bagel(
-        language_model, vit_model if training_config.visual_und else None, bagel_config
+        language_model, vit_model if training_config.visual_und else None, vae_model if training_config.visual_gen else None, bagel_config
     )
 
     if training_config.visual_und:
@@ -217,12 +217,13 @@ class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
 
-    def __init__(self, language_model, vit_model, config: BagelConfig):
+    def __init__(self, language_model, vit_model, vae_model, config: BagelConfig):
         super().__init__(config)
         self.language_model = language_model
         self.hidden_size = config.llm_config.hidden_size
         self.use_moe = "Mo" in config.llm_config.layer_module
         self.num_heads = config.llm_config.num_attention_heads
+        self.vae_model = vae_model
 
         if config.visual_gen:
             self.latent_patch_size = config.latent_patch_size
@@ -283,7 +284,8 @@ class Bagel(PreTrainedModel):
         packed_vit_position_ids: Optional[torch.LongTensor] = None,
         vit_token_seqlens: Optional[torch.IntTensor] = None,
         # for visual generation
-        padded_latent: Optional[torch.Tensor] = None,
+        # padded_latent: Optional[torch.Tensor] = None,
+        padded_images = None,
         patchified_vae_latent_shapes: Optional[List[Tuple[int, int]]] = None,
         packed_latent_position_ids: Optional[torch.LongTensor] = None,
         packed_vae_token_indexes: Optional[torch.LongTensor] = None,
@@ -315,6 +317,11 @@ class Bagel(PreTrainedModel):
             packed_timesteps: 1-D float tensor, flow timesteps. 0 indicates use clean image.
             mse_loss_indexes: 1-D bool tensor, where to compute mse loss.
         """
+        if self.config.visual_gen and padded_images is not None:
+            padded_latent = self.vae_model.encode(padded_images)
+        else:
+            padded_latent = None
+
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
         packed_sequence = packed_text_embedding.new_zeros(
             size=(sequence_length, self.hidden_size)
