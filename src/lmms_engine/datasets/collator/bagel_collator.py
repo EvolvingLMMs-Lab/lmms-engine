@@ -11,9 +11,10 @@ from torch.nn.attention.flex_attention import and_masks, or_masks
 
 from ...protocol import Processable
 
+
 class DataConfig:
     def __init__(
-        self, 
+        self,
         text_cond_dropout_prob=0.1,
         vit_cond_dropout_prob=0.4,
         vae_cond_dropout_prob=0.1,
@@ -22,7 +23,8 @@ class DataConfig:
         vit_patch_size=14,
         max_num_patch_per_side=70,
         interpolate_pos=False,
-        use_flex=False,
+        use_flex=True,
+        max_num_tokens=1024,
     ):
         self.text_cond_dropout_prob = text_cond_dropout_prob
         self.vit_cond_dropout_prob = vit_cond_dropout_prob
@@ -33,6 +35,7 @@ class DataConfig:
         self.max_latent_size = max_latent_size
         self.interpolate_pos = interpolate_pos
         self.use_flex = use_flex
+        self.max_num_tokens = max_num_tokens
 
 
 def create_sparse_mask(document_lens, split_lens, attn_modes, device):
@@ -240,7 +243,7 @@ class BagelCollator:
         else:
             self.get_flattened_position_ids = get_flattened_position_ids_extrapolate
         self.use_flex = self.data_config.use_flex
-
+        self.max_num_tokens = self.data_config.max_num_tokens
 
     @property
     def tokenizer(self) -> transformers.PreTrainedTokenizer:
@@ -472,7 +475,7 @@ class BagelCollator:
             else:
                 final_instances.append(instance)
         instances = final_instances
-    
+
         sequence_status = dict(
             curr=0,
             sample_lens=list(),
@@ -507,14 +510,14 @@ class BagelCollator:
             packed_text_indexes=torch.tensor(sequence_status["packed_text_indexes"]),
             packed_position_ids=torch.tensor(sequence_status["packed_position_ids"]),
         )
-        # if not self.use_flex:
-        data["nested_attention_masks"] = sequence_status["nested_attention_masks"]
-        # else:
-        #     sequence_len = data['sequence_length']
-        #     pad_len = self.max_num_tokens - sequence_len
-        #     data['split_lens'] = sequence_status['split_lens'] + [pad_len]
-        #     data['attn_modes'] = sequence_status['attn_modes'] + ['causal']
-        #     data['sample_lens'] += [pad_len]
+        if not self.use_flex:
+            data["nested_attention_masks"] = sequence_status["nested_attention_masks"]
+        else:
+            sequence_len = data["sequence_length"]
+            pad_len = self.max_num_tokens - sequence_len
+            data["split_lens"] = sequence_status["split_lens"] + [pad_len]
+            data["attn_modes"] = sequence_status["attn_modes"] + ["causal"]
+            data["sample_lens"] += [pad_len]
 
         # if the model has a convnet vae (e.g., as visual tokenizer)
         if len(sequence_status["vae_image_tensors"]) > 0:

@@ -1,13 +1,13 @@
-import os
-import re
 import base64
-from typing import Dict
+import os
+import pathlib
+import re
 from io import BytesIO
+from typing import Dict
 
 import torch
 from PIL import Image
-import pathlib
-import os
+
 from lmms_engine.mapping_func import register_dataset
 
 from ..utils.train_utils import TrainUtilities
@@ -67,14 +67,18 @@ class VisionSFTDataset(MultiModalDataset):
             images=images, hf_messages=hf_messages, videos=videos, **kwargs
         )
         return inputs
-    
-    def get_pil_image(self, image: os.PathLike | pathlib.Path | str | pathlib.Path | Image.Image | bytes, data_folder: os.PathLike | pathlib.Path | None = None) -> Image.Image:
+
+    def get_pil_image(
+        self,
+        image: os.PathLike | pathlib.Path | str | pathlib.Path | Image.Image | bytes,
+        data_folder: os.PathLike | pathlib.Path | None = None,
+    ) -> Image.Image:
         """
         Load an image from various input types and return a PIL Image.
-        
+
         Args:
             image: Can be a file path, URL, PIL Image object, bytes data, or base64 string
-            
+
         Returns:
             PIL Image object
         """
@@ -87,15 +91,16 @@ class VisionSFTDataset(MultiModalDataset):
             return Image.open(BytesIO(image))
         elif isinstance(image, (str, os.PathLike, pathlib.Path)):
             # Check if it's a base64 data URI (e.g., "data:image/jpeg;base64,...")
-            if isinstance(image, str) and image.startswith('data:image/'):
+            if isinstance(image, str) and image.startswith("data:image/"):
                 # Extract base64 data after the comma
-                header, base64_data = image.split(',', 1)
+                header, base64_data = image.split(",", 1)
                 image_bytes = base64.b64decode(base64_data)
                 return Image.open(BytesIO(image_bytes))
-            
+
             # Check if it's a URL
-            if isinstance(image, str) and image.startswith(('http://', 'https://')):
+            if isinstance(image, str) and image.startswith(("http://", "https://")):
                 import requests
+
                 response = requests.get(image)
                 response.raise_for_status()
                 return Image.open(BytesIO(response.content))
@@ -133,7 +138,9 @@ class VisionSFTDataset(MultiModalDataset):
                     kwargs["fps"] = sample_fps
 
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
-        images = [self.get_pil_image(image, data_folder=data_folder) for image in images_list]
+        images = [
+            self.get_pil_image(image, data_folder=data_folder) for image in images_list
+        ]
         if len(images) == 0:
             images = None
         if len(videos) == 0:

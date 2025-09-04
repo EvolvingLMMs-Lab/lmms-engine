@@ -44,11 +44,11 @@ def add_special_tokens(tokenizer):
     return tokenizer, new_token_ids, num_new_tokens
 
 
-
-
 @register_dataset("bagel")
 class BagelSFTDataset(VisionSFTDataset):
     @override
     def get_collator(self):
-        self.processor.tokenizer, new_token_ids, _ = add_special_tokens(self.processor.tokenizer)
+        self.processor.tokenizer, new_token_ids, _ = add_special_tokens(
+            self.processor.tokenizer
+        )
         return BagelCollator(self.processor, new_token_ids=new_token_ids)

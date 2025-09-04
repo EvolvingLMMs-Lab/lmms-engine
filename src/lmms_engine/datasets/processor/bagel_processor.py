@@ -36,16 +36,25 @@ class BagelProcessor(Processor):
     def build(self):
         self.tokenizer = self._build_processor()
 
-        if self.config.extra_kwargs and "frame_sampler_args" in self.config.extra_kwargs.keys():
+        if (
+            self.config.extra_kwargs
+            and "frame_sampler_args" in self.config.extra_kwargs.keys()
+        ):
             self.frame_sampler = FrameSampler(
                 **self.config.extra_kwargs.pop("frame_sampler_args")
             )
-        if self.config.extra_kwargs and "image_transform_args" in self.config.extra_kwargs.keys():
+        if (
+            self.config.extra_kwargs
+            and "image_transform_args" in self.config.extra_kwargs.keys()
+        ):
             self.transform = ImageTransform(
                 **self.config.extra_kwargs.pop("image_transform_args")
             )
             self.transform_stride = self.transform.stride
-        if self.config.extra_kwargs and "vit_image_transform_args" in self.config.extra_kwargs.keys():
+        if (
+            self.config.extra_kwargs
+            and "vit_image_transform_args" in self.config.extra_kwargs.keys()
+        ):
             self.vit_transform = ImageTransform(
                 **self.config.extra_kwargs.pop("vit_image_transform_args")
             )

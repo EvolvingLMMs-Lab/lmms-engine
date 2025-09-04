@@ -158,7 +158,10 @@ def load_bagel_from_pretrained(model_path: str, config: dict[str, Any]):
         timestep_shift=training_config.timestep_shift,
     )
     model = Bagel(
-        language_model, vit_model if training_config.visual_und else None, vae_model if training_config.visual_gen else None, bagel_config
+        language_model,
+        vit_model if training_config.visual_und else None,
+        vae_model if training_config.visual_gen else None,
+        bagel_config,
     )
 
     if training_config.visual_und:
@@ -285,7 +288,7 @@ class Bagel(PreTrainedModel):
         vit_token_seqlens: Optional[torch.IntTensor] = None,
         # for visual generation
         # padded_latent: Optional[torch.Tensor] = None,
-        padded_images = None,
+        padded_images=None,
         patchified_vae_latent_shapes: Optional[List[Tuple[int, int]]] = None,
         packed_latent_position_ids: Optional[torch.LongTensor] = None,
         packed_vae_token_indexes: Optional[torch.LongTensor] = None,
