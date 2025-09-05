@@ -24,7 +24,7 @@ class DataConfig:
         max_num_patch_per_side=70,
         interpolate_pos=False,
         use_flex=True,
-        max_num_tokens=1024,
+        max_num_tokens=36864,
     ):
         self.text_cond_dropout_prob = text_cond_dropout_prob
         self.vit_cond_dropout_prob = vit_cond_dropout_prob
