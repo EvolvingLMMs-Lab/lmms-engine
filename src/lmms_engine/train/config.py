@@ -16,6 +16,8 @@ class TrainingArguments(transformers.TrainingArguments):
     sp_ulysses_degree: Optional[int] = 1
     reduce_dtype: Optional[str] = "bfloat16"
     output_dtype: Optional[str] = "bfloat16"
+    enable_profiler: Optional[bool] = False
+    profiler_config: Optional[Dict[str, Any]] = None
 
 
 @dataclass

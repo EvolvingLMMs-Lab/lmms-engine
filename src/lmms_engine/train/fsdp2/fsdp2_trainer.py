@@ -11,7 +11,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from accelerate.utils import send_to_device
 from torch.distributed.fsdp import MixedPrecisionPolicy
-from torch.utils.data import DataLoader, Dataset, DistributedSampler
+from torch.utils.data import Dataset, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 from transformers.trainer_pt_utils import DistributedLengthGroupedSampler
@@ -29,6 +29,7 @@ from lmms_engine.utils.fsdp2_utils import (
     get_wsd_schedule_with_warmup,
 )
 from lmms_engine.utils.logging_utils import Logging
+from lmms_engine.utils.profiler import StepProfiler
 from lmms_engine.utils.tracking import Tracking
 
 
@@ -53,6 +54,17 @@ class FSDP2SFTTrainer:
         if "wandb" in self.args.report_to:
             self.default_backend.append("wandb")
         self.default_backend.append("console")
+
+        # Optional per-step PyTorch profiler configuration
+        self.enable_profiler = self.args.enable_profiler
+        self.profiler_config = self.args.profiler_config
+        self.profiler_dir = os.path.join(self.args.output_dir, "profiler")
+        self.step_profiler = StepProfiler(
+            enable=self.enable_profiler,
+            directory=self.profiler_dir,
+            profiler_config=self.profiler_config,
+            rank=dist.get_rank(),
+        )
 
     def prepare_dataloader(self, dataset: Dataset, is_training: bool = True):
         data_collator = self.data_collator
@@ -250,6 +262,7 @@ class FSDP2SFTTrainer:
             self.global_step = 0
             need_update_pbar = False
         Logging.info(f"Training with {self.args.num_train_epochs} epochs")
+        self.step_profiler.start()
 
         for epoch in range(start_epoch, self.args.num_train_epochs):
             self.train_dataloader.sampler.set_epoch(epoch)
@@ -269,6 +282,10 @@ class FSDP2SFTTrainer:
                 batch = send_to_device(batch, self.fsdp2_model.device)
                 start_time = time.perf_counter()
                 train_metrics = self.training_step(batch)
+                self.step_profiler.step()
+                if self.step_profiler.should_save(self.global_step + 1):
+                    self.step_profiler.stop_and_save()
+                    self.step_profiler.stop_trace()
                 end_time = time.perf_counter()
                 delta_time = end_time - start_time
                 seq_len = (
