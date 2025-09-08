@@ -275,7 +275,8 @@ class MultiModalDataset(BaseDataset):
                     for i in range(len(self.data_list))
                     if i not in overlong_indices
                 ]
-            self.data_folder = [self.data_folder[i] for i in select_indices]
+            if getattr(self, "data_folder", None) is not None:
+                self.data_folder = [self.data_folder[i] for i in select_indices]
             self.data_lengths = [self.data_lengths[i] for i in select_indices]
             Logging.info(
                 f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}"
@@ -322,7 +323,7 @@ class MultiModalDataset(BaseDataset):
                 self.data_list = self.data_list.select(data_index)
             else:
                 self.data_list = [self.data_list[i] for i in data_index]
-            if self.config.dataset_format == "yaml":
+            if getattr(self, "data_folder", None) is not None:
                 self.data_folder = [self.data_folder[i] for i in data_index]
 
         if isinstance(self.data_list, HFDataset):
