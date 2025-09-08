@@ -24,7 +24,6 @@ class DataConfig:
         max_num_patch_per_side=70,
         interpolate_pos=False,
         use_flex=True,
-        max_num_tokens=36864,
     ):
         self.text_cond_dropout_prob = text_cond_dropout_prob
         self.vit_cond_dropout_prob = vit_cond_dropout_prob
@@ -35,7 +34,6 @@ class DataConfig:
         self.max_latent_size = max_latent_size
         self.interpolate_pos = interpolate_pos
         self.use_flex = use_flex
-        self.max_num_tokens = max_num_tokens
 
 
 def create_sparse_mask(document_lens, split_lens, attn_modes, device):
@@ -243,7 +241,6 @@ class BagelCollator:
         else:
             self.get_flattened_position_ids = get_flattened_position_ids_extrapolate
         self.use_flex = self.data_config.use_flex
-        self.max_num_tokens = self.data_config.max_num_tokens
 
     @property
     def tokenizer(self) -> transformers.PreTrainedTokenizer:
