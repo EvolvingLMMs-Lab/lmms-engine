@@ -26,6 +26,10 @@ except ImportError:
 
 
 class MultiModalDataLoadingMixin:
+    """
+    Mixin for loading multimodal data.
+    """
+
     def load_image(self, image_path: str, data_folder=None) -> Image.Image:
         """
         Load an image from file path or object storage.
