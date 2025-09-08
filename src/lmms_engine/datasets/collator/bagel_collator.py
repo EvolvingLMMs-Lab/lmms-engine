@@ -35,6 +35,7 @@ class DataConfig:
         self.max_latent_size = max_latent_size
         self.interpolate_pos = interpolate_pos
         self.use_flex = use_flex
+        self.max_num_tokens = max_num_tokens
         
 
 
