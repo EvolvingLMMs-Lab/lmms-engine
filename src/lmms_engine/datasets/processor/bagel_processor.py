@@ -31,7 +31,7 @@ class BagelProcessor(Processor):
         if isinstance(config, dict):
             config = from_dict(ProcessorConfig, config)
         self.config = config
-        self.dataset_args = self.config.kwargs if self.config.kwargs else {}
+        self.dataset_args = self.config.extra_kwargs if self.config.extra_kwargs else {}
 
     def build(self):
         self.tokenizer = self._build_processor()
