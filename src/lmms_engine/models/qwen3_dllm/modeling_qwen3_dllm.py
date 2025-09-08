@@ -1,4 +1,4 @@
-from typing import Callable, Optional, Union
+from typing import Callable, Literal, Optional, Union
 
 import torch
 from torch import nn
@@ -15,7 +15,90 @@ from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs, can_return_tuple
 from transformers.utils.generic import check_model_inputs
 
+try:
+    from liger_kernel.ops.fused_linear_cross_entropy import (
+        LigerFusedLinearCrossEntropyFunction,
+    )
+
+    FLAG_LIGER_LOSS = True
+except ImportError:
+    FLAG_LIGER_LOSS = False
+
+try:
+    from cut_cross_entropy.linear_cross_entropy import (
+        linear_cross_entropy as cutoff_lce,
+    )
+
+    FLAG_CUTOFF_LOSS = True
+except ImportError:
+    FLAG_CUTOFF_LOSS = False
+
+try:
+    import deepspeed
+
+    FLAG_DEEPSPEED = True
+except ImportError:
+    FLAG_DEEPSPEED = False
+
 from .configuration_qwen3_dllm import Qwen3DLLMConfig
+
+
+def cross_entropy_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    hidden: torch.Tensor,
+    lm_head_weight: torch.Tensor,
+    ignore_index: int = -100,
+    zero_stage: Optional[int] = None,
+    kernel: Optional[Literal["liger", "cutoff", "ordinary"]] = "liger",
+):
+    # Flatten the tokens
+    B, seq_len = labels.shape
+
+    labels = labels.view(-1)
+    labels = labels.to(hidden.device)
+    flat_hidden = hidden.view(B * seq_len, -1)
+
+    if kernel == "liger" and FLAG_LIGER_LOSS and zero_stage != 3:
+        loss, z_loss = LigerFusedLinearCrossEntropyFunction.apply(
+            flat_hidden,
+            lm_head_weight,
+            labels,
+            None,
+            None,
+            ignore_index,
+            0.0,
+            0.0,
+            "none",
+            None,
+            False,
+            None,
+            False,
+        )
+    elif kernel == "cutoff" and FLAG_CUTOFF_LOSS and zero_stage != 3:
+        loss = cutoff_lce(
+            flat_hidden,
+            lm_head_weight,
+            labels,
+            reduction="none",
+            ignore_index=ignore_index,
+        )
+    elif kernel == "ordinary":
+        logits = logits.float().view(B * seq_len, -1)
+        loss = nn.functional.cross_entropy(
+            logits, labels, ignore_index=ignore_index, reduction="none"
+        )
+    else:
+        raise ValueError(
+            f"Invalid kernel: {kernel}. Two possible reasons: 1. kernel is not supported/installed; 2. zero_stage 3 is not supported for liger and cutoff currently."
+        )
+    return loss
+
+
+class Qwen3DLLMMaskedLMOutput(MaskedLMOutput):
+    def __init__(self, *args, **kwargs):
+        self.nll = kwargs.pop("nll", None)
+        super().__init__(*args, **kwargs)
 
 
 @use_kernel_forward_from_hub("RMSNorm")
@@ -464,44 +547,70 @@ class Qwen3DLLMForMaskedLM(Qwen3DLLMPreTrainedModel, GenerationMixin):
     @can_return_tuple
     def forward(
         self,
+        mlm_prob: Optional[torch.Tensor] = None,
+        output_logits: Optional[bool] = False,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        # past_key_values: Optional[Cache] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
-        # use_cache: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        num_items_in_batch: Optional[torch.Tensor] = None,
         logits_to_keep: Union[int, torch.Tensor] = 0,
+        zero_stage: Optional[int] = None,
         **kwargs: Unpack[TransformersKwargs],
-    ) -> MaskedLMOutput:
+    ) -> Qwen3DLLMMaskedLMOutput:
         outputs: BaseModelOutput = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            # past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            # use_cache=use_cache,
             cache_position=cache_position,
             **kwargs,
         )
-
         hidden_states = outputs.last_hidden_state
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        slice_indices = (
-            slice(-logits_to_keep, None)
-            if isinstance(logits_to_keep, int)
-            else logits_to_keep
+        if output_logits:
+            slice_indices = (
+                slice(-logits_to_keep, None)
+                if isinstance(logits_to_keep, int)
+                else logits_to_keep
+            )
+            logits = self.lm_head(hidden_states[:, slice_indices, :])
+        else:
+            logits = None
+
+        loss = cross_entropy_loss(
+            logits,
+            labels,
+            hidden_states,
+            self.lm_head.weight,
+            zero_stage=zero_stage,
         )
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
 
-        loss = None
+        nll = loss
+        reciprocal_t = 1 / (mlm_prob.view(-1) + 1e-6)
+        reciprocal_t = reciprocal_t.to(hidden_states.device)
+        d_loss = loss.view(*labels.shape) * reciprocal_t.view(-1).unsqueeze(-1)
 
-        return MaskedLMOutput(
-            loss=loss,
+        reduction = "sum" if num_items_in_batch is not None else "mean"
+        if reduction == "sum":
+            d_loss = d_loss.sum()
+            nll = nll.sum()
+            # just in case users pass an int for num_items_in_batch, which could be the case for custom trainer
+            if torch.is_tensor(num_items_in_batch):
+                num_items_in_batch = num_items_in_batch.to(d_loss.device)
+            d_loss = d_loss / num_items_in_batch
+            nll = nll / num_items_in_batch
+        else:
+            d_loss = d_loss.mean()
+            nll = nll.mean()
+
+        return Qwen3DLLMMaskedLMOutput(
+            loss=d_loss,
+            nll=nll,
             logits=logits,
-            hidden_states=outputs.hidden_states,
-            # attentions=outputs.attentions,
+            hidden_states=hidden_states,
         )
 
 

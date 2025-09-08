@@ -1,0 +1,74 @@
+- task_type: trainer
+  config:
+    trainer_type: wan_trainer
+    # Dataset configuration
+    dataset_config:
+      dataset_type: vision
+      dataset_format: jsonl
+      dataset_path: data/example_video_dataset/metadata.jsonl
+      video_sampling_strategy: frame_num
+      frame_num: 49
+      shuffle: false
+      video_backend: qwen_vl_utils
+      # Processor configuration
+      processor_config:
+        processor_name: WanVideo/Wan2.1-T2V-3B
+        processor_type: wanvideo
+        extra_kwargs:
+          do_resize: true
+          size:
+            height: 480
+            width: 832
+          do_normalize: true
+          image_mean: [0.5, 0.5, 0.5]
+          image_std: [0.5, 0.5, 0.5]
+          
+    model_config:
+      load_from_pretrained_path: "your_path_to_model"
+      overwrite_config:
+          trainable_modules: 'dit'
+      
+      
+    # Training arguments
+    output_dir: "./output/wan2.2_ti2v_5b"
+    num_train_epochs: 10000
+    per_device_train_batch_size: 1
+    per_device_eval_batch_size: 1
+    gradient_accumulation_steps: 4  # Higher for 14B model
+    gradient_checkpointing: true
+    
+    learning_rate: 5.0e-6  # Lower LR for larger model
+    weight_decay: 0.01
+    warmup_steps: 1000
+    lr_scheduler_type: "cosine"
+    
+    logging_steps: 10
+    save_steps: 100
+    save_total_limit: 1
+    
+    dataloader_num_workers: 4
+    run_name: lmms_engine_wan2.2_ti2v_5b_demo_test
+    fp16: false
+    bf16: true
+    
+    seed: 42
+    remove_unused_columns: false
+    # Optimization
+    optim: "adamw_torch"
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_epsilon: 1.0e-8
+    sp_ulysses_degree: 1
+    
+    deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
+
+    # FSDP configuration for multi-GPU training
+    # fsdp: "full_shard auto_wrap"
+    # fsdp_config:
+    #   backward_prefetch: "backward_pre"
+    #   forward_prefetch: true
+    #   use_orig_params: false
+    #   cpu_ram_efficient_loading: true
+    #   sync_module_states: true
+    #   limit_all_gathers: true
+    #   activation_checkpointing: true

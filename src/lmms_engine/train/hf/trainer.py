@@ -39,10 +39,10 @@ import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
 )
+from lmms_engine.train.registry import TRAINER_REGISTER
+from lmms_engine.utils.train_utils import TrainUtilities
+
 from lmms_engine.utils import Logging
-
-from ..utils.train_utils import TrainUtilities
-
 
 def _is_peft_model(model):
     if is_peft_available():
@@ -58,6 +58,7 @@ def _is_peft_model(model):
 TRAINER_STATE_NAME = "trainer_state.json"
 
 
+@TRAINER_REGISTER.register("hf_trainer")
 class Trainer(HFTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

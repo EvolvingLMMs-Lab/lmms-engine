@@ -1,3 +1,4 @@
+import gc
 import os
 import random
 import shutil
@@ -10,7 +11,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from accelerate.utils import send_to_device
 from torch.distributed.fsdp import MixedPrecisionPolicy
-from torch.utils.data import DataLoader, Dataset, DistributedSampler
+from torch.utils.data import Dataset, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 from transformers.trainer_pt_utils import DistributedLengthGroupedSampler
@@ -18,6 +19,8 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.train.config import TrainingArguments
+from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
@@ -26,11 +29,11 @@ from lmms_engine.utils.fsdp2_utils import (
     get_wsd_schedule_with_warmup,
 )
 from lmms_engine.utils.logging_utils import Logging
+from lmms_engine.utils.profiler import StepProfiler
 from lmms_engine.utils.tracking import Tracking
 
-from .config import TrainingArguments
 
-
+@TRAINER_REGISTER.register("fsdp2_trainer")
 class FSDP2SFTTrainer:
     def __init__(
         self,
@@ -51,6 +54,17 @@ class FSDP2SFTTrainer:
         if "wandb" in self.args.report_to:
             self.default_backend.append("wandb")
         self.default_backend.append("console")
+
+        # Optional per-step PyTorch profiler configuration
+        self.enable_profiler = self.args.enable_profiler
+        self.profiler_config = self.args.profiler_config
+        self.profiler_dir = os.path.join(self.args.output_dir, "profiler")
+        self.step_profiler = StepProfiler(
+            enable=self.enable_profiler,
+            directory=self.profiler_dir,
+            profiler_config=self.profiler_config,
+            rank=dist.get_rank(),
+        )
 
     def prepare_dataloader(self, dataset: Dataset, is_training: bool = True):
         data_collator = self.data_collator
@@ -248,6 +262,7 @@ class FSDP2SFTTrainer:
             self.global_step = 0
             need_update_pbar = False
         Logging.info(f"Training with {self.args.num_train_epochs} epochs")
+        self.step_profiler.start()
 
         for epoch in range(start_epoch, self.args.num_train_epochs):
             self.train_dataloader.sampler.set_epoch(epoch)
@@ -259,13 +274,18 @@ class FSDP2SFTTrainer:
             # if the checkpoint is loaded, we need to update the pbar
             # but we only need to update the pbar once
             if need_update_pbar:
-                pbar.update(self.global_step)
+                update_step = self.global_step % self.steps_per_epoch
+                pbar.update(update_step)
                 need_update_pbar = False
             for step, batch in enumerate(self.train_dataloader):
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
                 start_time = time.perf_counter()
                 train_metrics = self.training_step(batch)
+                self.step_profiler.step()
+                if self.step_profiler.should_save(self.global_step + 1):
+                    self.step_profiler.stop_and_save()
+                    self.step_profiler.stop_trace()
                 end_time = time.perf_counter()
                 delta_time = end_time - start_time
                 seq_len = (
@@ -295,7 +315,7 @@ class FSDP2SFTTrainer:
                 epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
                 train_metrics["epoch"] = float(epoch_progress)
                 if rank == 0:
-                    self.tracking.log(train_metrics)
+                    self.tracking.log(train_metrics, step=self.global_step)
                 self.global_step += 1
                 if self.should_save:
                     output_dir = os.path.join(
@@ -308,6 +328,12 @@ class FSDP2SFTTrainer:
                     )
                 if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
                     break
+
+                if (
+                    self.args.torch_empty_cache_steps is not None
+                    and self.global_step % self.args.torch_empty_cache_steps == 0
+                ):
+                    self.empty_cache()
                 pbar.update(1)
             pbar.close()
 
@@ -442,3 +468,7 @@ class FSDP2SFTTrainer:
         torch.set_rng_state(rng_state["cpu"])
         np.random.set_state(rng_state["numpy"])
         random.setstate(rng_state["random"])
+
+    def empty_cache(self):
+        gc.collect()
+        torch.cuda.empty_cache()

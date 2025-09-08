@@ -21,14 +21,10 @@ class WanVideoDataProcessor:
         return prompt
 
     def save_pretrained(self, save_directory: str):
-        # Build a clean processor for saving
-        # wanvideo_kwargs = self.config.kwargs
-        # new_processor = WanVideoModelProcessor(**wanvideo_kwargs)
-        # new_processor.save_pretrained(save_directory)
         pass
 
     def build(self):
-        wanvideo_kwargs = self.config["kwargs"]
+        wanvideo_kwargs = self.config.extra_kwargs
         self.processor = WanVideoModelProcessor(**wanvideo_kwargs)
         self.tokenizer = self.processor.tokenizer
 
@@ -82,18 +78,9 @@ class WanVideoDataProcessor:
         else:
             raise ValueError("No video frames provided")
 
-        # Prepare output dictionary
         output = {
-            "input_ids": text_inputs["input_ids"].squeeze(0),  # B, L
-            # "attention_mask": text_inputs["attention_mask"].squeeze(0), # B, L
-            "pixel_values": pixel_values.squeeze(0),  # B, T, C, H, W
-            "labels": text_inputs["input_ids"]
-            .squeeze(0)
-            .clone(),  # For training # B, L
+            "video": pixel_values.squeeze(0),  # T, H, W, C
+            "input_ids": text_inputs["input_ids"].squeeze(0),
+            "attention_mask": text_inputs["attention_mask"].squeeze(0),
         }
-
-        # Add video-specific kwargs if provided
-        # if video_kwargs:
-        #     output.update(video_kwargs)
-
         return output

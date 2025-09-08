@@ -17,21 +17,17 @@ from lmms_engine.mapping_func import (
     create_model_from_pretrained,
     create_model_with_custom_loader,
 )
+from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
+from lmms_engine.train.hf import Trainer
 
-from ..models.monkey_patch import CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN
-from ..models.monkey_patch import (
-    _apply_liger_kernel_to_instance as _apply_liger_kernel_to_custom_instance,
-)
 from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
-from .dllm_trainer import DLLMTrainer
-from .fsdp2_trainer import FSDP2SFTTrainer
-from .trainer import Trainer
+from .registry import TRAINER_REGISTER
 
 # from transformers import Trainer
 
@@ -62,12 +58,7 @@ class TrainRunner:
         else:
             self.eval_dataset = None
         self.train_dataset = self._build_train_dataset()
-        if self.model_config.pretrain_mm_mlp_adapter is not None:
-            self._load_mm_projector()
-        if self.config.trainer_args.use_liger_kernel:
-            self._apply_liger_kernel()
-            # Set to False as we already apply the liger kernel by ourselves
-            self.config.trainer_args.use_liger_kernel = False
+        self._apply_monkey_patch()
         self.trainer = self._build_trainer()
 
     def _build_model(self):
@@ -109,6 +100,8 @@ class TrainRunner:
         if self.model_config.overwrite_config:
             for key, value in self.model_config.overwrite_config.items():
                 setattr(model.config, key, value)
+                if getattr(model, key, None) is not None:
+                    setattr(model, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
 
         setup_flops_counter(model.config)
@@ -118,87 +111,19 @@ class TrainRunner:
         )
         return model
 
-    def _apply_liger_kernel(self):
+    def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
+        if self.config.trainer_args.use_liger_kernel:
+            kwargs["patch_type"] = "liger"
+            # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
+            self.config.trainer_args.use_liger_kernel = False
+
+        if self.model_config.monkey_patch_kwargs:
+            kwargs.update(self.model_config.monkey_patch_kwargs)
         try:
-            from liger_kernel.transformers import _apply_liger_kernel_to_instance
-            from liger_kernel.transformers.monkey_patch import (
-                MODEL_TYPE_TO_APPLY_LIGER_FN,
-            )
-        except ImportError as e:
-            Logging.error(
-                "You have set `use_liger_kernel` to `True` but liger-kernel >= 0.3.0 is not available. "
-                "Please install it with `pip install liger-kernel`"
-            )
-
-        model_type = getattr(self.model, "config", None) and getattr(
-            self.model.config, "model_type", None
-        )
-        if model_type in CUSTOM_MODEL_TYPE_TO_APPLY_LIGER_FN:
-            Logging.info(f"Try to apply liger kernel on the model {model_type}")
-            _apply_liger_kernel_to_custom_instance(self.model, **kwargs)
-        # If the model itself is already in liger kernel,
-        # we should not apply the liger kernel again
-        elif model_type in MODEL_TYPE_TO_APPLY_LIGER_FN:
-            Logging.info(f"Try to apply liger kernel on the model {model_type}")
-            _apply_liger_kernel_to_instance(self.model)
-        else:
-            Logging.info(
-                f"Try to apply custom liger kernel on the language model of the model {model_type}"
-            )
-            try:
-                _apply_liger_kernel_to_custom_instance(
-                    self.model.language_model, **kwargs
-                )
-                Logging.info(
-                    f"Successfully apply custom liger kernel on the language model of the model {model_type}"
-                )
-                return
-            except Exception as e:
-                Logging.error(
-                    f"Try to apply custom liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
-                )
-
-            try:
-                _apply_liger_kernel_to_instance(self.model.language_model)
-                Logging.info(
-                    f"Successfully apply liger kernel on the language model of the model {model_type}"
-                )
-                return
-            except Exception as e:
-                Logging.error(
-                    f"Try to apply liger kernel on the language model of the model {model_type}, but failed with exceptions : \n {e}"
-                )
-
-    def _load_mm_projector(self):
-        pretrain_mm_mlp_adapter = self.config.model_config.pretrain_mm_mlp_adapter
-        mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location="cpu")
-
-        def get_w(weights, keyword):
-            return {
-                k.split(keyword + ".")[1]: v for k, v in weights.items() if keyword in k
-            }
-
-        deepspeed3_enabled = hasattr(
-            [p for p in self.model.multi_modal_projector.parameters()][0], "ds_id"
-        )
-
-        TrainUtilities.load_zero_partitions(
-            self.model.multi_modal_projector,
-            get_w(mm_projector_weights, "multi_modal_projector"),
-            deepspeed3_enabled,
-            pretrain_mm_mlp_adapter,
-        )
-        TrainUtilities.load_zero_partitions(
-            self.model.audio_modal_projector,
-            get_w(mm_projector_weights, "audio_modal_projector"),
-            deepspeed3_enabled,
-            pretrain_mm_mlp_adapter,
-        )
-
-        Logging.info(
-            f"Loaded multi_modal_projector,audio_modal_projector weights from {pretrain_mm_mlp_adapter}."
-        )
+            MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
+        except Exception as e:
+            Logging.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]
@@ -253,18 +178,7 @@ class TrainRunner:
         set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
 
     def _build_trainer(self):
-        if self.config.trainer_type == "hf_trainer":
-            trainer_cls = Trainer
-        elif self.config.trainer_type == "fsdp2_trainer":
-            trainer_cls = FSDP2SFTTrainer
-        elif self.config.trainer_type == "dllm_trainer":
-            trainer_cls = DLLMTrainer
-        else:
-            raise ValueError(
-                f"Unsupported trainer backend: {self.config.trainer_args.trainer_backend}"
-            )
-        from transformers.trainer_pt_utils import AcceleratorConfig
-
+        trainer_cls = TRAINER_REGISTER[self.config.trainer_type]
         trainer = trainer_cls(
             model=self.model,
             args=self.config.trainer_args,

@@ -427,3 +427,17 @@ def calculate_seq_len_per_rank(seq_len: List[int]):
     if cur_seq_len[-1] != per_seq_len:
         cur_seq_len.append(per_seq_len)
     return cur_seq_len
+
+
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
+    seqlen, num_key_value_heads, head_dim) to (batch, seqlen, num_attention_heads, head_dim)
+    """
+    slen, num_key_value_heads, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :].expand(
+        slen, num_key_value_heads, n_rep, head_dim
+    )
+    return hidden_states.reshape(slen, num_key_value_heads * n_rep, head_dim)

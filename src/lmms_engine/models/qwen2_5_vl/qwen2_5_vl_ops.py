@@ -30,6 +30,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_rank,
     get_ulysses_sequence_parallel_world_size,
+    repeat_kv,
     ulysses_pad,
 )
 from lmms_engine.utils import Logging
@@ -471,20 +472,6 @@ def decoder_layer_forward(
         outputs += (present_key_value,)
 
     return outputs
-
-
-def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """
-    This is the equivalent of torch.repeat_interleave(x, dim=2, repeats=n_rep). The hidden states go from (batch,
-    seqlen, num_key_value_heads, head_dim) to (batch, seqlen, num_attention_heads, head_dim)
-    """
-    slen, num_key_value_heads, head_dim = hidden_states.shape
-    if n_rep == 1:
-        return hidden_states
-    hidden_states = hidden_states[:, :, None, :].expand(
-        slen, num_key_value_heads, n_rep, head_dim
-    )
-    return hidden_states.reshape(slen, num_key_value_heads * n_rep, head_dim)
 
 
 # The attn forward func for the LM

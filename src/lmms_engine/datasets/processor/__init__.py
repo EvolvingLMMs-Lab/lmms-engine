@@ -1,6 +1,6 @@
 from .aero_processor import AeroDataProcessor
 from .bagel_processor import BagelProcessor
-from .base_qwen2_5_vl_processor import BaseQwen2_5_DataProcessor
+from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .blip3o_processor import Blip3oProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor

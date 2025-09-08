@@ -21,6 +21,15 @@ from transformers.models.qwen2.modeling_qwen2 import (
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_world_size,
+    repeat_kv,
+    slice_input_tensor,
+    ulysses_pad,
+    ulysses_pad_and_slice_inputs,
+)
 from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import (
@@ -72,11 +81,20 @@ def model_forward(
         input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
             input_ids, attention_mask
         )
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            input_ids_rmpad = input_ids.unsqueeze(0)
+            input_ids, _, pad_size = ulysses_pad_and_slice_inputs(
+                input_ids.unsqueeze(0),
+                sp_size=get_ulysses_sequence_parallel_world_size(),
+            )
+            input_ids = input_ids.squeeze(0)
     elif cu_seq_lens is None and inputs_embeds is not None:
         original_inputs = inputs_embeds
         inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
             inputs_embeds, attention_mask
         )
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            inputs_embeds = slice_input_tensor(inputs_embeds, dim=0, padding=True)
     bs, seqlen = original_inputs.shape[:2]
 
     if inputs_embeds is None:
@@ -102,6 +120,15 @@ def model_forward(
     position_ids = index_first_axis(
         rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
     ).transpose(0, 1)
+    original_position_ids = position_ids
+
+    # Pad the position ids according to the original input ids
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        _, position_ids, pad_size = ulysses_pad(
+            input_ids_rmpad,
+            original_position_ids,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
 
     # It may already have been prepared by e.g. `generate`
     if not isinstance(causal_mask_mapping := attention_mask, dict):
@@ -112,7 +139,7 @@ def model_forward(
             "attention_mask": attention_mask,
             "cache_position": cache_position,
             "past_key_values": past_key_values,
-            "position_ids": position_ids,
+            "position_ids": original_position_ids,
         }
         # Create the masks
         causal_mask_mapping = {
@@ -228,6 +255,40 @@ def attn_forward(
         -1, self.config.num_key_value_heads, self.head_dim
     )
     cos, sin = position_embeddings
+    ########## AlltoAll for Ulysses ##########
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+    if ulysses_sp_size > 1:
+        assert (
+            position_ids is not None
+        ), "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(1), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+        # Cat the cu_seq_lens to the max seq len if padding is used
+        if cu_seq_lens.max().item() < query_states.shape[0]:
+            cu_seq_lens = torch.cat(
+                [
+                    cu_seq_lens,
+                    torch.tensor(
+                        [query_states.shape[0]],
+                        device=cu_seq_lens.device,
+                        dtype=cu_seq_lens.dtype,
+                    ),
+                ]
+            )
+
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
 
@@ -235,37 +296,6 @@ def attn_forward(
 
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
-
-    if past_key_value is not None:
-        cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
-        key_states, value_states = past_key_value.update(
-            key_states, value_states, self.layer_idx, cache_kwargs
-        )
-
-    dropout_rate = 0.0 if not self.training else self.attention_dropout
-
-    # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-    # therefore the input hidden states gets silently casted in float32. Hence, we need
-    # cast them back in float16 just to be sure everything works as expected.
-    input_dtype = query_states.dtype
-    if input_dtype == torch.float32:
-        if torch.is_autocast_enabled():
-            target_dtype = torch.get_autocast_gpu_dtype()
-        # Handle the case where the model is quantized
-        elif hasattr(self.config, "_pre_quantization_dtype"):
-            target_dtype = self.config._pre_quantization_dtype
-        else:
-            target_dtype = self.q_proj.weight.dtype
-
-        logger.warning_once(
-            f"The input hidden states seems to be silently casted in float32, this might be related to"
-            f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
-            f" {target_dtype}."
-        )
-
-        query_states = query_states.to(target_dtype)
-        key_states = key_states.to(target_dtype)
-        value_states = value_states.to(target_dtype)
 
     max_seqlen = (
         torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
@@ -285,6 +315,10 @@ def attn_forward(
         softmax_scale=self.head_dim**-0.5,
         dropout_p=0.0,
     )
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
     attn_output = attn_output.reshape(-1, self.config.hidden_size).contiguous()
 

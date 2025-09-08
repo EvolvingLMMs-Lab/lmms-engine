@@ -113,9 +113,6 @@ class TextDllmCollator(DataCollatorForLanguageModeling):
     def torch_mask_tokens(
         self, inputs: Any, special_tokens_mask: Optional[Any] = None
     ) -> tuple[Any, Any]:
-        """
-        Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original.
-        """
         labels = inputs.clone()
         # We sample a few tokens uniformly in each sequence for MLM training
         B = labels.shape[0]

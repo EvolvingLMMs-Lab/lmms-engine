@@ -11,13 +11,14 @@ from ..models import ModelConfig
 class TrainingArguments(transformers.TrainingArguments):
     use_muon: Optional[bool] = False
     freeze_modules: Optional[List[str]] = None
-    only_save_mm_adapter: Optional[bool] = False
     use_rmpad: Optional[bool] = False
     fsdp2: Optional[bool] = False
     sp_ulysses_degree: Optional[int] = 1
     reduce_dtype: Optional[str] = "bfloat16"
     output_dtype: Optional[str] = "bfloat16"
     mm_vision_tower_lr: Optional[float] = None
+    enable_profiler: Optional[bool] = False
+    profiler_config: Optional[Dict[str, Any]] = None
 
 
 @dataclass
