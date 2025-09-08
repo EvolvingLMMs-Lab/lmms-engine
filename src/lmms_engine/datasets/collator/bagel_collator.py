@@ -36,7 +36,6 @@ class DataConfig:
         self.interpolate_pos = interpolate_pos
         self.use_flex = use_flex
         self.max_num_tokens = max_num_tokens
-        
 
 
 def create_sparse_mask(document_lens, split_lens, attn_modes, device):
