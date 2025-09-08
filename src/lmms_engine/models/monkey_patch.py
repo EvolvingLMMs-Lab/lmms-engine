@@ -35,7 +35,7 @@ class MonkeyPatcher:
             raise ValueError(f"Invalid patch type: {patch_type}")
 
     def apply_monkey_patch_to_instance(
-        self, model: PreTrainedModel, patch_type, **kwargs
+        self, model: PreTrainedModel, patch_type = "liger", **kwargs
     ):
         if patch_type == "liger":
             self._apply_liger_kernel_to_instance(model, **kwargs)

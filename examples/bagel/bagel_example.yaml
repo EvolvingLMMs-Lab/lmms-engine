@@ -45,7 +45,7 @@
     eval_strategy: 'no'
     logging_steps: 1
     group_by_length: true
-    dataloader_num_workers: 2
+    dataloader_num_workers: 1
     bf16: true
     lr_scheduler_type: cosine
     freeze_modules:
