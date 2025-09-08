@@ -15,7 +15,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.fsdp import fully_shard
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import LambdaLR, LinearLR
 
 
 def apply_fsdp2(model, fsdp_kwargs, fsdp_transformer_layer_cls_to_wrap=None):
@@ -199,6 +199,20 @@ def get_wsd_schedule_with_warmup(
         return min_lr_ratio
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
+def get_constant_schedule(
+    optimizer: Optimizer,
+    num_warmup_steps: int,
+    start_factor: float = 0.01,
+    end_factor: float = 1,
+):
+    return LinearLR(
+        optimizer,
+        start_factor=start_factor,
+        end_factor=end_factor,
+        total_iters=num_warmup_steps,
+    )
 
 
 def fsdp2_clip_grad_norm_(
