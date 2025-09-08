@@ -3,10 +3,9 @@ from typing import Dict
 
 from torch.utils.data import Dataset
 
+from lmms_engine.datasets.config import DatasetConfig
+from lmms_engine.datasets.processor import ProcessorConfig
 from lmms_engine.mapping_func import DATAPROCESSOR_MAPPING
-
-from .config import DatasetConfig
-from .processor import ProcessorConfig
 
 
 class BaseDataset(Dataset):

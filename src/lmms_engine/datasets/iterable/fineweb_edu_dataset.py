@@ -1,26 +1,14 @@
 import itertools
-import os
-from copy import deepcopy
-from typing import Dict
 
 import datasets
-import torch
-from accelerate.state import PartialState
-from datasets.distributed import split_dataset_by_node
-from PIL import Image
 
 # from datasets import Dataset
 from torch.utils.data import IterableDataset, get_worker_info
-from transformers import AutoTokenizer, DataCollatorForLanguageModeling
 
+from lmms_engine.datasets.collator.text_dllm_collator import TextDllmCollator
+from lmms_engine.datasets.config import DatasetConfig
+from lmms_engine.datasets.processor import ProcessorConfig
 from lmms_engine.mapping_func import DATAPROCESSOR_MAPPING, register_dataset
-
-from ..utils import Logging
-from ..utils.train_utils import TrainUtilities
-from .base_dataset import BaseDataset
-from .collator.text_dllm_collator import TextDllmCollator
-from .config import DatasetConfig
-from .processor import ProcessorConfig
 
 
 @register_dataset("fineweb_edu")

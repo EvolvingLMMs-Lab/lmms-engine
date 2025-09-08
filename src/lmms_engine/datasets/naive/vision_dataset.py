@@ -5,11 +5,10 @@ from typing import Dict
 import torch
 from PIL import Image
 
+from lmms_engine.datasets.collator import VisionCollator
+from lmms_engine.datasets.naive.multimodal_dataset import MultiModalDataset
 from lmms_engine.mapping_func import register_dataset
-
-from ..utils.train_utils import TrainUtilities
-from .collator import VisionCollator
-from .multimodal_dataset import MultiModalDataset
+from lmms_engine.utils.train_utils import TrainUtilities
 
 
 @register_dataset("vision")

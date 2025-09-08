@@ -17,8 +17,8 @@ from decord import VideoReader, cpu
 from PIL import Image
 from tqdm import tqdm
 
-from ..utils import Logging
-from ..utils.data_utils import DataUtilities
+from lmms_engine.utils import DataUtilities, Logging
+
 from .base_dataset import BaseDataset
 
 try:

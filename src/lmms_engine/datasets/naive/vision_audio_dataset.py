@@ -2,7 +2,8 @@ from typing import Dict
 
 import torch
 
-from ..utils.train_utils import TrainUtilities
+from lmms_engine.utils.train_utils import TrainUtilities
+
 from .vision_dataset import VisionSFTDataset
 
 MAX_AUDIO_LENGTH = 30
