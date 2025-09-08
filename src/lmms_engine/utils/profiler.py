@@ -78,7 +78,10 @@ class StepProfiler:
             self.save()
 
     def should_save(self, step: int):
-        return step >= self.start_step and step == self.end_step
+        if self.check():
+            return step >= self.start_step and step == self.end_step
+        else:
+            return False
 
     def stop_trace(self):
         if self.check():
