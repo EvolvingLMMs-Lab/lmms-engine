@@ -1,81 +1,113 @@
-## Datasets and Packing: Naive vs Streaming
+# Datasets and Packing: Naive vs Streaming
 
-This guide shows how to use the dataset implementations and explains the difference between naive (precomputed) packing and streaming packing.
+This guide explains the two dataset implementations in LMMS Engine and helps you choose the right approach for your training needs.
 
-### Overview
+## Overview
 
-- `MultiModalDataset` (naive): indexable dataset that optionally precomputes packing groups before training.
-- `MultiModalIterableDataset` (streaming): iterable dataset that forms packed batches on the fly while iterating.
+LMMS Engine provides two distinct dataset implementations:
 
-Both use `DatasetConfig` to control data format, packing, and filtering behavior.
+| Dataset Type | Class | Description | Best For |
+|-------------|-------|-------------|----------|
+| **Naive (Map-style)** | `MultiModalDataset` | Precomputes packing groups before training | Small to medium datasets, deterministic packing |
+| **Streaming (Iterable)** | `MultiModalIterableDataset` | Packs sequences on-the-fly during iteration | Large datasets, low memory usage, dynamic data |
 
-### Quick start: choose a dataset
+Both implementations share the same `DatasetConfig` interface for seamless switching between approaches.
+
+## Quick Start
+
+### Basic Usage
 
 ```python
-from lmms_engine.datasets.config import DatasetConfig
-from lmms_engine.datasets.naive.multimodal_dataset import MultiModalDataset
-from lmms_engine.datasets.iterable.multimodal_iterable_dataset import MultiModalIterableDataset
+from lmms_engine.datasets import DatasetConfig, MultiModalDataset, MultiModalIterableDataset
+from lmms_engine.train import FSDP2SFTTrainer
 
-# Shared config fields (examples)
-cfg = DatasetConfig(
-    dataset_type="vision",                 # or "vision_audio"
-    dataset_format="hf_dataset",          # json | jsonl | yaml | hf_dataset | arrow | parquet
-    dataset_path="your/hub_or_path",      # or use datasets=[...] for yaml inline
+# Configure your dataset
+config = DatasetConfig(
+    # Core settings
+    dataset_type="vision",                    # Type: vision | vision_audio | fineweb_edu
+    dataset_format="hf_dataset",              # Format: json | jsonl | yaml | hf_dataset | arrow | parquet
+    dataset_path="your/dataset/path",         # Path to dataset or HF Hub ID
+    
+    # Processing
     processor_config={"processor_type": "your_processor"},
     shuffle=True,
-    # Packing
-    packing=True,
-    packing_strategy="first_fit",         # naive only: first_fit | window_XX
-    packing_length=32000,
-    filter_overlong=True,                  # drop samples > packing_length
+    
+    # Packing configuration
+    packing=True,                              # Enable sequence packing
+    packing_length=32000,                      # Maximum tokens per packed sequence
+    filter_overlong=True,                      # Drop sequences > packing_length
+    packing_strategy="first_fit",              # Naive only: first_fit | window_XX
 )
 
-# Pick ONE dataset style
-dataset = MultiModalDataset(cfg)                 # Naive (map-style)
-# dataset = MultiModalIterableDataset(cfg)       # Streaming (iterable)
+# Choose your dataset implementation
+# Option 1: Naive (precomputed packing)
+dataset = MultiModalDataset(config)
 
+# Option 2: Streaming (on-the-fly packing)  
+dataset = MultiModalIterableDataset(config)
+
+# Build and use
 dataset.build()
 collator = dataset.get_collator()
 
-# Pass to the FSDP2 trainer
-# trainer = FSDP2SFTTrainer(model, args, train_dataset=dataset, data_collator=collator)
-# trainer.train()
+# Train with FSDP2
+trainer = FSDP2SFTTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset,
+    data_collator=collator
+)
+trainer.train()
 ```
 
-### Naive packing (precompute, map-style)
+## Dataset Implementation Details
 
-- Loads all samples, optionally shuffles, estimates per-sample lengths, and precomputes packing groups upfront.
-- Implements packing via `_pack_by_first_fit` or `_pack_by_window` using `config.packing_length`.
-- `__len__` returns number of packs when packing is enabled; `__getitem__` returns a list of samples for a given pack.
-- `filter_overlong=True` removes samples whose estimated length exceeds `packing_length` before packing.
+### Naive Dataset (Precomputed Packing)
 
-Best when:
-- You can afford a preprocessing pass and want deterministic, precomputed packs.
-- You need full control over packing strategies (e.g., windowed packing).
+The `MultiModalDataset` loads all data into memory and precomputes optimal packing arrangements before training begins.
 
-Trade-offs:
-- Startup time and memory overhead for length estimation and pack computation.
-- Not ideal for true streaming or extremely large datasets where scanning upfront is expensive.
+#### How it works:
+1. **Load**: Reads entire dataset into memory
+2. **Estimate**: Calculates token length for each sample  
+3. **Pack**: Groups samples using packing algorithm (`first_fit` or `window`)
+4. **Serve**: Returns precomputed packs during training
 
-### Streaming packing (on-the-fly, iterable)
+#### Characteristics:
+- ✅ **Deterministic**: Same packing arrangement every epoch
+- ✅ **Optimal packing**: Can use sophisticated algorithms for better utilization
+- ✅ **Known length**: Exact number of steps per epoch is known
+- ❌ **Memory intensive**: Requires loading full dataset upfront
+- ❌ **Slower startup**: Preprocessing adds initialization time
 
-- Requires `HFDataset` data source (enforced). Performs rank sharding and worker splitting at iteration time.
-- Packs while iterating: keeps a buffer of samples and appends until the sum of `input_ids.shape[0]` would exceed `packing_length`, then yields the buffer and starts a new one.
-- Behavior:
-  - If `filter_overlong=True`, drops any single sample longer than `packing_length`.
-  - If `filter_overlong=False` and a sample is longer than `packing_length`, yields it alone.
-  - Flushes any remaining buffer at the end of the epoch.
-- When `packing=False`, yields one processed sample at a time.
+#### When to use:
+- Dataset fits comfortably in memory (< 100GB)
+- You need reproducible training runs
+- Packing efficiency is critical
+- You're debugging or experimenting
 
-Best when:
-- You want low-latency startup and true streaming behavior.
-- Dataset is large and/or produced dynamically.
-- You want to optimize your performance but don't want preprocess your data
+### Streaming Dataset (On-the-fly Packing)
 
-Trade-offs:
-- Packing is greedy per stream; no global optimality.
-- Step count per rank/worker depends on sharding and filtering.
-- Can not use certain lr scheduler since we do not know the total steps
+The `MultiModalIterableDataset` streams data and packs sequences dynamically during iteration.
+
+#### How it works:
+1. **Stream**: Loads data samples one at a time
+2. **Buffer**: Accumulates samples in a buffer
+3. **Pack**: When buffer + next sample > `packing_length`, yields buffer
+4. **Flush**: Yields remaining buffer at epoch end
+
+#### Characteristics:
+- ✅ **Memory efficient**: Only loads current batch
+- ✅ **Fast startup**: No preprocessing required
+- ✅ **Scales infinitely**: Works with any dataset size
+- ❌ **Non-deterministic**: Different packing each epoch
+- ❌ **Unknown length**: Can't calculate exact steps per epoch
+- ❌ **Suboptimal packing**: Greedy algorithm may waste tokens
+
+#### When to use:
+- Large datasets (> 100GB)
+- Limited memory environments
+- Continuous/streaming data sources
+- Production training at scale
 
 ### Distributed behavior differences
 
