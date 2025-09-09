@@ -242,14 +242,14 @@ class FSDP2SFTTrainer:
         # because the number of steps is not fixed, unless max_steps is set
         if isinstance(self.train_dataset, IterableDataset):
             self.steps_per_epoch = (
-                None if not self.args.max_steps else self.args.max_steps
+                None if self.args.max_steps < 0 else self.args.max_steps
             )
-            self.total_steps = None if not self.args.max_steps else self.args.max_steps
+            self.total_steps = None if self.args.max_steps < 0 else self.args.max_steps
         else:
             self.steps_per_epoch = len(train_dataloader)
             self.total_steps = (
                 self.steps_per_epoch * self.args.num_train_epochs
-                if not self.args.max_steps
+                if self.args.max_steps < 0
                 else self.args.max_steps
             )
 
@@ -283,7 +283,7 @@ class FSDP2SFTTrainer:
                 int(latest_checkpoint.split("-")[1]),
             )
             # If max_steps is set, we need to calculate the start epoch
-            if self.steps_per_epoch is not None:
+            if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
                 start_epoch = (
                     int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
                 )
