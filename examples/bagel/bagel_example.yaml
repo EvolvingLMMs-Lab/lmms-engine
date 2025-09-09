@@ -1,6 +1,6 @@
 - type: trainer
   config:
-    trainer_type: hf_trainer
+    trainer_type: bagel_trainer
     dataset_config:
       dataset_type: bagel
       dataset_format: yaml
