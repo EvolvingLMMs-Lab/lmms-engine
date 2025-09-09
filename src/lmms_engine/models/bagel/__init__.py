@@ -5,7 +5,7 @@
 
 from lmms_engine.mapping_func import register_model
 
-from .bagel import Bagel, BagelConfig, load_bagel_from_pretrained
+from .bagel import Bagel, BagelConfig
 from .qwen2_navit import Qwen2Config, Qwen2ForCausalLM, Qwen2Model
 from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
 
@@ -23,5 +23,4 @@ __all__ = [
     "Qwen2ForCausalLM",
     "SiglipVisionConfig",
     "SiglipVisionModel",
-    "load_bagel_from_pretrained",
 ]
