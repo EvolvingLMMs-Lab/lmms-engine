@@ -1,4 +1,5 @@
 from .aero import AeroConfig, AeroForConditionalGeneration, AeroProcessor
+from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
 from .monkey_patch import MONKEY_PATCHER
@@ -15,6 +16,8 @@ from .wanvideo import (
 __all__ = [
     "AeroForConditionalGeneration",
     "AeroConfig",
+    "Bagel",
+    "BagelConfig",
     "ModelConfig",
     "AeroProcessor",
     "apply_liger_kernel_to_llava_onevision",
