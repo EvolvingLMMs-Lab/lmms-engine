@@ -63,12 +63,14 @@ class TrainRunner:
     def _build_model(self):
         load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
+        model_kwargs = self.model_config.extra_kwargs
         if load_from_pretrained_path is not None:
             model_class = create_model_from_pretrained(load_from_pretrained_path)
             model = model_class.from_pretrained(
                 load_from_pretrained_path,
                 attn_implementation=self.model_config.attn_implementation,
                 torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+                **model_kwargs,
             )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)
@@ -80,7 +82,7 @@ class TrainRunner:
                     k: v for k, v in load_from_config.items() if k != "model_type"
                 }
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class.from_config(m_config)
+            model = model_class.from_config(m_config, **model_kwargs)
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."
