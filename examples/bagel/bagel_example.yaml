@@ -18,9 +18,9 @@
             image_stride: 16
             max_image_size: 1024
             min_image_size: 512
-      packing: true
-      packing_strategy: first_fit
-      packing_length: 16384
+      packing: false
+      # packing_strategy: first_fit
+      # packing_length: 16384
     model_config:
       load_with_custom_loader:
         model_path: /mnt/raid10/pufanyi/Bagel-ckpt/BAGEL-7B-MoT
