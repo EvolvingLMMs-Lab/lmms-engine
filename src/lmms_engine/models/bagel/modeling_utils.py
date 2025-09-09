@@ -139,7 +139,8 @@ class PositionEmbedding(nn.Module):
         self.max_num_patch_per_side = max_num_patch_per_side
         self.hidden_size = hidden_size
         self.pos_embed = nn.Parameter(
-            torch.zeros(max_num_patch_per_side**2, hidden_size, dtype=dtype), requires_grad=False
+            torch.zeros(max_num_patch_per_side**2, hidden_size, dtype=dtype),
+            requires_grad=False,
         )
         self._init_weights()
 
@@ -148,7 +149,9 @@ class PositionEmbedding(nn.Module):
         pos_embed = get_2d_sincos_pos_embed(
             self.hidden_size, self.max_num_patch_per_side
         )
-        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().to(self.pos_embed.dtype))
+        self.pos_embed.data.copy_(
+            torch.from_numpy(pos_embed).float().to(self.pos_embed.dtype)
+        )
 
     def forward(self, position_ids):
         return self.pos_embed[position_ids]

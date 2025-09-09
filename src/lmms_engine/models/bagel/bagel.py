@@ -331,7 +331,9 @@ class Bagel(PreTrainedModel):
             else:
                 padded_latent = None
 
-            packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+            packed_text_embedding = self.language_model.model.embed_tokens(
+                packed_text_ids
+            )
 
             # # PRECISION
             if packed_text_embedding.dtype != self._dtype:
@@ -390,18 +392,18 @@ class Bagel(PreTrainedModel):
                     )
                     packed_latent.append(latent)
                 packed_latent_clean = torch.cat(packed_latent, dim=0)
-                
+
                 # PRECISION
                 if packed_latent_clean.dtype != self._dtype:
                     packed_latent_clean = packed_latent_clean.to(self._dtype)
 
                 # torch.manual_seed(42)
                 noise = torch.randn_like(packed_latent_clean)
-                
+
                 # PRECISION
                 if packed_timesteps.dtype != self._dtype:
                     packed_timesteps = packed_timesteps.to(self._dtype)
-                
+
                 packed_timesteps = torch.sigmoid(packed_timesteps)
                 packed_timesteps = (
                     self.timestep_shift
@@ -412,7 +414,9 @@ class Bagel(PreTrainedModel):
                     1 - packed_timesteps[:, None]
                 ) * packed_latent_clean + packed_timesteps[:, None] * noise
                 packed_timestep_embeds = self.time_embedder(packed_timesteps)
-                latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids) # 
+                latent_token_pos_emb = self.latent_pos_embed(
+                    packed_latent_position_ids
+                )  #
                 packed_latent = (
                     self.vae2llm(packed_latent)
                     + packed_timestep_embeds
@@ -454,7 +458,9 @@ class Bagel(PreTrainedModel):
                 packed_ce_preds = self.language_model.lm_head(
                     last_hidden_state[ce_loss_indexes]
                 )
-                ce = F.cross_entropy(packed_ce_preds, packed_label_ids, reduction="none")
+                ce = F.cross_entropy(
+                    packed_ce_preds, packed_label_ids, reduction="none"
+                )
 
             return dict(mse=mse, ce=ce)
 

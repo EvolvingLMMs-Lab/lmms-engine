@@ -154,7 +154,7 @@ class Qwen2RotaryEmbedding(nn.Module):
         with torch.autocast(device_type=device_type, enabled=False):
             freqs = (
                 # inv_freq_expanded.float() @ position_ids_expanded.float()
-                torch.einsum('bmk,bkn->bmn', inv_freq_expanded, position_ids_expanded)
+                torch.einsum("bmk,bkn->bmn", inv_freq_expanded, position_ids_expanded)
             ).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos()

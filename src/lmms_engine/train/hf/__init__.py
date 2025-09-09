@@ -1,5 +1,5 @@
-from .dllm_trainer import DLLMTrainer
 from .bagel_trainer import BagelTrainer
+from .dllm_trainer import DLLMTrainer
 from .trainer import Trainer
 from .wan_trainer import WanVideoTrainer
 

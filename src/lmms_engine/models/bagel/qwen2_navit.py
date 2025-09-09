@@ -549,7 +549,7 @@ class PackedAttentionMoT(Qwen2Attention):
             packed_key_states_[packed_und_token_indexes] = packed_key_states_[
                 packed_und_token_indexes
             ].detach()
-        
+
         # PRECISION
         packed_key_states_[packed_gen_token_indexes] = self.k_norm_moe_gen(
             packed_key_states[packed_gen_token_indexes]
