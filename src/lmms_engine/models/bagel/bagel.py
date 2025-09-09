@@ -44,7 +44,7 @@ class BagelConfig(PretrainedConfig):
         vit_config: SiglipVisionConfig | None = None,
         vae_config=None,
         latent_patch_size=2,
-        max_latent_size=32,
+        max_latent_size=64,
         vit_max_num_patch_per_side=70,
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
@@ -85,7 +85,7 @@ class BagelLoaderExtraConfig(BaseModel):
     freeze_llm: bool = Field(default=False)
     freeze_vit: bool = Field(default=False)
     latent_patch_size: int = 2
-    max_latent_size: int = 32
+    max_latent_size: int = 64
     vit_max_num_patch_per_side: int = 70
     connector_act: str = "gelu_pytorch_tanh"
     interpolate_pos: bool = False
@@ -195,7 +195,7 @@ class BagelConfig(PretrainedConfig):
         vit_config=None,
         vae_config=None,
         latent_patch_size=2,
-        max_latent_size=32,
+        max_latent_size=64,
         vit_max_num_patch_per_side=70,
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
@@ -228,6 +228,9 @@ class Bagel(PreTrainedModel):
         self.num_heads = config.llm_config.num_attention_heads
         self.vae_model = vae_model
 
+        # A bit hardcoded, search for "PRECISION" to find all the places where we need to change the dtype
+        self._dtype = torch.bfloat16
+
         if config.visual_gen:
             self.latent_patch_size = config.latent_patch_size
             self.timestep_shift = config.timestep_shift
@@ -240,8 +243,9 @@ class Bagel(PreTrainedModel):
             self.time_embedder = TimestepEmbedder(self.hidden_size)
             self.vae2llm = nn.Linear(self.patch_latent_dim, self.hidden_size)
             self.llm2vae = nn.Linear(self.hidden_size, self.patch_latent_dim)
+            # PRECISION
             self.latent_pos_embed = PositionEmbedding(
-                self.max_latent_size, self.hidden_size
+                self.max_latent_size, self.hidden_size, dtype=self._dtype
             )
 
         if config.visual_und:
@@ -253,7 +257,7 @@ class Bagel(PreTrainedModel):
                 self.vit_hidden_size, self.hidden_size, config.connector_act
             )
             self.vit_pos_embed = PositionEmbedding(
-                self.vit_max_num_patch_per_side, self.hidden_size
+                self.vit_max_num_patch_per_side, self.hidden_size, dtype=self._dtype
             )
 
         if config.interpolate_pos:
@@ -326,6 +330,11 @@ class Bagel(PreTrainedModel):
             padded_latent = None
 
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+
+        # PRECISION
+        if packed_text_embedding.dtype != self._dtype:
+            packed_text_embedding = packed_text_embedding.to(self._dtype)
+
         packed_sequence = packed_text_embedding.new_zeros(
             size=(sequence_length, self.hidden_size)
         )
@@ -379,9 +388,18 @@ class Bagel(PreTrainedModel):
                 )
                 packed_latent.append(latent)
             packed_latent_clean = torch.cat(packed_latent, dim=0)
+            
+            # PRECISION
+            if packed_latent_clean.dtype != self._dtype:
+                packed_latent_clean = packed_latent_clean.to(self._dtype)
 
-            torch.manual_seed(42)
+            # torch.manual_seed(42)
             noise = torch.randn_like(packed_latent_clean)
+            
+            # PRECISION
+            if packed_timesteps.dtype != self._dtype:
+                packed_timesteps = packed_timesteps.to(self._dtype)
+            
             packed_timesteps = torch.sigmoid(packed_timesteps)
             packed_timesteps = (
                 self.timestep_shift
@@ -392,7 +410,7 @@ class Bagel(PreTrainedModel):
                 1 - packed_timesteps[:, None]
             ) * packed_latent_clean + packed_timesteps[:, None] * noise
             packed_timestep_embeds = self.time_embedder(packed_timesteps)
-            latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids)
+            latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids) # 
             packed_latent = (
                 self.vae2llm(packed_latent)
                 + packed_timestep_embeds
@@ -498,6 +516,9 @@ class Bagel(PreTrainedModel):
         key_values_lens: torch.IntTensor,
     ):
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+        # PRECISION
+        if packed_text_embedding.dtype != self._dtype:
+            packed_text_embedding = packed_text_embedding.to(self._dtype)
 
         extra_inputs = {}
         if self.use_moe:
@@ -609,6 +630,9 @@ class Bagel(PreTrainedModel):
         key_values_lens: torch.IntTensor,
     ):
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+        # PRECISION
+        if packed_text_embedding.dtype != self._dtype:
+            packed_text_embedding = packed_text_embedding.to(self._dtype)
         packed_sequence = packed_text_embedding.new_zeros(
             (sum(packed_seqlens), self.hidden_size)
         )
@@ -753,6 +777,9 @@ class Bagel(PreTrainedModel):
         packed_key_value_indexes: torch.Tensor,
     ):
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+        # PRECISION
+        if packed_text_embedding.dtype != self._dtype:
+            packed_text_embedding = packed_text_embedding.to(self._dtype)
         packed_sequence = packed_text_embedding.new_zeros(
             (sum(packed_seqlens), self.hidden_size)
         )
@@ -1079,6 +1106,9 @@ class Bagel(PreTrainedModel):
         model_pred_img_current: Optional[int] = None,
     ):
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
+        # PRECISION
+        if packed_text_embedding.dtype != self._dtype:
+            packed_text_embedding = packed_text_embedding.to(self._dtype)
         packed_sequence = packed_text_embedding.new_zeros(
             (sum(packed_seqlens), self.hidden_size)
         )
@@ -1240,6 +1270,9 @@ class Bagel(PreTrainedModel):
         while step < max_length:
             generated_sequence.append(curr_tokens)
             packed_text_embedding = self.language_model.model.embed_tokens(curr_tokens)
+            # PRECISION
+            if packed_text_embedding.dtype != self._dtype:
+                packed_text_embedding = packed_text_embedding.to(self._dtype)
             query_lens = torch.ones_like(curr_tokens)
             packed_query_indexes = torch.cumsum(key_values_lens, dim=0) + torch.arange(
                 0,

@@ -41,7 +41,7 @@
     report_to: wandb
     output_dir: ./output/debug
     warmup_ratio: 0.0
-    run_name: blip3o
+    run_name: bagel
     eval_strategy: 'no'
     logging_steps: 1
     group_by_length: true
@@ -53,3 +53,4 @@
     use_liger_kernel: false
     use_rmpad: false
     fsdp2: false
+    remove_unused_columns: false

@@ -19,7 +19,7 @@ class DataConfig:
         vit_cond_dropout_prob=0.4,
         vae_cond_dropout_prob=0.1,
         vae_image_downsample=16,
-        max_latent_size=32,
+        max_latent_size=64,
         vit_patch_size=14,
         max_num_patch_per_side=70,
         interpolate_pos=False,

@@ -202,7 +202,11 @@ class TrainRunner:
             if list(
                 pathlib.Path(self.config.trainer_args.output_dir).glob("checkpoint-*")
             ):
-                self.trainer.train(resume_from_checkpoint=True)
+                try:
+                    self.trainer.train(resume_from_checkpoint=True)
+                except Exception as e:
+                    Logging.error(f"Error resuming training: {e}")
+                    self.trainer.train()
             else:
                 self.trainer.train()
             # Save the state for hf_trainer

@@ -526,27 +526,34 @@ class PackedAttentionMoT(Qwen2Attention):
         packed_query_states_ = packed_query_states.new_zeros(packed_query_states.shape)
         packed_key_states_ = packed_key_states.new_zeros(packed_key_states.shape)
 
+        # PRECISION
         packed_query_states_[packed_und_token_indexes] = self.q_norm(
             packed_query_states[packed_und_token_indexes]
-        )
+        ).to(packed_query_states_.dtype)
+
         if self.config.freeze_und:
             packed_query_states_[packed_und_token_indexes] = packed_query_states_[
                 packed_und_token_indexes
             ].detach()
+
+        # PRECISION
         packed_query_states_[packed_gen_token_indexes] = self.q_norm_moe_gen(
             packed_query_states[packed_gen_token_indexes]
-        )
+        ).to(packed_query_states_.dtype)
 
+        # PRECISION
         packed_key_states_[packed_und_token_indexes] = self.k_norm(
             packed_key_states[packed_und_token_indexes]
-        )
+        ).to(packed_key_states_.dtype)
         if self.config.freeze_und:
             packed_key_states_[packed_und_token_indexes] = packed_key_states_[
                 packed_und_token_indexes
             ].detach()
+        
+        # PRECISION
         packed_key_states_[packed_gen_token_indexes] = self.k_norm_moe_gen(
             packed_key_states[packed_gen_token_indexes]
-        )
+        ).to(packed_key_states_.dtype)
 
         packed_cos, packed_sin = packed_position_embeddings
         packed_query_states_, packed_key_states_ = apply_rotary_pos_emb(
@@ -927,12 +934,13 @@ class Qwen2MoTDecoderLayer(nn.Module):
     ) -> torch.Tensor:
         residual = packed_sequence
         packed_sequence_ = packed_sequence.new_zeros(packed_sequence.shape)
+        # PRECISION
         packed_sequence_[packed_und_token_indexes] = self.input_layernorm(
             packed_sequence[packed_und_token_indexes]
-        )
+        ).to(packed_sequence_.dtype)
         packed_sequence_[packed_gen_token_indexes] = self.input_layernorm_moe_gen(
             packed_sequence[packed_gen_token_indexes]
-        )
+        ).to(packed_sequence_.dtype)
 
         # Self Attention
         packed_sequence_ = self.self_attn(
@@ -1267,19 +1275,22 @@ class Qwen2Model(Qwen2PreTrainedModel):
 
         if self.use_moe:
             packed_sequence_ = torch.zeros_like(packed_sequence)
+            # PRECISION
             packed_sequence_[packed_und_token_indexes] = self.norm(
                 packed_sequence[packed_und_token_indexes]
-            )
+            ).to(packed_sequence_.dtype)
             if self.config.freeze_und:
                 packed_sequence_[packed_und_token_indexes] = packed_sequence_[
                     packed_und_token_indexes
                 ].detach()
+            # PRECISION
             packed_sequence_[packed_gen_token_indexes] = self.norm_moe_gen(
                 packed_sequence[packed_gen_token_indexes]
-            )
+            ).to(packed_sequence_.dtype)
             return packed_sequence_
         else:
-            return self.norm(packed_sequence)
+            # PRECISION
+            return self.norm(packed_sequence).to(packed_sequence.dtype)
 
     def forward_inference(
         self,
