@@ -239,13 +239,19 @@ class FSDP2SFTTrainer:
 
         # For Dataset, we can calculate the steps per epoch
         # For IterableDataset, we can't calculate the steps per epoch
-        # because the number of steps is not fixed
+        # because the number of steps is not fixed, unless max_steps is set
         if isinstance(self.train_dataset, IterableDataset):
-            self.steps_per_epoch = None
-            self.total_steps = None
+            self.steps_per_epoch = (
+                None if not self.args.max_steps else self.args.max_steps
+            )
+            self.total_steps = None if not self.args.max_steps else self.args.max_steps
         else:
             self.steps_per_epoch = len(train_dataloader)
-            self.total_steps = self.steps_per_epoch * self.args.num_train_epochs
+            self.total_steps = (
+                self.steps_per_epoch * self.args.num_train_epochs
+                if not self.args.max_steps
+                else self.args.max_steps
+            )
 
         warmup_steps = (
             int(self.total_steps * self.args.warmup_ratio)
@@ -254,6 +260,7 @@ class FSDP2SFTTrainer:
         )
         self.prepare_scheduler(warmup_steps, self.total_steps)
         rank = dist.get_rank()
+        # Initialize tracking
         if rank == 0:
             self.tracking = Tracking(
                 project_name=os.environ.get("WANDB_PROJECT", "lmms-engine"),
@@ -275,15 +282,26 @@ class FSDP2SFTTrainer:
                 os.path.join(self.args.output_dir, latest_checkpoint),
                 int(latest_checkpoint.split("-")[1]),
             )
-            start_epoch = int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
-            # start_epoch is a float, we need to convert it to an integer
-            start_epoch = int(start_epoch)
+            # If max_steps is set, we need to calculate the start epoch
+            if self.steps_per_epoch is not None:
+                start_epoch = (
+                    int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
+                )
+                # start_epoch is a float, we need to convert it to an integer
+                start_epoch = int(start_epoch)
+            else:
+                Logging.warning(
+                    "IterableDataset is used but we can't determine the start epoch, set to 0"
+                )
+                start_epoch = 0
+                self.args.num_train_epochs = 1
             self.global_step = int(latest_checkpoint.split("-")[1])
             need_update_pbar = True
         else:
             start_epoch = 0
             self.global_step = 0
             need_update_pbar = False
+
         Logging.info(f"Training with {self.args.num_train_epochs} epochs")
         self.step_profiler.start()
 

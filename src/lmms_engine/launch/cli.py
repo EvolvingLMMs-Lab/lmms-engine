@@ -36,13 +36,14 @@ def create_train_task(config):
     use_cpu = config.get("use_cpu", False)
     backend = "gloo" if use_cpu else "nccl"
     # If the process group is already initialized, don't initialize it again
+    ddp_timeout = config.get("ddp_timeout", 30 * 60)
     if not dist.is_initialized():
         dist.init_process_group(
             rank=global_rank,
             world_size=world_size,
             backend=backend,
             init_method=f"env://",
-            timeout=datetime.timedelta(minutes=30),
+            timeout=datetime.timedelta(seconds=ddp_timeout),
         )
     setup_process_group_manager(
         tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
