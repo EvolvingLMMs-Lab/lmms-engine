@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from typing import Literal
 
-import json5
 from transformers import (  # AutoModelForVision2Seq,
     AutoConfig,
     AutoModel,
