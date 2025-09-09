@@ -92,3 +92,8 @@ lmms_launch="lmms_engine.launch.cli:main"
 [project.urls]
 Homepage = "https://lmms-lab.com/"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms_engine"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+]
