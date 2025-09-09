@@ -320,6 +320,8 @@ class FSDP2SFTTrainer:
                 pbar.update(update_step)
                 need_update_pbar = False
             for step, batch in enumerate(self.train_dataloader):
+                if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
+                    break
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
                 start_time = time.perf_counter()
@@ -388,8 +390,6 @@ class FSDP2SFTTrainer:
                         self.global_step,
                         total_limit=self.args.save_total_limit,
                     )
-                if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
-                    break
 
                 if (
                     self.args.torch_empty_cache_steps is not None
