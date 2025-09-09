@@ -109,31 +109,47 @@ The `MultiModalIterableDataset` streams data and packs sequences dynamically dur
 - Continuous/streaming data sources
 - Production training at scale
 
-### Distributed behavior differences
+## Distributed Training Behavior
 
-- Naive (map-style):
-  - Trainer uses `DistributedSampler` or `DistributedLengthGroupedSampler` (`group_by_length=True`).
-  - Steps per epoch are known (length is defined).
+### Naive Dataset
+- Uses `DistributedSampler` or `DistributedLengthGroupedSampler` 
+- Each rank gets deterministic subset of packs
+- Steps per epoch = `total_packs / world_size`
+- Supports `group_by_length` for improved training efficiency
 
-- Streaming (iterable):
-  - Dataset does rank sharding (`HFDataset.shard`) and splits by worker with `torch.utils.data.get_worker_info()`.
-  - Trainer does not attach a sampler for iterable datasets; steps per epoch are unknown.
-  - Ensure your source `HFDataset` length divides reasonably across ranks to avoid imbalanced work.
+### Streaming Dataset  
+- Performs rank sharding via `HFDataset.shard()`
+- Worker splitting via `torch.utils.data.get_worker_info()`
+- Dynamic step count per rank (depends on data distribution)
+- No sampler attachment (handled internally)
 
-### Configuration tips
+⚠️ **Important**: Ensure dataset length divides evenly across ranks to avoid imbalanced workloads.
 
-- `packing_length`: max summed token length per pack (streaming uses actual `input_ids.shape[0]`).
-- `filter_overlong`: set True to drop outliers (> `packing_length`) to keep batches consistent.
-- Naive-only `packing_strategy`: `first_fit` or `window_{size}` for different packing heuristics.
-- For streaming, prefer `hf_dataset` input for efficient sharding.
+## Configuration Reference
 
-### Minimal YAML example
+### Core Parameters
 
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `packing` | bool | Enable sequence packing | `False` |
+| `packing_length` | int | Maximum tokens per packed sequence | `32000` |
+| `filter_overlong` | bool | Drop sequences exceeding `packing_length` | `True` |
+| `packing_strategy` | str | **Naive only**: `first_fit` or `window_XX` | `first_fit` |
+| `shuffle` | bool | Shuffle dataset before packing | `True` |
+
+### Packing Strategies (Naive Only)
+
+- **`first_fit`**: Greedily pack sequences into first available space
+- **`window_XX`**: Group sequences within sliding windows of size XX
+
+### Configuration Examples
+
+#### YAML Configuration
 ```yaml
 dataset:
   dataset_type: vision
   dataset_format: hf_dataset
-  dataset_path: your/hub_or_path
+  dataset_path: your/dataset/path
   shuffle: true
   packing: true
   packing_length: 32000
@@ -142,12 +158,128 @@ dataset:
     processor_type: your_processor
 ```
 
-### FAQs
+#### Python Configuration
+```python
+config = DatasetConfig(
+    dataset_type="vision",
+    dataset_format="hf_dataset",
+    dataset_path="your/dataset/path",
+    packing=True,
+    packing_length=32000,
+    filter_overlong=True,
+    processor_config={"processor_type": "your_processor"}
+)
+```
 
-- Why can collectives hang in distributed runs?
-  - Reduce operations must use tensors with identical shapes across ranks. In the trainer, aggregate scalar stats (e.g., sum/min/max of per-batch lengths) instead of reducing variable-length vectors.
+## Performance Tips
 
-- Which should I use?
-  - Use naive packing for deterministic, globally planned packs when upfront preprocessing is acceptable. Use streaming packing for large-scale or online data where you want immediate iteration and on-the-fly grouping.
+### Optimizing Packing Efficiency
+
+1. **Choose appropriate `packing_length`**:
+   - Too small: Underutilized sequences
+   - Too large: May exceed memory limits
+   - Recommended: Start with model's max sequence length
+
+2. **Monitor packing metrics**:
+   ```python
+   # Trainer logs these automatically
+   - perf/global_seq_len_avg  # Average packed sequence length
+   - perf/global_seq_len_min  # Minimum across ranks
+   - perf/global_seq_len_max  # Maximum across ranks
+   ```
+
+3. **Handle outliers**:
+   - Set `filter_overlong=True` to drop anomalously long sequences
+   - Prevents memory spikes and improves batch consistency
+
+### Memory Management
+
+#### For Naive Dataset:
+```python
+# Estimate memory usage
+estimated_memory = num_samples * avg_sample_size * 1.2  # 20% overhead
+```
+
+#### For Streaming Dataset:
+```python
+# Memory usage is constant
+max_memory = batch_size * packing_length * token_size
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Distributed Training Hangs
+**Problem**: Collective operations hang during training.
+
+**Solution**: Ensure all ranks have identical tensor shapes:
+```python
+# Bad: Different shapes across ranks
+loss = torch.tensor([loss1, loss2, ...])  
+
+# Good: Scalar aggregation
+loss = torch.tensor(loss.item())
+torch.distributed.all_reduce(loss, op=ReduceOp.AVG)
+```
+
+#### 2. Imbalanced Workload
+**Problem**: Some ranks finish before others.
+
+**Solution**: 
+- Ensure dataset size is divisible by world_size
+- Use streaming dataset for better load balancing
+- Enable `shuffle=True` to randomize distribution
+
+#### 3. OOM with Naive Dataset
+**Problem**: Out of memory during dataset loading.
+
+**Solutions**:
+- Switch to streaming dataset
+- Reduce `packing_length`
+- Enable `filter_overlong=True`
+- Use data sharding:
+  ```python
+  dataset = load_dataset("path", split=f"train[{rank}:{rank+1}:{world_size}]")
+  ```
+
+## Decision Matrix
+
+| Criterion | Naive Dataset | Streaming Dataset |
+|-----------|--------------|-------------------|
+| Dataset Size | < 100GB | Any size |
+| Memory Usage | High | Low |
+| Startup Time | Slow | Fast |
+| Packing Quality | Optimal | Good |
+| Reproducibility | Yes | No |
+| Step Count Known | Yes | No |
+| LR Schedulers | All supported | Limited |
+| Best For | Research, debugging | Production, scale |
+
+## Migration Guide
+
+### From Naive to Streaming
+```python
+# Before (Naive)
+from lmms_engine.datasets import MultiModalDataset
+dataset = MultiModalDataset(config)
+
+# After (Streaming)
+from lmms_engine.datasets import MultiModalIterableDataset
+dataset = MultiModalIterableDataset(config)
+# Note: Ensure dataset_format="hf_dataset"
+```
+
+### From Streaming to Naive
+```python
+# Before (Streaming)
+from lmms_engine.datasets import MultiModalIterableDataset
+dataset = MultiModalIterableDataset(config)
+
+# After (Naive)
+from lmms_engine.datasets import MultiModalDataset
+dataset = MultiModalDataset(config)
+# Note: May need to adjust memory allocation
+```
 
 

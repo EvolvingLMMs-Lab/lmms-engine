@@ -34,6 +34,8 @@ You will need to process the dataset in OpenAI chat messages format. We prepare 
 hf download kcz358/open-thoughts-debug --local-dir data/open_thoughts_debug --repo-type dataset
 ```
 
+For detailed information about dataset implementations and packing strategies, see our [Dataset and Packing Guide](docs/datasets.md).
+
 ### 2. Prepare dataset yaml
 
 You can specify the data by using the following yaml, data folder can be left empty for text dataset.
@@ -54,6 +56,7 @@ Please check the [config_example.yaml](examples/config_example.yaml) for more de
 ## More Content
 
 - [Preparing Data and how the data is load](docs/data_prep.md)
+- [Dataset and Packing Guide](docs/datasets.md)
 - [Overall Design Principle](docs/design_principle.md)
 - [Training](docs/train.md)
 - [API](docs/api.md)
