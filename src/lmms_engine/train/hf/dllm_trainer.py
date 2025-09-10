@@ -7,10 +7,12 @@ from typing import Any, Literal, Optional, Union
 
 import torch
 import torch.nn as nn
-from transformers import Trainer as HFTrainer
 from transformers.utils import is_torch_xla_available
 
 from ..registry import TRAINER_REGISTER
+
+# from transformers import Trainer as HFTrainer
+from .trainer import Trainer as HFTrainer
 
 
 @TRAINER_REGISTER.register("dllm_trainer")
@@ -46,7 +48,7 @@ class DLLMTrainer(HFTrainer):
         self.step += 1
         do_log_nll_step = (self.step + 1) % self.args.gradient_accumulation_steps == 0
         outputs = model(**inputs)
-        d_loss, nll = outputs.nll, outputs.loss
+        d_loss, nll = outputs.loss, outputs.nll
         if (
             self.args.average_tokens_across_devices
             and (self.model_accepts_loss_kwargs or self.compute_loss_func)

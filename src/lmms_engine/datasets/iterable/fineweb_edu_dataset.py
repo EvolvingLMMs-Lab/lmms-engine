@@ -17,6 +17,7 @@ class FinewebEduDataset(IterableDataset):
         super().__init__()
         self.config = config
         self.processor_config = config.processor_config
+        self.collator_type = config.extra_kwargs.get("collator_type", "default")
         if isinstance(self.processor_config, dict):
             self.processor_config = ProcessorConfig(**self.processor_config)
 
@@ -39,13 +40,21 @@ class FinewebEduDataset(IterableDataset):
         However, in most models, a portion of the embedding dim is reserved for newly added tokens, 
         so resize is omitted here
         """
-        collator = TextDllmCollator(
-            p_min=self.p_min,
-            p_max=self.p_max,
-            tokenizer=self.processor.tokenizer,
-            pad_to_multiple_of=8,
-            return_tensors="pt",
-        )
+        if self.collator_type == "dllm":
+            collator = TextDllmCollator(
+                p_min=self.p_min,
+                p_max=self.p_max,
+                tokenizer=self.processor.tokenizer,
+                pad_to_multiple_of=8,
+                return_tensors="pt",
+            )
+        elif self.collator_type == "default":
+            collator = DataCollatorForLanguageModeling(
+                tokenizer=self.processor.tokenizer,
+                mlm=False,
+                pad_to_multiple_of=8,
+                return_tensors="pt",
+            )
         return collator
 
     def _build_processor(self):

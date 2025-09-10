@@ -401,3 +401,100 @@ class Trainer(HFTrainer):
         # Hf avg across every process, we scale the loss first such that the mean is over dp group
         loss = loss * get_ulysses_sequence_parallel_world_size()
         return (loss, outputs) if return_outputs else loss
+
+    def create_optimizer(self):
+        args = self.args
+        if args.use_muon:
+            if self.optimizer is None:
+                model = self.model
+
+                def params_grouping(opt_model):
+                    decay_parameters = self.get_decay_parameter_names(opt_model)
+                    decay_muon_params_list = []
+                    decay_adam_params_list = []
+                    no_decay_muon_params_list = []
+                    no_decay_adam_params_list = []
+                    for name, param in opt_model.named_parameters():
+                        if not param.requires_grad:
+                            continue
+                        patterns = [
+                            "emb",
+                            "norm",
+                            "lm_head",
+                            "bias",
+                            "wte",
+                            "wpe",
+                            "output",
+                            "a_proj",
+                            "b_proj",
+                            "conv1d",
+                            "rotary",
+                        ]
+                        weight_decay = (
+                            args.weight_decay if name not in decay_parameters else 0.0
+                        )
+                        use_muon = (param.ndim == 2) and (
+                            not (any(pattern in name for pattern in patterns))
+                        )
+                        param.use_muon = use_muon
+                        if use_muon and weight_decay > 0.0:
+                            decay_muon_params_list.append(param)
+                        elif use_muon and weight_decay == 0.0:
+                            no_decay_muon_params_list.append(param)
+                        elif not use_muon and weight_decay > 0.0:
+                            decay_adam_params_list.append(param)
+                        elif not use_muon and weight_decay == 0.0:
+                            no_decay_adam_params_list.append(param)
+
+                    params_groups = [
+                        {
+                            "params": decay_muon_params_list,
+                            "use_muon": True,
+                            "lr": args.learning_rate,
+                            "momentum": 0.95,
+                            "weight_decay": args.weight_decay,
+                        },
+                        {
+                            "params": no_decay_muon_params_list,
+                            "use_muon": True,
+                            "lr": args.learning_rate,
+                            "momentum": 0.95,
+                            "weight_decay": 0.0,
+                        },
+                        {
+                            "params": decay_adam_params_list,
+                            "use_muon": False,
+                            "lr": args.learning_rate,
+                            "betas": (args.adam_beta1, args.adam_beta2),
+                            "eps": args.adam_epsilon,
+                            "weight_decay": args.weight_decay,
+                        },
+                        {
+                            "params": no_decay_adam_params_list,
+                            "use_muon": False,
+                            "lr": args.learning_rate,
+                            "betas": (args.adam_beta1, args.adam_beta2),
+                            "eps": args.adam_epsilon,
+                            "weight_decay": 0.0,
+                        },
+                    ]
+                    return params_groups
+
+                if self.is_fsdp_enabled and not self.args.fsdp2:
+                    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+                    with FSDP.summon_full_params(model, writeback=False):
+                        params_groups = params_grouping(model)
+                else:
+                    params_groups = params_grouping(model)
+
+                from lmms_engine.utils.muon_utils import Muon
+
+                self.optimizer = Muon(
+                    params_groups,
+                    defaults=dict(lr=args.learning_rate),
+                    is_deepspeed_enabled=self.is_deepspeed_enabled,
+                )
+                return self.optimizer
+        else:
+            return super().create_optimizer()
