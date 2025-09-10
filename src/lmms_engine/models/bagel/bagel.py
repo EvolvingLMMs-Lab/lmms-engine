@@ -165,6 +165,7 @@ class Bagel(PreTrainedModel):
         packed_vae_token_indexes: Optional[torch.LongTensor] = None,
         packed_timesteps: Optional[torch.LongTensor] = None,
         mse_loss_indexes: Optional[torch.BoolTensor] = None,
+        **kwargs,
     ) -> torch.Tensor:
         """
         Args:
@@ -1312,6 +1313,10 @@ class Bagel(PreTrainedModel):
         state_dict = load_file(os.path.join(model_path, "ema.safetensors"))
         # ae.safetensors is not loaded
         model.load_state_dict(state_dict, assign=True, strict=False)
+        torch_dtype = getattr(
+            kwargs, "torch_dtype", getattr(kwargs, "dtype", torch.bfloat16)
+        )
+        model = model.to(torch_dtype)
 
         return model
 

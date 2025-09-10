@@ -30,14 +30,25 @@ class BagelCollator:
                 inputs[key].append(values)
 
         batched_inputs = collections.defaultdict(list)
+        sequence_length = inputs.pop("sequence_length")
+        sample_lens = inputs.pop("sample_lens")
         for keys, values in inputs.items():
             if isinstance(values[0], torch.Tensor):
-                batched_inputs[keys] = torch.stack(values, dim=0)
+                batched_inputs[keys] = torch.concatenate(values, dim=0)
             elif isinstance(values[0], list):
                 for value in values:
                     batched_inputs[keys].extend(value)
             else:
                 batched_inputs[keys].append(values)
+
+        batched_inputs["sequence_length"] = (
+            torch.tensor(sequence_length).flatten().sum()
+        )
+        batched_inputs["sample_lens"] = torch.tensor(sample_lens)
+        batched_inputs.pop("curr")
+        batched_inputs["patchified_vae_latent_shapes"] = torch.tensor(
+            batched_inputs["patchified_vae_latent_shapes"]
+        )
 
         # Fake input ids for packing
         # seq_len = sum(batched_inputs['sample_lens'])
@@ -45,7 +56,9 @@ class BagelCollator:
         # vae_length = getattr(batched_inputs, 'packed_vae_token_indexes', torch.tensor(0)).shape[0]
         # vit_length = getattr(batched_inputs, 'packed_vit_token_indexes', torch.tensor(0)).shape[0]
         # assert seq_len == (text_length + vae_length + vit_length)
-        return batched_inputs
+
+        # Make batched input a dict to send to device
+        return dict(batched_inputs)
 
     @property
     def image_token_id(self):
