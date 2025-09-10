@@ -160,9 +160,10 @@ class BagelDataProcessor:
             )
         )
         data = self.to_tensor(sequence_status)
-        import pdb
-
-        pdb.set_trace()
+        # Fake input ids for packing
+        data["input_ids"] = torch.zeros(data["sequence_length"], dtype=torch.long)
+        data["attention_mask"] = torch.ones(data["sequence_length"], dtype=torch.long)
+        data["curr"] = curr
 
         return data
 
