@@ -21,6 +21,7 @@ from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import flex_attention
 from torch.nn.functional import scaled_dot_product_attention
+from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.utils import ModelOutput
 
 from .cache_utils import (
@@ -800,7 +801,7 @@ class PackedAttentionMoT(Qwen2Attention):
         return packed_attn_output, past_key_values
 
 
-class Qwen2DecoderLayer(nn.Module):
+class Qwen2DecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx: Optional[int] = None):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -884,7 +885,7 @@ class Qwen2DecoderLayer(nn.Module):
         return packed_query_sequence, past_key_values
 
 
-class Qwen2MoTDecoderLayer(nn.Module):
+class Qwen2MoTDecoderLayer(GradientCheckpointingLayer):
     def __init__(
         self,
         config,
@@ -1073,7 +1074,7 @@ class Qwen2MoTDecoderLayer(nn.Module):
         return packed_query_sequence, past_key_values
 
 
-class Qwen2MoEDecoderLayer(nn.Module):
+class Qwen2MoEDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config, layer_idx: Optional[int] = None):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -1218,6 +1219,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
         self.rotary_emb = Qwen2RotaryEmbedding(config=config)
 
         # Initialize weights and apply final processing
+        self.gradient_checkpointing = False
         self.post_init()
 
     def forward(self, *args, **kwargs):
