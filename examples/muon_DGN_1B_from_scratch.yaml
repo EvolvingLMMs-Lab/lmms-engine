@@ -1,0 +1,72 @@
+- type: trainer
+  config:
+    trainer_type: hf_trainer
+    dataset_config:
+      dataset_type: fineweb_edu
+      dataset_format: hf_dataset
+      dataset_path: HuggingFaceFW/fineweb-edu
+      packing_length: 2048
+      processor_config:
+        processor_name: "Qwen/Qwen3-0.6B"
+        processor_type: "pure_text"
+      extra_kwargs:
+        # collator_type: dllm
+        collator_type: default
+
+    model_config:
+      load_from_config:
+        model_type: gated_deltanet
+        # config:
+          # torch_dtype: bfloat16
+          # attn_implementation: flash_attention_2
+          # vocab_size: 151936
+          # hidden_size: 1024
+          # intermediate_size: 4096
+          # num_hidden_layers: 24
+          # use_cache: false
+        config : 
+            vocab_size : 151936
+            hidden_size : 1024
+            intermediate_size : 4096
+            num_hidden_layers: 24
+    per_device_train_batch_size: 32 # it should be multiple of world_size if we set split_batches to true
+    use_muon: true
+    # optim_args: lr=0.001,weight_decay=0.01,momentum=0.9,nesterov=true,ns_steps=5
+    # optim: adamw_torch
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_epsilon: 1.0e-8
+    learning_rate: 0.001
+    weight_decay: 0.01
+
+    gradient_accumulation_steps: 16
+    gradient_checkpointing: true
+    max_steps: 10000
+    save_steps: 100
+    save_total_limit: 1
+    warmup_steps: 1000
+    report_to: wandb
+    output_dir: ./output/debug1141
+    run_name: lmms_engine_GDN_test_fineweb_edu_muon
+    eval_strategy: "no"
+    logging_steps: 10
+    seed: 42
+    dataloader_num_workers: 4
+    bf16: true
+    fp16: false
+    accelerator_config:
+      split_batches: true
+    lr_scheduler_type: cosine
+    use_liger_kernel: false
+    use_rmpad: true
+    include_num_input_tokens_seen: true
+    dataloader_drop_last: true
+    sp_ulysses_degree: 1
+    fsdp2: true
+    fsdp_config:
+      # backward_prefetch: backward_pre
+      # transformer_layer_cls_to_wrap: ["GatedDeltaNetBlock"]
+      # sync_module_states: true
+      # cpu_ram_efficient_loading: true
+
+    # deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
