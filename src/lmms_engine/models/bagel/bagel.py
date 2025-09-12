@@ -338,9 +338,11 @@ class Bagel(PreTrainedModel):
         if self.config.visual_gen:
             mse = loss_dict["mse"]
             total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
-            dist.all_reduce(total_mse_tokens, op=dist.ReduceOp.SUM)
-            mse = mse.mean(dim=-1).sum() * dist.get_world_size() / total_mse_tokens
-            loss_dict["mse"] = mse.detach()
+            # dist.all_reduce(total_mse_tokens, op=dist.ReduceOp.SUM)
+            # mse = mse.mean(dim=-1).sum() * dist.get_world_size() / total_mse_tokens
+            # loss_dict["mse"] = mse.detach()
+            mse = mse.mean(dim=-1).sum() / total_mse_tokens
+            loss_dict["mse"] = mse
             loss = loss + mse * self.config.mse_weight
         else:
             assert not self.config.visual_gen
