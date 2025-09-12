@@ -51,9 +51,9 @@ class BagelDataProcessor:
         self.max_image_size = getattr(self.config.extra_kwargs, "max_image_size", 1024)
         self.min_image_size = getattr(self.config.extra_kwargs, "min_image_size", 512)
         self.image_transform = ImageTransform(
+            self.image_stride,
             self.max_image_size,
             self.min_image_size,
-            self.image_stride,
         )
         return processor
 
@@ -79,10 +79,9 @@ class BagelDataProcessor:
         """
         A wrapper method to process single data
         """
-        images = [] if images is None else images
         image_tensor = [self.image_transform(image) for image in images]
         image_index = 0
-        text_entries = []
+        text = []
         vae_images = []
         vit_images = []
         sequence_status = self.set_sequence_status()
@@ -90,8 +89,8 @@ class BagelDataProcessor:
         for message in hf_messages:
             role = message["role"]
             for content in message["content"]:
-                if content["type"] == "text":
-                    text_entries.append((content["text"], role))
+                if content["type"] == "text" and role == "user":
+                    text.append(content["text"])
                     process_order.append("text")
                 elif content["type"] == "image" and role == "assistant":
                     vae_images.append(image_tensor[image_index])
@@ -100,7 +99,6 @@ class BagelDataProcessor:
                 elif content["type"] == "image" and role == "user":
                     vit_images.append(image_tensor[image_index])
                     image_index += 1
-                    process_order.append("vit_image")
 
         curr = 0
         curr_split_len = 0
@@ -115,14 +113,9 @@ class BagelDataProcessor:
                     curr_split_len,
                     curr_rope_id,
                 ) = self.process_text(
-                    text_entries[0][0],
-                    text_entries[0][1],
-                    sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
+                    text[0], role, sequence_status, curr, curr_split_len, curr_rope_id
                 )
-                text_entries.pop(0)
+                text.pop(0)
             elif order == "vae_image":
                 (
                     attn_modes,
@@ -134,12 +127,13 @@ class BagelDataProcessor:
                     vae_images[0],
                     role,
                     sequence_status,
-                    curr_rope_id,
                     curr,
                     curr_split_len,
+                    curr_rope_id,
                 )
                 vae_images.pop(0)
             elif order == "vit_image":
+                # TODO: implement vit image processing
                 (
                     attn_modes,
                     sequence_status,
@@ -159,12 +153,10 @@ class BagelDataProcessor:
 
         sequence_status["attn_modes"] = full_attn_modes
         sequence_status["curr"] = curr
-        # record per-sample total length
-        sequence_status["sample_lens"].append(curr)
-        # build nested attention mask using split lengths and attn modes
+        sequence_status["sample_lens"].append(curr_split_len)
         sequence_status["nested_attention_masks"].append(
             prepare_attention_mask_per_sample(
-                sequence_status["split_lens"], sequence_status["attn_modes"]
+                sequence_status["sample_lens"], sequence_status["attn_modes"]
             )
         )
         data = self.to_tensor(sequence_status)
@@ -191,7 +183,7 @@ class BagelDataProcessor:
         sequence_status["packed_text_indexes"].extend(
             range(curr, curr + len(shifted_text_ids))
         )
-        if role == "assistant":
+        if role == "user":
             sequence_status["ce_loss_indexes"].extend(
                 range(curr, curr + len(shifted_text_ids))
             )
@@ -213,11 +205,7 @@ class BagelDataProcessor:
         sequence_status["packed_position_ids"].extend(
             range(curr_rope_id, curr_rope_id + curr_split_len)
         )
-        # record split length for attention planning, then advance rope id
-        sequence_status["split_lens"].append(curr_split_len)
         curr_rope_id += curr_split_len
-        # reset current split length for next segment
-        curr_split_len = 0
         return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
 
     def process_vae_image(
@@ -272,64 +260,6 @@ class BagelDataProcessor:
         sequence_status["packed_position_ids"].extend(
             [curr_rope_id] * (num_img_tokens + 2)
         )
-        # record split length for attention planning
-        sequence_status["split_lens"].append(num_img_tokens + 2)
-        # image uses a single rope step
-        curr_rope_id += 1
-        # reset current split length for next segment
-        curr_split_len = 0
-
-        return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
-
-    def process_vit_image(
-        self,
-        image_tensor: torch.Tensor,
-        role: str,
-        sequence_status: dict,
-        curr: int,
-        curr_split_len: int,
-        curr_rope_id: int,
-    ):
-        attn_modes = []
-        # add a <|startofimage|> token
-        sequence_status["packed_text_ids"].append(self.start_of_image)
-        sequence_status["packed_text_indexes"].append(curr)
-        curr += 1
-        curr_split_len += 1
-
-        # ViT patch tokens + positions
-        vit_pos_ids = self.get_flattened_position_ids(
-            image_tensor.size(1),
-            image_tensor.size(2),
-            self.vit_patch_size,
-            max_num_patches_per_side=self.max_num_patch_per_side,
-        )
-        vit_tokens = patchify(image_tensor, self.vit_patch_size)
-        sequence_status["packed_vit_tokens"].append(vit_tokens)
-        num_img_tokens = vit_tokens.shape[0]
-        sequence_status["packed_vit_position_ids"].append(vit_pos_ids)
-        sequence_status["vit_token_seqlens"].append(num_img_tokens)
-        sequence_status["packed_vit_token_indexes"].extend(
-            range(curr, curr + num_img_tokens)
-        )
-        curr += num_img_tokens
-        curr_split_len += num_img_tokens
-
-        # add a <|endofimage|> token
-        sequence_status["packed_text_ids"].append(self.end_of_image)
-        sequence_status["packed_text_indexes"].append(curr)
-        curr += 1
-        curr_split_len += 1
-
-        # attention mode full for ViT tokens
-        attn_modes.append("full")
-        sequence_status["packed_position_ids"].extend(
-            [curr_rope_id] * (num_img_tokens + 2)
-        )
-        # record split length and advance rope id by 1 (image-level position)
-        sequence_status["split_lens"].append(num_img_tokens + 2)
-        curr_rope_id += 1
-        curr_split_len = 0
 
         return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
 
@@ -440,7 +370,7 @@ class BagelDataProcessor:
 
     @property
     def tokenizer(self):
-        return self.processor
+        return self.tokenizer
 
     def add_special_tokens(self, tokenizer):
         all_special_tokens = []
