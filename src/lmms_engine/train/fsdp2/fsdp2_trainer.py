@@ -237,21 +237,8 @@ class FSDP2SFTTrainer:
             raise NotImplementedError("Evaluation is not implemented")
         self.prepare_optimizer()
 
-        # For Dataset, we can calculate the steps per epoch
-        # For IterableDataset, we can't calculate the steps per epoch
-        # because the number of steps is not fixed, unless max_steps is set
-        if isinstance(self.train_dataset, IterableDataset):
-            self.steps_per_epoch = (
-                None if self.args.max_steps < 0 else self.args.max_steps
-            )
-            self.total_steps = None if self.args.max_steps < 0 else self.args.max_steps
-        else:
-            self.steps_per_epoch = len(train_dataloader)
-            self.total_steps = (
-                self.steps_per_epoch * self.args.num_train_epochs
-                if self.args.max_steps < 0
-                else self.args.max_steps
-            )
+        # Validate config for IterableDataset and Dataset
+        self.prepare_and_validate_config()
 
         warmup_steps = (
             int(self.total_steps * self.args.warmup_ratio)
@@ -282,19 +269,9 @@ class FSDP2SFTTrainer:
                 os.path.join(self.args.output_dir, latest_checkpoint),
                 int(latest_checkpoint.split("-")[1]),
             )
-            # If max_steps is set, we need to calculate the start epoch
-            if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
-                start_epoch = (
-                    int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
-                )
-                # start_epoch is a float, we need to convert it to an integer
-                start_epoch = int(start_epoch)
-            else:
-                Logging.warning(
-                    "IterableDataset is used but we can't determine the start epoch, set to 0"
-                )
-                start_epoch = 0
-                self.args.num_train_epochs = 1
+            start_epoch = int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
+            # start_epoch is a float, we need to convert it to an integer
+            start_epoch = int(start_epoch)
             self.global_step = int(latest_checkpoint.split("-")[1])
             need_update_pbar = True
         else:
@@ -302,25 +279,29 @@ class FSDP2SFTTrainer:
             self.global_step = 0
             need_update_pbar = False
 
-        Logging.info(f"Training with {self.args.num_train_epochs} epochs")
+        Logging.info(
+            f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps"
+        )
         self.step_profiler.start()
 
-        for epoch in range(start_epoch, self.args.num_train_epochs):
+        curr_epoch = start_epoch
+
+        pbar = tqdm(
+            total=self.total_steps, desc="Training", disable=dist.get_rank() != 0
+        )
+        while not self.should_stop():
             if hasattr(self.train_dataloader.sampler, "set_epoch"):
-                self.train_dataloader.sampler.set_epoch(epoch)
-            pbar = tqdm(
-                total=self.steps_per_epoch,
-                desc=f"Epoch {epoch + 1}",
-                disable=dist.get_rank() != 0,
-            )
+                self.train_dataloader.sampler.set_epoch(curr_epoch)
+
             # if the checkpoint is loaded, we need to update the pbar
             # but we only need to update the pbar once
             if need_update_pbar:
-                update_step = self.global_step % self.steps_per_epoch
+                update_step = self.global_step
                 pbar.update(update_step)
                 need_update_pbar = False
+
             for step, batch in enumerate(self.train_dataloader):
-                if self.global_step >= self.args.max_steps and self.args.max_steps > 0:
+                if self.should_stop():
                     break
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
@@ -375,7 +356,7 @@ class FSDP2SFTTrainer:
 
                 train_metrics["train/mfu"] = round(mfu, 2)
 
-                if self.steps_per_epoch is not None:
+                if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
                     epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
                     train_metrics["train/epoch"] = float(epoch_progress)
                 if rank == 0:
@@ -397,11 +378,12 @@ class FSDP2SFTTrainer:
                 ):
                     self.empty_cache()
                 pbar.update(1)
-            pbar.close()
+            curr_epoch += 1
 
             if self.eval_dataset is not None:
                 raise NotImplementedError("Evaluation is not implemented")
 
+        pbar.close()
         # Save the final checkpoint
         output_dir = os.path.join(
             self.args.output_dir, f"checkpoint-{self.global_step}"
@@ -525,6 +507,32 @@ class FSDP2SFTTrainer:
             "numpy": np.random.get_state(),
             "random": random.getstate(),
         }
+
+    def prepare_and_validate_config(self):
+        if isinstance(self.train_dataset, IterableDataset):
+            is_iterable_dataset = True
+        else:
+            is_iterable_dataset = False
+
+        if is_iterable_dataset:
+            assert self.args.max_steps > 0, "max_steps must be set for IterableDataset"
+            if self.args.num_train_epochs > 1:
+                Logging.warning("num_train_epochs will be ignored for IterableDataset")
+                self.args.num_train_epochs = 1
+            self.steps_per_epoch = self.args.max_steps
+            self.total_steps = self.args.max_steps
+        else:
+            self.steps_per_epoch = len(self.train_dataloader)
+            self.total_steps = (
+                self.steps_per_epoch * self.args.num_train_epochs
+                if self.args.max_steps < 0
+                else self.args.max_steps
+            )
+
+    def should_stop(self):
+        if self.global_step >= self.total_steps and self.total_steps > 0:
+            return True
+        return False
 
     def load_rng_state(self, rng_state):
         torch.set_rng_state(rng_state["cpu"])
