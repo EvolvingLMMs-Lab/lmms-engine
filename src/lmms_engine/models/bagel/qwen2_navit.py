@@ -20,7 +20,6 @@ from flash_attn import flash_attn_varlen_func
 from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import flex_attention
-import os
 from torch.nn.functional import scaled_dot_product_attention
 from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.utils import ModelOutput
@@ -43,24 +42,8 @@ from .qwen2.modeling_qwen2 import (
 
 torch._dynamo.config.cache_size_limit = 512
 torch._dynamo.config.accumulated_cache_size_limit = 4096
-# Gate flex_attention compilation by env var to avoid slow imports by default
-if os.environ.get("LMMS_BAGEL_COMPILE_FLEX_ATTENTION", "0") == "1":
-    # flex_attention = torch.compile(flex_attention) # , dynamic=True, mode='max-autotune'
-    flex_attention = torch.compile(flex_attention)
-
-
-def maybe_compile_flex_attention():
-    """Compile flex_attention on demand.
-
-    Useful when avoiding import-time compilation while still allowing
-    config-driven opt-in later.
-    """
-    global flex_attention
-    try:
-        flex_attention = torch.compile(flex_attention)
-    except Exception:
-        # Leave as-is if compilation not supported
-        pass
+# flex_attention = torch.compile(flex_attention) # , dynamic=True, mode='max-autotune'
+flex_attention = torch.compile(flex_attention)
 
 
 class Qwen2Config(_Qwen2Config):
