@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from expert_parallel import expert_parallel
+from lmms_engine.parallel.expert_parallel.expert_parallel import expert_parallel
 
 
 @dataclass
