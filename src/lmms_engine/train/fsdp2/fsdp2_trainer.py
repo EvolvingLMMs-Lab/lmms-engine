@@ -22,6 +22,7 @@ import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
+from lmms_engine.utils import Logging, TrainUtilities
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
@@ -30,7 +31,6 @@ from lmms_engine.utils.fsdp2_utils import (
     get_cosine_schedule_with_warmup,
     get_wsd_schedule_with_warmup,
 )
-from lmms_engine.utils.logging_utils import Logging
 from lmms_engine.utils.profiler import StepProfiler
 from lmms_engine.utils.tracking import Tracking
 
@@ -247,6 +247,7 @@ class FSDP2SFTTrainer:
         )
         self.prepare_scheduler(warmup_steps, self.total_steps)
         rank = dist.get_rank()
+        world_size = dist.get_world_size()
         # Initialize tracking
         if rank == 0:
             self.tracking = Tracking(
@@ -256,6 +257,7 @@ class FSDP2SFTTrainer:
                 config=self.args,
             )
 
+        self.total_tokens = 0
         if resume_from_checkpoint:
             # Search for the latest checkpoint in the output_dir
             checkpoints = [
@@ -355,6 +357,17 @@ class FSDP2SFTTrainer:
                 train_metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
 
                 train_metrics["train/mfu"] = round(mfu, 2)
+                self.total_tokens += seq_len.sum().item()
+
+                tokens_per_second = seq_len.sum().item() / delta_time
+                tokens_per_gpu = tokens_per_second / sp_size / world_size
+
+                # Log total tokens and total tokens per second
+                train_metrics["train/total_tokens"] = TrainUtilities.format_tokens(
+                    self.total_tokens
+                )
+                train_metrics["train/tokens_per_second"] = round(tokens_per_second)
+                train_metrics["train/tokens_per_gpu"] = round(tokens_per_gpu)
 
                 if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
                     epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
@@ -448,6 +461,7 @@ class FSDP2SFTTrainer:
         extra_state = {
             "lr_scheduler_state": self.scheduler.state_dict(),
             "rng": self.get_rng_state(),
+            "total_tokens": self.total_tokens,
         }
         torch.save(extra_state, extra_state_path)
         torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
@@ -494,6 +508,7 @@ class FSDP2SFTTrainer:
         self.fsdp2_model.load_state_dict(model_state_dict)
         self.optimizer.load_state_dict(torch.load(optim_path, weights_only=False))
         extra_state = torch.load(extra_state_path, weights_only=False)
+        self.total_tokens = extra_state["total_tokens"]
         self.load_rng_state(extra_state["rng"])
         self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
         self.train_dataloader.load_state_dict(

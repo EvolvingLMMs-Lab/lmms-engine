@@ -65,7 +65,13 @@ class Tracking:
 
     def log(self, data, step=None):
         if "wandb" in self.logger:
-            self.logger["wandb"].log(data, step=step)
+            wandb_data = {}
+            for key, value in data.items():
+                if isinstance(value, str):
+                    continue
+                else:
+                    wandb_data[key] = value
+            self.logger["wandb"].log(wandb_data, step=step)
 
         # format console log
         print(f"{data}, step={step}")
