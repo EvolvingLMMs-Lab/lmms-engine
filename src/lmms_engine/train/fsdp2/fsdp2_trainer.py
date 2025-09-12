@@ -315,9 +315,10 @@ class FSDP2SFTTrainer:
                     self.step_profiler.stop_trace()
                 end_time = time.perf_counter()
                 delta_time = end_time - start_time
+                attention_mask = batch.get("attention_mask", torch.tensor(0))
                 seq_len = (
-                    batch.get("attention_mask", torch.tensor(0))
-                    .sum(dim=1)
+                    attention_mask
+                    .sum(dim=min(1, attention_mask.ndim - 1))
                     .detach()
                     .cpu()
                     .tolist()

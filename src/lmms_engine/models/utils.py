@@ -2,6 +2,7 @@ import torch
 from transformers import PretrainedConfig
 
 from lmms_engine.utils import Logging, TrainUtilities
+from typing import Iterable
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
@@ -61,9 +62,12 @@ class FlopsCounter:
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
+            "bagel": self._estimate_qwen2_flops,
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
+        elif config.model_type == "bagel":
+            self.config = config.llm_config
         else:
             self.config = config
 
@@ -232,6 +236,8 @@ class FlopsCounter:
             estimated_flops (float): The estimated FLOPS based on the input tokens and time.
             promised_flops (float): The expected FLOPS of the current device.
         """
+        if not isinstance(batch_seqlens, Iterable):
+            batch_seqlens = [batch_seqlens]
         tokens_sum = sum(batch_seqlens)
         func = self.estimate_func.get(
             self.config.model_type, self._estimate_unknown_flops
