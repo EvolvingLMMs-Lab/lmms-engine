@@ -26,7 +26,12 @@ from .data_utils import (
     patchify,
 )
 from .modeling_utils import MLPconnector, PositionEmbedding, TimestepEmbedder
-from .qwen2_navit import NaiveCache, Qwen2Config, Qwen2ForCausalLM
+from .qwen2_navit import (
+    NaiveCache,
+    Qwen2Config,
+    Qwen2ForCausalLM,
+    maybe_compile_flex_attention,
+)
 from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
 
 
@@ -84,6 +89,7 @@ class BagelLoaderExtraConfig(BaseModel):
     connector_act: str = "gelu_pytorch_tanh"
     interpolate_pos: bool = False
     timestep_shift: float = 1.0
+    compile_flex_attention: bool = False
 
 
 class Bagel(PreTrainedModel):
@@ -153,6 +159,7 @@ class Bagel(PreTrainedModel):
         # for visual understanding
         ce_loss_indexes: Optional[torch.BoolTensor] = None,
         packed_label_ids: Optional[torch.LongTensor] = None,
+        ce_loss_weights: Optional[torch.FloatTensor] = None,
         packed_vit_tokens: Optional[torch.Tensor] = None,
         packed_vit_token_indexes: Optional[torch.LongTensor] = None,
         packed_vit_position_ids: Optional[torch.LongTensor] = None,
@@ -307,8 +314,22 @@ class Bagel(PreTrainedModel):
                 last_hidden_state[ce_loss_indexes]
             )
             ce = F.cross_entropy(packed_ce_preds, packed_label_ids, reduction="none")
+        # Aggregate scalar loss for HF Trainer integration
+        loss = None
+        if ce is not None:
+            if ce_loss_weights is not None:
+                # weights aligned with CE tokens
+                if ce_loss_weights.dtype != ce.dtype:
+                    ce_loss_weights = ce_loss_weights.to(ce.dtype)
+                ce_mean = (ce * ce_loss_weights).mean()
+            else:
+                ce_mean = ce.mean()
+            loss = ce_mean if loss is None else loss + ce_mean
+        if mse is not None:
+            mse_mean = mse.mean()
+            loss = mse_mean if loss is None else loss + mse_mean
 
-        return dict(mse=mse, ce=ce)
+        return dict(loss=loss, mse=mse, ce=ce)
 
     def prepare_prompts(
         self, curr_kvlens, curr_rope, prompts, tokenizer, new_token_ids
@@ -1299,6 +1320,10 @@ class Bagel(PreTrainedModel):
                     vit_config, meta=True
                 )
 
+        # Configure optional attention compilation
+        if training_config.compile_flex_attention:
+            maybe_compile_flex_attention()
+
         if training_config.freeze_vae and training_config.visual_gen:
             for param in vae_model.parameters():
                 param.requires_grad = False
@@ -1313,9 +1338,7 @@ class Bagel(PreTrainedModel):
         state_dict = load_file(os.path.join(model_path, "ema.safetensors"))
         # ae.safetensors is not loaded
         model.load_state_dict(state_dict, assign=True, strict=False)
-        torch_dtype = getattr(
-            kwargs, "torch_dtype", getattr(kwargs, "dtype", torch.bfloat16)
-        )
+        torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", torch.bfloat16))
         model = model.to(torch_dtype)
 
         return model
@@ -1326,3 +1349,81 @@ class Bagel(PreTrainedModel):
         self.language_model.model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs
         )
+
+    @classmethod
+    def from_config(cls, config: BagelConfig, *args, **kwargs):
+        """Initialize a Bagel model from a config without external checkpoints.
+
+        Builds lightweight Qwen2 + SigLIP + VAE components with random weights.
+        Training-time extras can be provided via `training_config` in kwargs.
+        """
+        training_config = kwargs.get("training_config", {})
+        for k, v in training_config.items():
+            if hasattr(config, k):
+                setattr(config, k, v)
+        training_config = BagelLoaderExtraConfig(**training_config)
+
+        # Qwen2 LLM config (small for minimal runs)
+        llm_config = config.llm_config
+        if llm_config is None:
+            llm_config = Qwen2Config(
+                vocab_size=32000,
+                hidden_size=256,
+                intermediate_size=1024,
+                num_hidden_layers=2,
+                num_attention_heads=4,
+                num_key_value_heads=4,
+                qk_norm=training_config.llm_qk_norm,
+                layer_module=training_config.layer_module,
+                _attn_implementation="sdpa",
+                freeze_und=training_config.freeze_und,
+            )
+        # SigLIP ViT config (small)
+        vit_config = config.vit_config
+        if vit_config is None:
+            vit_config = SiglipVisionConfig(
+                hidden_size=256,
+                intermediate_size=1024,
+                num_hidden_layers=2,
+                num_attention_heads=4,
+                patch_size=14,
+                image_size=224,
+            )
+
+        # VAE
+        vae_model, vae_config = load_ae(local_path=None)
+
+        config.llm_config = llm_config
+        config.vit_config = vit_config
+        config.vae_config = vae_config
+
+        with init_empty_weights():
+            language_model = Qwen2ForCausalLM(llm_config)
+            vit_model = SiglipVisionModel(vit_config)
+            model = Bagel(language_model, vit_model, vae_model, config)
+            if config.visual_und:
+                model.vit_model.vision_model.embeddings.convert_conv2d_to_linear(
+                    vit_config, meta=True
+                )
+
+        # Freezing controls
+        if training_config.freeze_vae and training_config.visual_gen:
+            for param in vae_model.parameters():
+                param.requires_grad = False
+        if training_config.freeze_llm:
+            model.language_model.eval()
+            for param in model.language_model.parameters():
+                param.requires_grad = False
+        if training_config.freeze_vit and training_config.visual_und:
+            model.vit_model.eval()
+            for param in model.vit_model.parameters():
+                param.requires_grad = False
+
+        # Optional attention compilation
+        if training_config.compile_flex_attention:
+            maybe_compile_flex_attention()
+
+        torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", torch.bfloat16))
+        model = model.to(torch_dtype)
+
+        return model

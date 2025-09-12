@@ -12,3 +12,5 @@ class ModelConfig(Args):
     ] = "sdpa"
     overwrite_config: Optional[Dict[str, str]] = None
     monkey_patch_kwargs: Optional[Dict[str, Any]] = None
+    # forwarded to model.from_pretrained/from_config as kwargs
+    extra_kwargs: Optional[Dict[str, Any]] = None

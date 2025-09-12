@@ -63,7 +63,7 @@ class TrainRunner:
     def _build_model(self):
         load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
-        model_kwargs = self.model_config.extra_kwargs
+        model_kwargs = self.model_config.extra_kwargs or {}
         if load_from_pretrained_path is not None:
             model_class = create_model_from_pretrained(load_from_pretrained_path)
             model = model_class.from_pretrained(
