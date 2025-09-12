@@ -4,6 +4,8 @@
 
 import os
 from typing import Any, Dict, List, Optional, Tuple
+import torch.distributed as dist
+
 
 import torch
 from accelerate import init_empty_weights
@@ -46,6 +48,8 @@ class BagelConfig(PretrainedConfig):
         connector_act="gelu_pytorch_tanh",
         interpolate_pos=False,
         timestep_shift=1.0,
+        ce_weight = 1.0,
+        mse_weight = 1.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -60,6 +64,8 @@ class BagelConfig(PretrainedConfig):
         self.connector_act = connector_act
         self.interpolate_pos = interpolate_pos
         self.timestep_shift = timestep_shift
+        self.ce_weight = ce_weight
+        self.mse_weight = mse_weight
 
 
 class BagelLoaderExtraConfig(BaseModel):
@@ -308,7 +314,45 @@ class Bagel(PreTrainedModel):
             )
             ce = F.cross_entropy(packed_ce_preds, packed_label_ids, reduction="none")
 
-        return dict(mse=mse, ce=ce)
+        loss_dict = dict(mse=mse, ce=ce)
+        
+        loss = 0
+        if ce is not None:
+            total_ce_tokens = torch.tensor(len(ce_loss_indexes), device=self.device)
+            dist.all_reduce(total_ce_tokens, op=dist.ReduceOp.SUM)
+            if self.config.ce_loss_reweighting: # TODO: add ce_loss_reweighting
+                ce_loss_weights = kwargs.get("ce_loss_weights", []) # TODO: check if this is correct
+                ce = ce * ce_loss_weights
+                total_ce_loss_weights = ce_loss_weights.sum()
+                dist.all_reduce(total_ce_loss_weights, op=dist.ReduceOp.SUM)
+                ce = ce.sum() * dist.get_world_size() / total_ce_loss_weights
+            else:
+                ce = ce.sum() * dist.get_world_size() / total_ce_tokens
+            loss_dict["ce"] = ce.detach()
+            loss = loss + ce * self.config.ce_weight # TODO: check if this is correct
+        else:
+            assert not self.config.visual_und
+            loss_dict["ce"] = torch.tensor(0, device=self.device)
+            total_ce_tokens = torch.tensor(0, device=self.device)
+
+        if self.config.visual_gen:
+            mse = loss_dict["mse"]
+            total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
+            dist.all_reduce(total_mse_tokens, op=dist.ReduceOp.SUM)
+            mse = mse.mean(dim=-1).sum() * dist.get_world_size() / total_mse_tokens
+            loss_dict["mse"] = mse.detach()
+            loss = loss + mse * self.config.mse_weight
+        else:
+            assert not self.config.visual_gen
+            loss_dict["mse"] = torch.tensor(0, device=self.device)
+            total_mse_tokens = torch.tensor(0, device=self.device)
+        
+        return {
+            "loss": loss,
+            "loss_dict": loss_dict,
+            "total_ce_tokens": total_ce_tokens,
+            "total_mse_tokens": total_mse_tokens,
+        }
 
     def prepare_prompts(
         self, curr_kvlens, curr_rope, prompts, tokenizer, new_token_ids

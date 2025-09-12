@@ -3,7 +3,7 @@
 
 - type: trainer
   config:
-    trainer_type: fsdp_trainer
+    trainer_type: fsdp2_trainer
     
     # Dataset configuration - now includes the actual dataset definitions
     dataset_config:
@@ -19,7 +19,7 @@
           # data_folder: ""
           # data_type: arrow 
         - path: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example/dataset_hf.parquet
-          data_folder: ""
+          data_folder: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example
           data_type: parquet
       
       # Processor configuration
@@ -42,6 +42,7 @@
         visual_und: false
     
     # Training arguments, mostly compatible with HuggingFace Trainer
+    max_steps: 10
     per_device_train_batch_size: 1
     learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
     weight_decay: 0.0

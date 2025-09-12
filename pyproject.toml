@@ -48,6 +48,7 @@ dependencies = [
     "einops",
     "pandas",
     "huggingface-hub>=0.34.4",
+    "opencv-python>=4.12.0.88",
 ]
 
 [project.optional-dependencies]
