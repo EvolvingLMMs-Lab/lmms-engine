@@ -168,7 +168,12 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
 
             # Iterate through the dataset once per epoch
             while self.cur_idx < len(self.data_list):
-                data_dict = self.get_one_sample(self.cur_idx)
+                try:
+                    data_dict = self.get_one_sample(self.cur_idx)
+                except Exception as e:
+                    Logging.error(f"Error getting one sample: {e}, skip this sample")
+                    self.cur_idx += 1
+                    continue
                 input_ids = data_dict["input_ids"]
                 data_length = input_ids.shape[0]
                 self.cur_idx += 1
@@ -199,7 +204,12 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
         else:
             self.cur_idx = 0
             while self.cur_idx < len(self.data_list):
-                yield self.get_one_sample(self.cur_idx)
+                try:
+                    yield self.get_one_sample(self.cur_idx)
+                except Exception as e:
+                    Logging.error(f"Error getting one sample: {e}, skip this sample")
+                    self.cur_idx += 1
+                    continue
                 self.cur_idx += 1
 
     def load_from_json(self, data, data_folder=None):

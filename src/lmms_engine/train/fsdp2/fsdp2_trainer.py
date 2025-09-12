@@ -316,6 +316,8 @@ class FSDP2SFTTrainer:
                 end_time = time.perf_counter()
                 delta_time = end_time - start_time
                 attention_mask = batch.get("attention_mask", torch.tensor(0))
+
+                # Calculate flops per rank
                 seq_len = (
                     attention_mask.sum(dim=min(1, attention_mask.ndim - 1))
                     .detach()
@@ -327,19 +329,20 @@ class FSDP2SFTTrainer:
                 )
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)
-                torch.distributed.all_reduce(
-                    flops_tensor, op=torch.distributed.ReduceOp.SUM
-                )
                 sp_size = pgm.process_group_manager.cp_world_size
-                mfu = (
-                    flops_tensor.item()
-                    / self.args.world_size
-                    / sp_size
-                    / promised_flops
-                )
 
-                # Calculating packing stats
+                # Calculate mfu per rank
+                mfu = flops_tensor.item() / sp_size / promised_flops
+                mfu = torch.tensor(mfu, device=device)
+                torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
+                mfu = mfu.item()
+
+                # Calculating token stats
                 seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
+                total_seq_len = seq_len.sum()
+                torch.distributed.all_reduce(
+                    total_seq_len, op=torch.distributed.ReduceOp.SUM
+                )
                 global_seq_len_avg = seq_len.sum()
                 torch.distributed.all_reduce(
                     global_seq_len_avg, op=torch.distributed.ReduceOp.AVG
@@ -357,9 +360,9 @@ class FSDP2SFTTrainer:
                 train_metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
 
                 train_metrics["train/mfu"] = round(mfu, 2)
-                self.total_tokens += seq_len.sum().item()
+                self.total_tokens += total_seq_len.item()
 
-                tokens_per_second = seq_len.sum().item() / delta_time
+                tokens_per_second = total_seq_len.item() / delta_time
                 tokens_per_gpu = tokens_per_second / sp_size / world_size
 
                 # Log total tokens and total tokens per second
