@@ -43,8 +43,8 @@
     
     # Training arguments, mostly compatible with HuggingFace Trainer
     max_steps: 10
-    per_device_train_batch_size: 1
-    learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+    per_device_train_batch_size: 1  # Increased batch size per device for 4 GPUs
+    learning_rate: 4.0e-06 # Scaled learning rate for 4 GPUs (4x base rate)
     weight_decay: 0.0
     gradient_accumulation_steps: 1
     gradient_checkpointing: true
@@ -54,12 +54,12 @@
     report_to: "none"
     output_dir: "./output/debug/test"
     warmup_ratio: 0.0
-    warmup_steps: 100
+    warmup_steps: 25  # Adjusted warmup steps for shorter training (10 max_steps)
     run_name: "debug"
     eval_strategy: "no"
     logging_steps: 1
     group_by_length: false 
-    dataloader_num_workers: 0
+    dataloader_num_workers: 4  # Increased workers for better data loading with 4 GPUs
     bf16: true
     lr_scheduler_type: "constant"
     use_liger_kernel: true
