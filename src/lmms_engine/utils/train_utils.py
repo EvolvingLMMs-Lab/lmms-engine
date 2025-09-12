@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Iterable, List, Union
 
 import deepspeed
@@ -9,6 +10,63 @@ from .logging_utils import Logging
 
 
 class TrainUtilities:
+    @staticmethod
+    def format_tokens(tokens: Union[int, float]) -> str:
+        """Format a token count into a compact string with unit K/M/B/T.
+
+        - Uses a 1,000-based scale (K=1e3, M=1e6, B=1e9, T=1e12)
+        - Produces a short, readable number (up to ~3 significant digits)
+        - Trims trailing zeros and the decimal point when unnecessary
+
+        Examples:
+            532 -> "532"
+            12_345 -> "12.3K"
+            1_234_567 -> "1.23M"
+            98_700_000 -> "98.7M"
+            12_300_000_000 -> "12.3B"
+            1_234_000_000_000 -> "1.23T"
+
+        Args:
+            tokens: Total number of tokens (can be int or float)
+
+        Returns:
+            A compact string representation with an appropriate unit suffix.
+        """
+        # Handle non-finite and None-like inputs gracefully
+        if tokens is None:
+            return "0"
+        try:
+            value = float(tokens)
+        except (TypeError, ValueError):
+            return str(tokens)
+
+        if not math.isfinite(value):
+            return str(tokens)
+
+        sign = "-" if value < 0 else ""
+        value = abs(value)
+
+        units = ["", "K", "M", "B", "T"]
+        idx = 0
+        while value >= 1000.0 and idx < len(units) - 1:
+            value /= 1000.0
+            idx += 1
+
+        # Choose decimals to keep around 3 significant digits
+        if value >= 100:
+            decimals = 0
+        elif value >= 10:
+            decimals = 1
+        else:
+            decimals = 2
+
+        formatted = f"{value:.{decimals}f}"
+        # Strip trailing zeros and unnecessary decimal point
+        if "." in formatted:
+            formatted = formatted.rstrip("0").rstrip(".")
+
+        return f"{sign}{formatted}{units[idx]}"
+
     @staticmethod
     def is_rank_zero():
         if torch.distributed.is_initialized():

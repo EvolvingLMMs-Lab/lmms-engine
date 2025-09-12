@@ -11,6 +11,7 @@ from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from safetensors.torch import load_file
 from torch import nn
+from torch.nn import functional as F
 from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
 from transformers.configuration_utils import PretrainedConfig
@@ -63,7 +64,7 @@ class BagelConfig(PretrainedConfig):
 
 class BagelLoaderExtraConfig(BaseModel):
     visual_gen: bool = Field(default=True)
-    visual_und: bool = Field(default=True)
+    visual_und: bool = Field(default=False)
     layer_module: str = Field(default="Qwen2MoTDecoderLayer")
     llm_qk_norm: bool = Field(default=True)
     tie_word_embeddings: bool = Field(default=False)
@@ -88,6 +89,7 @@ class BagelLoaderExtraConfig(BaseModel):
 class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
+    supports_gradient_checkpointing = True
 
     def __init__(self, language_model, vit_model, vae_model, config: BagelConfig):
         super().__init__(config)
@@ -163,6 +165,7 @@ class Bagel(PreTrainedModel):
         packed_vae_token_indexes: Optional[torch.LongTensor] = None,
         packed_timesteps: Optional[torch.LongTensor] = None,
         mse_loss_indexes: Optional[torch.BoolTensor] = None,
+        **kwargs,
     ) -> torch.Tensor:
         """
         Args:
@@ -1291,9 +1294,10 @@ class Bagel(PreTrainedModel):
             language_model = Qwen2ForCausalLM(llm_config)
             vit_model = SiglipVisionModel(vit_config)
             model = Bagel(language_model, vit_model, vae_model, bagel_config)
-            model.vit_model.vision_model.embeddings.convert_conv2d_to_linear(
-                vit_config, meta=True
-            )
+            if bagel_config.visual_und:
+                model.vit_model.vision_model.embeddings.convert_conv2d_to_linear(
+                    vit_config, meta=True
+                )
 
         if training_config.freeze_vae and training_config.visual_gen:
             for param in vae_model.parameters():
@@ -1309,5 +1313,16 @@ class Bagel(PreTrainedModel):
         state_dict = load_file(os.path.join(model_path, "ema.safetensors"))
         # ae.safetensors is not loaded
         model.load_state_dict(state_dict, assign=True, strict=False)
+        torch_dtype = getattr(
+            kwargs, "torch_dtype", getattr(kwargs, "dtype", torch.bfloat16)
+        )
+        model = model.to(torch_dtype)
 
         return model
+
+    def gradient_checkpointing_enable(
+        self, gradient_checkpointing_kwargs: Optional[dict] = None
+    ):
+        self.language_model.model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs
+        )

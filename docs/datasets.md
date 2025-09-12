@@ -100,7 +100,7 @@ The `MultiModalIterableDataset` streams data and packs sequences dynamically dur
 - ✅ **Fast startup**: No preprocessing required
 - ✅ **Scales infinitely**: Works with any dataset size
 - ❌ **Non-deterministic**: Different packing each epoch
-- ❌ **Unknown length**: Can't calculate exact steps per epoch
+- ❌ **Unknown length**: Can't calculate exact steps per epoch (Thus, max_steps must be set instead of epochs)
 - ❌ **Suboptimal packing**: Greedy algorithm may waste tokens
 
 #### When to use:

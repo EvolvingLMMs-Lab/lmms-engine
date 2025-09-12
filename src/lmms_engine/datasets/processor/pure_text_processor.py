@@ -20,6 +20,9 @@ class PureTextDataProcessor:
     def build(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.processor_name)
 
+    def save_pretrained(self, path: str):
+        self.tokenizer.save_pretrained(path)
+
     def __call__(
         self,
         texts,

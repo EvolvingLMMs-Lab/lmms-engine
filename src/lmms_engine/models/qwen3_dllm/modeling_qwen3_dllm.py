@@ -588,7 +588,7 @@ class Qwen3DLLMForMaskedLM(Qwen3DLLMPreTrainedModel, GenerationMixin):
             zero_stage=zero_stage,
         )
 
-        nll = loss
+        nll = loss.detach()
         reciprocal_t = 1 / (mlm_prob.view(-1) + 1e-6)
         reciprocal_t = reciprocal_t.to(hidden_states.device)
         d_loss = loss.view(*labels.shape) * reciprocal_t.view(-1).unsqueeze(-1)
