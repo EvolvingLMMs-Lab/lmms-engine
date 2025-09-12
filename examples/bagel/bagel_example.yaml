@@ -1,0 +1,74 @@
+# Unified LMMs Engine Training Configuration
+# This example shows how to combine dataset definitions directly in the config
+
+- type: trainer
+  config:
+    trainer_type: fsdp_trainer
+    
+    # Dataset configuration - now includes the actual dataset definitions
+    dataset_config:
+      dataset_type: bagel_iterable
+      dataset_format: yaml  # Uses 'yaml' format for both external files and inline definitions
+      
+      # Inline dataset definitions (no dataset_path needed)
+      datasets:
+        # - path: data/open_thoughts_debug
+          # data_folder: ""
+          # data_type: arrow
+        # - path: /pfs/kaichenzhang/tik_tool/cache/v1/length_filtered_full/llava_cot_train
+          # data_folder: ""
+          # data_type: arrow 
+        - path: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example/dataset_hf.parquet
+          data_folder: ""
+          data_type: parquet
+      
+      # Processor configuration
+      processor_config:
+        # processor_name: "/pfs/training-data/hf/models/Qwen/Qwen2.5-7B-Instruct"
+        processor_name: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
+        processor_type: "bagel"
+      
+      # Packing configuration
+      packing: false
+      packing_strategy: first_fit
+      packing_length: 20480
+      video_backend: qwen_vl_utils
+    
+    # Model configuration
+    model_config:
+      load_from_pretrained_path: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
+      attn_implementation: "eager"
+      extra_kwargs:
+        visual_und: false
+    
+    # Training arguments, mostly compatible with HuggingFace Trainer
+    per_device_train_batch_size: 1
+    learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+    weight_decay: 0.0
+    gradient_accumulation_steps: 1
+    gradient_checkpointing: true
+    num_train_epochs: 1
+    save_steps: 100
+    save_total_limit: 1
+    report_to: "none"
+    output_dir: "./output/debug/test"
+    warmup_ratio: 0.0
+    warmup_steps: 100
+    run_name: "debug"
+    eval_strategy: "no"
+    logging_steps: 1
+    group_by_length: false 
+    dataloader_num_workers: 0
+    bf16: true
+    lr_scheduler_type: "constant"
+    use_liger_kernel: true
+    use_rmpad: true
+    fsdp2: true
+    fsdp_config:
+      transformer_layer_cls_to_wrap: ["Qwen2MoTDecoderLayer"]
+      reshard_after_forward: false
+    sp_ulysses_degree: 1
+    enable_profiler: false
+    profiler_config:
+      start_step: 1
+      end_step: 3

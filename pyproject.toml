@@ -47,6 +47,7 @@ dependencies = [
     "qwen-vl-utils",
     "einops",
     "pandas",
+    "huggingface-hub>=0.34.4",
 ]
 
 [project.optional-dependencies]
