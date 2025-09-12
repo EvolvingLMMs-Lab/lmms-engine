@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from typing import Dict, Sequence
 
 import torch
+import os
 
 from ...protocol import Processable
+from ...models.bagel.validation import validate_bagel_batch_if_enabled
 
 
 @dataclass
@@ -33,6 +35,16 @@ class BagelCollator:
         sequence_length = inputs.pop("sequence_length")
         sample_lens = inputs.pop("sample_lens")
         for keys, values in inputs.items():
+            # Keep nested masks as a list (variable shapes per sample)
+            if keys == "nested_attention_masks":
+                batched_inputs[keys] = values
+                continue
+
+            # Keep latent shapes as list of tuples for downstream logic
+            if keys == "patchified_vae_latent_shapes":
+                batched_inputs[keys] = values
+                continue
+
             if isinstance(values[0], torch.Tensor):
                 batched_inputs[keys] = torch.concatenate(values, dim=0)
             elif isinstance(values[0], list):
@@ -46,9 +58,8 @@ class BagelCollator:
         )
         batched_inputs["sample_lens"] = torch.tensor(sample_lens)
         batched_inputs.pop("curr")
-        batched_inputs["patchified_vae_latent_shapes"] = torch.tensor(
-            batched_inputs["patchified_vae_latent_shapes"]
-        )
+        # leave patchified_vae_latent_shapes as list
+        # for generation/training logic that expects Python ints
 
         # Fake input ids for packing
         # seq_len = sum(batched_inputs['sample_lens'])
@@ -58,7 +69,10 @@ class BagelCollator:
         # assert seq_len == (text_length + vae_length + vit_length)
 
         # Make batched input a dict to send to device
-        return dict(batched_inputs)
+        batched = dict(batched_inputs)
+        # optional runtime validation for debugging
+        validate_bagel_batch_if_enabled(batched)
+        return batched
 
     @property
     def image_token_id(self):

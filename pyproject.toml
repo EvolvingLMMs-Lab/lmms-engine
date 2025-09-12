@@ -47,6 +47,9 @@ dependencies = [
     "qwen-vl-utils",
     "einops",
     "pandas",
+    "safetensors",
+    "tqdm",
+    "numpy",
 ]
 
 [project.optional-dependencies]
