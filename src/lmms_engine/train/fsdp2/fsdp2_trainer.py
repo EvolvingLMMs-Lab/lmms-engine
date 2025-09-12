@@ -317,8 +317,7 @@ class FSDP2SFTTrainer:
                 delta_time = end_time - start_time
                 attention_mask = batch.get("attention_mask", torch.tensor(0))
                 seq_len = (
-                    attention_mask
-                    .sum(dim=min(1, attention_mask.ndim - 1))
+                    attention_mask.sum(dim=min(1, attention_mask.ndim - 1))
                     .detach()
                     .cpu()
                     .tolist()

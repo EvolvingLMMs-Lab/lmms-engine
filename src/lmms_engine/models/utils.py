@@ -1,8 +1,9 @@
+from typing import Iterable
+
 import torch
 from transformers import PretrainedConfig
 
 from lmms_engine.utils import Logging, TrainUtilities
-from typing import Iterable
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #

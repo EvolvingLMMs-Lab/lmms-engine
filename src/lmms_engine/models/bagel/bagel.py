@@ -18,7 +18,7 @@ from tqdm import tqdm
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
 
-from .autoencoder import load_ae
+from .autoencoder import AutoEncoderParams, load_ae
 from .cache_utils import cache_init
 from .data_utils import (
     create_sparse_mask,
@@ -65,6 +65,30 @@ class BagelConfig(PretrainedConfig):
         self.timestep_shift = timestep_shift
         self.ce_weight = ce_weight
         self.mse_weight = mse_weight
+
+    def to_dict(self):
+        output = super().to_dict()
+
+        if self.vae_config is not None:
+            if hasattr(self.vae_config, "model_dump"):
+                output["vae_config"] = self.vae_config.model_dump()
+            elif hasattr(self.vae_config, "dict"):
+                output["vae_config"] = self.vae_config.dict()
+            else:
+                try:
+                    output["vae_config"] = dict(self.vae_config)
+                except Exception:
+                    output["vae_config"] = getattr(self.vae_config, "__dict__", None)
+
+        return output
+
+    @classmethod
+    def from_dict(cls, config_dict, **kwargs):
+        if "vae_config" in config_dict and isinstance(config_dict["vae_config"], dict):
+            config_dict = config_dict.copy()
+            config_dict["vae_config"] = AutoEncoderParams(**config_dict["vae_config"])
+
+        return super().from_dict(config_dict, **kwargs)
 
 
 class BagelLoaderExtraConfig(BaseModel):

@@ -13,12 +13,12 @@ from dataclasses import dataclass
 
 import torch
 from einops import rearrange
+from pydantic import BaseModel
 from safetensors.torch import load_file as load_sft
 from torch import Tensor, nn
 
 
-@dataclass
-class AutoEncoderParams:
+class AutoEncoderParams(BaseModel):
     resolution: int
     in_channels: int
     downsample: int
