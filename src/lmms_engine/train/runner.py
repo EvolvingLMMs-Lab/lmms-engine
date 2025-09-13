@@ -27,7 +27,7 @@ from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
 from .registry import TRAINER_REGISTER
-
+from lmms_engine.parallel.expert_parallel.apply import apply_moe_ep_tp
 # from transformers import Trainer
 
 
@@ -52,6 +52,8 @@ class TrainRunner:
     def build(self):
         self.create_sp_dis_group()
         self.model = self._build_model()
+        if self.config.trainer_args.ep_degree > 1:
+            self._apply_ep_tp()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
         else:
@@ -100,6 +102,18 @@ class TrainRunner:
         )
         return model
 
+    def _apply_ep_tp(self):
+        if self.config.trainer_args.ep_degree > 1:
+            world_mesh = pgm.process_group_manager.world_mesh
+            tp_mesh = world_mesh("tp")
+            ep_mesh = world_mesh("ep")
+            ep_tp_mesh = world_mesh("ep", "tp")
+            apply_moe_ep_tp(
+                model=self.model,
+                tp_mesh=tp_mesh,
+                ep_mesh=ep_mesh,
+                ep_tp_mesh=world_mesh,
+            )
     def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
         if self.config.trainer_args.use_liger_kernel:

@@ -20,7 +20,7 @@ def apply_moe_ep_tp(
     tp_mesh: DeviceMesh | None,
     ep_mesh: DeviceMesh | None,
     ep_tp_mesh: DeviceMesh | None,
-    etp_enabled: bool,
+    etp_enabled: bool = True,
 ):
     for transformer_block in model.layers.values():
         if not transformer_block.moe_enabled:
