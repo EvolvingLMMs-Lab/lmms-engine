@@ -105,8 +105,8 @@ class TrainRunner:
     def _apply_ep_tp(self):
         if self.config.trainer_args.ep_degree > 1:
             world_mesh = pgm.process_group_manager.world_mesh
-            tp_mesh = world_mesh("tp")
-            ep_mesh = world_mesh("ep")
+            tp_mesh = world_mesh("tp") if self.config.trainer_args.tp_degree > 1 else None
+            ep_mesh = world_mesh("ep") if self.config.trainer_args.ep_degree > 1 else None
             ep_tp_mesh = world_mesh("ep", "tp")
             apply_moe_ep_tp(
                 model=self.model,
