@@ -154,14 +154,6 @@ class ProcessGroupManager:
         # Context + Data paralellism
         self.cp_dp_world_size = dist.get_world_size(group=self.cp_dp_group)
 
-        # Tensor + Expert parallelism
-        if ep_size > 1:
-            from torch.distributed.device_mesh import init_device_mesh
-            self.mesh = init_device_mesh(
-                divice_type="cuda",
-                mesh_shape=(ep_size, tp_size),
-                mesh_dim_names=("ep", "tp"),
-            )
     def __str__(self):
         return f"TP({self.tp_world_size})-CP({self.cp_world_size})-PP({self.pp_world_size})-DP({self.dp_world_size})-Rank({self.global_rank})"
 
