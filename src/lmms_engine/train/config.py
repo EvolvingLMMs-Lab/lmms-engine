@@ -14,6 +14,8 @@ class TrainingArguments(transformers.TrainingArguments):
     use_rmpad: Optional[bool] = False
     fsdp2: Optional[bool] = False
     sp_ulysses_degree: Optional[int] = 1
+    tp_degree: Optional[int] = 1
+    ep_degree: Optional[int] = 1
     reduce_dtype: Optional[str] = "bfloat16"
     output_dtype: Optional[str] = "bfloat16"
     enable_profiler: Optional[bool] = False
