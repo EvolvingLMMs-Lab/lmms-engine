@@ -37,18 +37,20 @@ dependencies = [
     "librosa",
     "pynvml",
     "decord",
-    "torch",
-    "torchvision",
+    "torch==2.6.0",
+    "torchvision==0.21.0",
     "pyyaml",
     "wandb",
     "torchdata",
-    "flash-attn>=2.8.3",
+    "flash-attn==2.7.4.post1",
     "liger-kernel>=0.6.1",
     "qwen-vl-utils",
     "einops",
     "pandas",
     "huggingface-hub>=0.34.4",
     "opencv-python>=4.12.0.88",
+    "torchrun>=0.2.9",
+    "importlib>=1.0.4",
 ]
 
 [project.optional-dependencies]

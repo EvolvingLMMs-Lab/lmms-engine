@@ -18,14 +18,14 @@
         # - path: /pfs/kaichenzhang/tik_tool/cache/v1/length_filtered_full/llava_cot_train
           # data_folder: ""
           # data_type: arrow 
-        - path: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example/dataset_hf.parquet
-          data_folder: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example
+        - path: /mnt/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example/dataset_hf.parquet
+          data_folder: /mnt/users/pufanyi/workspace/lmms-engine-mini/playground/data/bagel-example
           data_type: parquet
       
       # Processor configuration
       processor_config:
         # processor_name: "/pfs/training-data/hf/models/Qwen/Qwen2.5-7B-Instruct"
-        processor_name: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
+        processor_name: /mnt/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
         processor_type: "bagel"
       
       # Packing configuration
@@ -36,7 +36,7 @@
     
     # Model configuration
     model_config:
-      load_from_pretrained_path: /mnt/aigc/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
+      load_from_pretrained_path: /mnt/users/pufanyi/workspace/lmms-engine-mini/playground/models/BAGEL-7B-MoT
       attn_implementation: "eager"
       extra_kwargs:
         visual_und: false

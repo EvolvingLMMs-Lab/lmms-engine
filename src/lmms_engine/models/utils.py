@@ -237,8 +237,6 @@ class FlopsCounter:
             estimated_flops (float): The estimated FLOPS based on the input tokens and time.
             promised_flops (float): The expected FLOPS of the current device.
         """
-        if not isinstance(batch_seqlens, Iterable):
-            batch_seqlens = [batch_seqlens]
         tokens_sum = sum(batch_seqlens)
         func = self.estimate_func.get(
             self.config.model_type, self._estimate_unknown_flops
