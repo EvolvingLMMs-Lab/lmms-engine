@@ -49,6 +49,18 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             )
             self.bucket_name = self.config.bucket_name
         self.cur_idx = 0
+        if not dist.is_initialized():
+            Logging.info(
+                "Distributed environment not initialized, setting rank and world size to 0 and 1"
+            )
+            self.rank = 0
+            self.world_size = 1
+        else:
+            Logging.info(
+                "Distributed environment initialized, setting rank and world size to dist.get_rank() and dist.get_world_size()"
+            )
+            self.rank = dist.get_rank()
+            self.world_size = dist.get_world_size()
 
     def _build_from_config(self):
         """Load and prepare data from the configuration."""
@@ -94,33 +106,30 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             if getattr(self, "data_folder", None) is not None:
                 self.data_folder = [self.data_folder[i] for i in data_index]
 
-    def get_one_sample(self, index):
+    def get_one_sample(self, index, data_folder=None, data_list=None):
         """Get a sample from the dataset by index."""
-
+        if data_folder is None:
+            data_folder = self.data_folder[index]
+        if data_list is None:
+            data_list = self.data_list
         if (
             self.config.dataset_format == "json"
             or self.config.dataset_format == "jsonl"
             or self.config.dataset_format == "arrow"
         ):
-            data_dict = self.load_from_json(self.data_list[index])
+            data_dict = self.load_from_json(data_list[index])
         elif self.config.dataset_format == "yaml":
-            data_dict = self.load_from_json(
-                self.data_list[index], self.data_folder[index]
-            )
+            data_dict = self.load_from_json(data_list[index], data_folder)
         elif self.config.dataset_format == "hf_dataset":
-            data_dict = self.load_from_hf(self.data_list[index])
+            data_dict = self.load_from_hf(data_list[index])
         else:
             raise NotImplementedError
         return data_dict
 
     def __iter__(self):
         worker_info = get_worker_info()
-        if dist.is_initialized():
-            rank = dist.get_rank()
-            world_size = dist.get_world_size()
-        else:
-            rank = 0
-            world_size = 1
+        rank = self.rank
+        world_size = self.world_size
 
         assert isinstance(
             self.data_list, HFDataset
@@ -138,26 +147,30 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
         ]
         start_index = sum(per_rank_size[:rank])
         end_index = start_index + per_rank_size[rank]
-        self.data_folder = self.data_folder[start_index:end_index]
-        self.data_list = self.data_list.shard(
+
+        # Shard the data according to distributed environment
+        curr_data_folder = self.data_folder[start_index:end_index]
+        # self.data_folder = self.data_folder[start_index:end_index]
+        curr_data_list = self.data_list.shard(
             num_shards=world_size, index=rank, contiguous=True
         )
 
         if worker_info is None:
             iter_start = 0
-            iter_end = len(self.data_list)
+            iter_end = len(curr_data_list)
         else:
             # split workload
             per_worker = int(
-                math.ceil(len(self.data_list) / float(worker_info.num_workers))
+                math.ceil(len(curr_data_list) / float(worker_info.num_workers))
             )
             worker_id = worker_info.id
             iter_start = worker_id * per_worker
-            iter_end = min(iter_start + per_worker, len(self.data_list))
+            iter_end = min(iter_start + per_worker, len(curr_data_list))
 
-        self.data_list = self.data_list.select(range(iter_start, iter_end))
+        # Distrbute the data to each worker
+        curr_data_list = curr_data_list.select(range(iter_start, iter_end))
         if getattr(self, "data_folder", None) is not None:
-            self.data_folder = self.data_folder[iter_start:iter_end]
+            curr_data_folder = curr_data_folder[iter_start:iter_end]
 
         if self.config.packing:
             # Reset index at the start of each iteration pass
@@ -167,9 +180,11 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             packing_length = self.config.packing_length
 
             # Iterate through the dataset once per epoch
-            while self.cur_idx < len(self.data_list):
+            while self.cur_idx < len(curr_data_list):
                 try:
-                    data_dict = self.get_one_sample(self.cur_idx)
+                    data_dict = self.get_one_sample(
+                        self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
+                    )
                 except Exception as e:
                     Logging.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
@@ -203,9 +218,11 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                 yield buffer
         else:
             self.cur_idx = 0
-            while self.cur_idx < len(self.data_list):
+            while self.cur_idx < len(curr_data_list):
                 try:
-                    yield self.get_one_sample(self.cur_idx)
+                    yield self.get_one_sample(
+                        self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
+                    )
                 except Exception as e:
                     Logging.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
