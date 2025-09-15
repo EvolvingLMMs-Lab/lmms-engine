@@ -88,7 +88,7 @@ def fill_indices_wrapper(
 
     # launch kernel
     _fill_indices_kernel[grid](
-        tokens_per_expert_group,
+        tokens_per_expert_group.to(torch.int32),
         start_index_values,
         write_offsets,
         permuted_indices,
