@@ -24,6 +24,8 @@ def parse_args():
     )
     parser.add_argument("--model_name_or_class", type=str, default="")
     parser.add_argument("--type", type=str, default="hf", choices=["hf", "fsdp2"])
+    parser.add_argument("--output_dir", type=str, default=None)
+    parser.add_argument("--step", type=int, default=None)
     return parser.parse_args()
 
 
@@ -34,6 +36,10 @@ def merge_hf_fsdp_checkpoint(input_dir: Path, model_path: str):
     if not checkpoint_folder:
         raise ValueError(f"No checkpoint found in {args.input_dir}")
     checkpoint_folder.sort(key=lambda x: int(x.name.split("-")[-1]))
+    if args.step is not None:
+        checkpoint_folder = [
+            x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step
+        ]
     latest_checkpoint = checkpoint_folder[-1]
     print(f"Using latest checkpoint: {latest_checkpoint}")
     shard_state_dict = latest_checkpoint / "pytorch_model_fsdp_0"
@@ -49,7 +55,10 @@ def merge_hf_fsdp_checkpoint(input_dir: Path, model_path: str):
         no_dist=True,
     )
     model.load_state_dict(state_dict["model"])
-    model.save_pretrained(str(input_dir))
+    if args.output_dir is not None:
+        model.save_pretrained(args.output_dir)
+    else:
+        model.save_pretrained(str(input_dir))
     return model
 
 
@@ -60,8 +69,17 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str):
     if not checkpoint_folder:
         raise ValueError(f"No checkpoint found in {args.input_dir}")
     checkpoint_folder.sort(key=lambda x: int(x.name.split("-")[-1]))
+    if args.step is not None:
+        checkpoint_folder = [
+            x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step
+        ]
+
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+    else:
+        output_dir = str(input_dir)
     processor = AutoProcessor.from_pretrained(checkpoint_folder[-1])
-    processor.save_pretrained(str(input_dir))
+    processor.save_pretrained(output_dir)
     latest_checkpoint = checkpoint_folder[-1]
     print(f"Using latest checkpoint: {latest_checkpoint}")
     shard_state_dict = latest_checkpoint / "pytorch_model_fsdp_0"
@@ -108,7 +126,7 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str):
         torch_dtype=torch.bfloat16,
     )
     model.load_state_dict(state_dict)
-    model.save_pretrained(str(input_dir))
+    model.save_pretrained(output_dir)
     return model
 
 
