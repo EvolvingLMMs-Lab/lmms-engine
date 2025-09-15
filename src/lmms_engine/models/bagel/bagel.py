@@ -232,6 +232,19 @@ class Bagel(PreTrainedModel):
         )
         packed_sequence[packed_text_indexes] = packed_text_embedding
 
+        # Convert back to original format if we pack them into tensors
+        if isinstance(sample_lens, torch.Tensor):
+            sample_lens = sample_lens.flatten().tolist()
+        if isinstance(split_lens, torch.Tensor):
+            split_lens = split_lens.tolist()
+        if isinstance(patchified_vae_latent_shapes, torch.Tensor):
+            new_patchified_vae_latent_shapes = []
+            for shape in patchified_vae_latent_shapes:
+                new_patchified_vae_latent_shapes.append(
+                    (shape[0].item(), shape[1].item())
+                )
+            patchified_vae_latent_shapes = new_patchified_vae_latent_shapes
+
         if nested_attention_masks is None:
             sparse_mask = create_sparse_mask(
                 sample_lens, split_lens, attn_modes, packed_text_embedding.device
