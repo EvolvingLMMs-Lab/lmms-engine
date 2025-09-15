@@ -1,3 +1,5 @@
+from typing import Iterable
+
 import torch
 from transformers import PretrainedConfig
 
@@ -61,9 +63,12 @@ class FlopsCounter:
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
+            "bagel": self._estimate_qwen2_flops,
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
+        elif config.model_type == "bagel":
+            self.config = config.llm_config
         else:
             self.config = config
 

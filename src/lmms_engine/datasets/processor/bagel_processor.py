@@ -104,6 +104,7 @@ class BagelDataProcessor:
         curr_split_len = 0
         curr_rope_id = 0
         full_attn_modes = []
+        split_lens = []
         for order in process_order:
             if order == "text":
                 (
@@ -150,6 +151,7 @@ class BagelDataProcessor:
                 )
                 vit_images.pop(0)
             full_attn_modes.extend(attn_modes)
+            split_lens.append(curr_split_len)
 
         sequence_status["attn_modes"] = full_attn_modes
         sequence_status["curr"] = curr
@@ -164,6 +166,7 @@ class BagelDataProcessor:
         data["input_ids"] = torch.zeros(data["sequence_length"], dtype=torch.long)
         data["attention_mask"] = torch.ones(data["sequence_length"], dtype=torch.long)
         data["curr"] = curr
+        data["split_lens"] = split_lens
 
         return data
 

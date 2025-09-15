@@ -25,9 +25,18 @@ class BagelCollator:
         if isinstance(instances[0], list):
             instances = [inst for instance in instances for inst in instance]
         inputs = collections.defaultdict(list)
+        current_lens = 0
         for instance in instances:
             for key, values in instance.items():
+                if key.endswith("_indexes"):
+                    if isinstance(values, torch.Tensor):
+                        values = values + current_lens
+                    elif isinstance(values, Sequence):
+                        values = type(values)(map(lambda x: x + current_lens, values))
+                    else:
+                        values = values + current_lens
                 inputs[key].append(values)
+            current_lens += instance["sequence_length"]
 
         batched_inputs = collections.defaultdict(list)
         sequence_length = inputs.pop("sequence_length")
