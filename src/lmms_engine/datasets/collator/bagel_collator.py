@@ -60,11 +60,12 @@ class BagelCollator:
         )
 
         # Fake input ids for packing
-        # seq_len = sum(batched_inputs['sample_lens'])
-        # text_length = batched_inputs['packed_text_ids'].shape[0]
-        # vae_length = getattr(batched_inputs, 'packed_vae_token_indexes', torch.tensor(0)).shape[0]
-        # vit_length = getattr(batched_inputs, 'packed_vit_token_indexes', torch.tensor(0)).shape[0]
-        # assert seq_len == (text_length + vae_length + vit_length)
+        batched_inputs["input_ids"] = torch.zeros(
+            (1, batched_inputs["sequence_length"]), dtype=torch.long
+        )
+        batched_inputs["attention_mask"] = torch.ones(
+            (1, batched_inputs["sequence_length"]), dtype=torch.long
+        )
 
         # Make batched input a dict to send to device
         return dict(batched_inputs)

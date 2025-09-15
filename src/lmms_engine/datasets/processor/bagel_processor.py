@@ -101,11 +101,11 @@ class BagelDataProcessor:
                     image_index += 1
 
         curr = 0
-        curr_split_len = 0
         curr_rope_id = 0
         full_attn_modes = []
         split_lens = []
         for order in process_order:
+            curr_split_len = 0
             if order == "text":
                 (
                     attn_modes,
@@ -128,9 +128,9 @@ class BagelDataProcessor:
                     vae_images[0],
                     role,
                     sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
+                    curr_rope_id=curr_rope_id,
+                    curr=curr,
+                    curr_split_len=curr_split_len,
                 )
                 vae_images.pop(0)
             elif order == "vit_image":
@@ -145,9 +145,9 @@ class BagelDataProcessor:
                     vit_images[0],
                     role,
                     sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
+                    curr_rope_id=curr_rope_id,
+                    curr=curr,
+                    curr_split_len=curr_split_len,
                 )
                 vit_images.pop(0)
             full_attn_modes.extend(attn_modes)
@@ -155,18 +155,16 @@ class BagelDataProcessor:
 
         sequence_status["attn_modes"] = full_attn_modes
         sequence_status["curr"] = curr
-        sequence_status["sample_lens"].append(curr_split_len)
+        sequence_status["sample_lens"].append(sum(split_lens))
         sequence_status["nested_attention_masks"].append(
-            prepare_attention_mask_per_sample(
-                sequence_status["sample_lens"], sequence_status["attn_modes"]
-            )
+            prepare_attention_mask_per_sample(split_lens, full_attn_modes)
         )
         data = self.to_tensor(sequence_status)
         # Fake input ids for packing
         data["input_ids"] = torch.zeros(data["sequence_length"], dtype=torch.long)
         data["attention_mask"] = torch.ones(data["sequence_length"], dtype=torch.long)
         data["curr"] = curr
-        data["split_lens"] = split_lens
+        # data["split_lens"] = split_lens
 
         return data
 
