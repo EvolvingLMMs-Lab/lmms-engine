@@ -7,8 +7,8 @@ from torch.distributed.tensor.parallel import (
     PrepareModuleInputOutput,
     RowwiseParallel,
 )
-from no_parallel import NoParallel
-from expert_parallel import (
+from .no_parallel import NoParallel
+from .expert_parallel import (
     ExpertParallel,
     ExpertTensorParallel,
     ReordererSequenceParallel,
@@ -77,7 +77,6 @@ def apply_moe_ep_tp(
         else:
             experts_mesh = ep_mesh
             experts_plan = ExpertParallel()
-
         parallelize_module(
             module=transformer_block.moe.experts,
             device_mesh=experts_mesh,
