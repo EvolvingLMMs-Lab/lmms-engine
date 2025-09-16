@@ -3,19 +3,22 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
-    parallelize_module,
     PrepareModuleInputOutput,
     RowwiseParallel,
+    parallelize_module,
 )
-from .no_parallel import NoParallel
+
+from lmms_engine.models import MOEPARALLELPATCHER
+from lmms_engine.utils.deep_attr import deep_getattr, has_nested_attr
+
 from .expert_parallel import (
     ExpertParallel,
     ExpertTensorParallel,
     ReordererSequenceParallel,
     TensorParallel,
 )
-from lmms_engine.models import MOEPARALLELPATCHER
-from lmms_engine.utils.deep_attr import has_nested_attr, deep_getattr
+from .no_parallel import NoParallel
+
 
 def validate_attr(model, model_dict, transformer_block_dict):
     for v in model_dict.values():
@@ -27,6 +30,7 @@ def validate_attr(model, model_dict, transformer_block_dict):
                 raise ValueError(
                     f"Transformer block attribute '{v}' not found in the transformer block."
                 )
+
 
 def apply_moe_ep_tp(
     model: nn.Module,
@@ -61,16 +65,26 @@ def apply_moe_ep_tp(
                 # If TP is borrowed for EP, then split the tokens across TP ranks so that
                 # the reorderer, the all-to-all comms, and routed experts computation
                 # are effectively running Sequence Parallel (split along the folded bs*slen dim)
-                moe_layer_plan.update({transformer_block_dict["moe.reorderer"]: ReordererSequenceParallel()})
+                moe_layer_plan.update(
+                    {
+                        transformer_block_dict[
+                            "moe.reorderer"
+                        ]: ReordererSequenceParallel()
+                    }
+                )
             if transformer_block.moe.shared_experts is not None:
                 # input Replicate, output Partial
                 moe_layer_plan.update(
                     {
-                        transformer_block_dict["moe.shared_experts.w1"]: ColwiseParallel(),
-                        transformer_block_dict["moe.shared_experts.w2"]: RowwiseParallel(
-                            output_layouts=Partial()
-                        ),
-                        transformer_block_dict["moe.shared_experts.w3"]: ColwiseParallel(),
+                        transformer_block_dict[
+                            "moe.shared_experts.w1"
+                        ]: ColwiseParallel(),
+                        transformer_block_dict[
+                            "moe.shared_experts.w2"
+                        ]: RowwiseParallel(output_layouts=Partial()),
+                        transformer_block_dict[
+                            "moe.shared_experts.w3"
+                        ]: ColwiseParallel(),
                     }
                 )
             parallelize_module(
@@ -95,7 +109,9 @@ def apply_moe_ep_tp(
             experts_mesh = ep_mesh
             experts_plan = ExpertParallel()
         parallelize_module(
-            module=deep_getattr(transformer_block, transformer_block_dict["moe.experts"]),
+            module=deep_getattr(
+                transformer_block, transformer_block_dict["moe.experts"]
+            ),
             device_mesh=experts_mesh,
             parallelize_plan=experts_plan,
         )

@@ -48,7 +48,11 @@ def create_train_task(config):
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
     setup_process_group_manager(
-        tp_size=tp_degree, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree
+        tp_size=tp_degree,
+        cp_size=sp_degree,
+        pp_size=1,
+        dp_size=dp_size,
+        ep_size=ep_degree,
     )
 
     trainer_args = TrainingArguments(**config)

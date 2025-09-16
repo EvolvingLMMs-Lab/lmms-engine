@@ -16,8 +16,11 @@ from lmms_engine.mapping_func import (
     create_model_from_config,
     create_model_from_pretrained,
 )
-from lmms_engine.models import MONKEY_PATCHER
+
+# from transformers import Trainer
+from lmms_engine.models import MOEPARALLELPATCHER, MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
+from lmms_engine.parallel.expert_parallel.apply import apply_moe_ep_tp
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
@@ -27,9 +30,7 @@ from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
 from .registry import TRAINER_REGISTER
-from lmms_engine.parallel.expert_parallel.apply import apply_moe_ep_tp
-# from transformers import Trainer
-from lmms_engine.models import MOEPARALLELPATCHER
+
 
 class TrainRunner:
     """
@@ -52,7 +53,10 @@ class TrainRunner:
     def build(self):
         self.create_sp_dis_group()
         self.model = self._build_model()
-        if self.config.trainer_args.ep_degree > 1 or self.config.trainer_args.tp_degree > 1:
+        if (
+            self.config.trainer_args.ep_degree > 1
+            or self.config.trainer_args.tp_degree > 1
+        ):
             self._apply_ep_tp()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
@@ -121,6 +125,7 @@ class TrainRunner:
                 ep_tp_mesh=None,
                 etp_enabled=False,
             )
+
     def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
         if self.config.trainer_args.use_liger_kernel:

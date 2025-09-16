@@ -15,13 +15,12 @@ from torch.distributed._functional_collectives import (
 )
 from torch.distributed.tensor import (
     DeviceMesh,
-    distribute_module,
-    distribute_tensor,
     DTensor,
     Shard,
+    distribute_module,
+    distribute_tensor,
 )
 from torch.distributed.tensor.parallel import ParallelStyle
-
 
 TOKEN_GROUP_ALIGN_SIZE_M = 8
 ValidTokenGroupAlignmentSize = Literal[8, 16, 32]

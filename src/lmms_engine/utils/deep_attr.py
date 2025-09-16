@@ -7,6 +7,7 @@ def has_nested_attr(obj, attr_path: str) -> bool:
         current = getattr(current, attr)
     return True
 
+
 def deep_getattr(obj, attr_path: str, default=None):
     try:
         for attr in attr_path.split("."):

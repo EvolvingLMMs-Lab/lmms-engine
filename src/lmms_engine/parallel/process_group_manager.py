@@ -17,6 +17,7 @@ import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 
+
 class ProcessGroupManager:
     def __init__(self, tp_size, cp_size, pp_size, dp_size, ep_size):
         self.global_rank = dist.get_rank()
@@ -30,7 +31,7 @@ class ProcessGroupManager:
         ), f"World size ({self.world_size}) != TP ({tp_size}) * CP ({cp_size}) * PP ({pp_size}) * DP ({dp_size}) * EP ({ep_size})"
 
         self.grid = torch.arange(self.world_size).view(
-            dp_size, pp_size, cp_size,  ep_size, tp_size
+            dp_size, pp_size, cp_size, ep_size, tp_size
         )  # DP * PP * CP * EP * TP grid
         # Find the position of the current process in the grid
         self.dp_rank, self.pp_rank, self.cp_rank, self.ep_rank, self.tp_rank = (
@@ -95,7 +96,7 @@ class ProcessGroupManager:
 
         # Update group IDs with new grid ordering
         self.tp_group_ids = self.grid[
-            self.dp_rank, self.pp_rank, self.cp_rank, self.ep_rank,:
+            self.dp_rank, self.pp_rank, self.cp_rank, self.ep_rank, :
         ].tolist()
         self.cp_group_ids = self.grid[
             self.dp_rank, self.pp_rank, :, self.ep_rank, self.tp_rank
@@ -156,7 +157,9 @@ class ProcessGroupManager:
         self.cp_dp_world_size = dist.get_world_size(group=self.cp_dp_group)
 
         if tp_size > 1:
-            assert dp_size == 1 and cp_size == 1 and pp_size ==1 and ep_size ==1, "When using TP for MoE, EP, CP, PP and DP sizes must be 1"
+            assert (
+                dp_size == 1 and cp_size == 1 and pp_size == 1 and ep_size == 1
+            ), "When using TP for MoE, EP, CP, PP and DP sizes must be 1"
             device = "cpu" if not torch.cuda.is_available() else "cuda"
             self.world_mesh = init_device_mesh(
                 device,
@@ -164,17 +167,22 @@ class ProcessGroupManager:
                 mesh_dim_names=("tp",),
             )
         if ep_size > 1:
-            assert dp_size == 1 and cp_size == 1 and pp_size == 1 and tp_size == 1, "When using EP, DP CP TPand PP sizes must be 1"
+            assert (
+                dp_size == 1 and cp_size == 1 and pp_size == 1 and tp_size == 1
+            ), "When using EP, DP CP TPand PP sizes must be 1"
             device = "cpu" if not torch.cuda.is_available() else "cuda"
             self.world_mesh = init_device_mesh(
                 device,
                 (ep_size,),
                 mesh_dim_names=("ep",),
             )
+
     def __str__(self):
         return f"TP({self.tp_world_size})-CP({self.cp_world_size})-PP({self.pp_world_size})-DP({self.dp_world_size})-Rank({self.global_rank})"
 
 
 def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size):
     global process_group_manager
-    process_group_manager = ProcessGroupManager(tp_size, cp_size, pp_size, dp_size, ep_size)
+    process_group_manager = ProcessGroupManager(
+        tp_size, cp_size, pp_size, dp_size, ep_size
+    )

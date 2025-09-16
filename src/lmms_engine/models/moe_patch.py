@@ -1,5 +1,6 @@
 from ..utils.logging_utils import Logging
 
+
 class MoEParallelPatcher:
     def __init__(self):
         self._dict = {}
@@ -26,7 +27,8 @@ class MoEParallelPatcher:
         self._dict["model"][moe_stdname] = attr_name
         Logging.info(
             f"Registered model attribute '{moe_stdname}' as '{attr_name}' for MoE parallel patching."
-        )        
+        )
+
     def register_transformer_block(self, attr_name, moe_stdname):
         if moe_stdname not in self._dict["transformer_block"]:
             Logging.warning(
@@ -37,14 +39,19 @@ class MoEParallelPatcher:
         Logging.info(
             f"Registered transformer_block attribute '{moe_stdname}' as '{attr_name}' for MoE parallel patching."
         )
+
     def get_attr_name(self, category, moe_stdname):
         if category not in self._dict:
             raise ValueError(f"Invalid category: {category}")
         if moe_stdname not in self._dict[category]:
-            raise ValueError(f"Invalid attribute name: {moe_stdname} for category: {category}")
+            raise ValueError(
+                f"Invalid attribute name: {moe_stdname} for category: {category}"
+            )
         return self._dict[category][moe_stdname]
+
     def _apply_ep_tp(self, model, tp_mesh, ep_mesh, ep_tp_mesh, etp_enabled):
         from lmms_engine.parallel.expert_parallel.apply import apply_moe_ep_tp
+
         apply_moe_ep_tp(
             model=model,
             tp_mesh=tp_mesh,
@@ -54,6 +61,6 @@ class MoEParallelPatcher:
             model_dict=self._dict["model"],
             transformer_block_dict=self._dict["transformer_block"],
         )
-    
+
 
 MOEPARALLELPATCHER = MoEParallelPatcher()
