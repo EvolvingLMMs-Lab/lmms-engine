@@ -29,7 +29,7 @@ from .config import TrainerConfig
 from .registry import TRAINER_REGISTER
 from lmms_engine.parallel.expert_parallel.apply import apply_moe_ep_tp
 # from transformers import Trainer
-
+from lmms_engine.models import MOEPARALLELPATCHER
 
 class TrainRunner:
     """
@@ -105,7 +105,7 @@ class TrainRunner:
     def _apply_ep_tp(self):
         if self.config.trainer_args.ep_degree > 1:
             ep_mesh = pgm.process_group_manager.world_mesh
-            apply_moe_ep_tp(
+            MOEPARALLELPATCHER._apply_ep_tp(
                 model=self.model,
                 tp_mesh=None,
                 ep_mesh=ep_mesh,
@@ -114,7 +114,7 @@ class TrainRunner:
             )
         if self.config.trainer_args.tp_degree > 1:
             tp_mesh = pgm.process_group_manager.world_mesh
-            apply_moe_ep_tp(
+            MOEPARALLELPATCHER._apply_ep_tp(
                 model=self.model,
                 tp_mesh=tp_mesh,
                 ep_mesh=None,

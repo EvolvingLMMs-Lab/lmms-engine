@@ -164,7 +164,7 @@ class ProcessGroupManager:
                 mesh_dim_names=("tp",),
             )
         if ep_size > 1:
-            assert dp_size == 1 and cp_size == 1 and pp_size ==1, "When using EP, DP CP and PP sizes must be 1"
+            assert dp_size == 1 and cp_size == 1 and pp_size == 1 and tp_size == 1, "When using EP, DP CP TPand PP sizes must be 1"
             device = "cpu" if not torch.cuda.is_available() else "cuda"
             self.world_mesh = init_device_mesh(
                 device,
