@@ -103,13 +103,17 @@ class TrainRunner:
         return model
 
     def _apply_monkey_patch(self):
-        kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
+        kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad, "patch_type": []}
         if self.config.trainer_args.use_liger_kernel:
-            kwargs["patch_type"] = "liger"
+            kwargs["patch_type"].append("liger")
             # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
             self.config.trainer_args.use_liger_kernel = False
 
         if self.model_config.monkey_patch_kwargs:
+            patch_type = getattr(
+                self.model_config.monkey_patch_kwargs, "patch_type", []
+            )
+            kwargs["patch_type"].extend(patch_type)
             kwargs.update(self.model_config.monkey_patch_kwargs)
         try:
             MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
