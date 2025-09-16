@@ -15,6 +15,7 @@ import os
 
 import torch
 import torch.distributed as dist
+from torch.distributed.device_mesh import init_device_mesh
 
 class ProcessGroupManager:
     def __init__(self, tp_size, cp_size, pp_size, dp_size, ep_size):
@@ -154,14 +155,21 @@ class ProcessGroupManager:
         # Context + Data paralellism
         self.cp_dp_world_size = dist.get_world_size(group=self.cp_dp_group)
 
-        if ep_size > 1:
-            from torch.distributed.device_mesh import init_device_mesh
-            assert cp_size == 1 and pp_size ==1, "When using EP, CP and PP sizes must be 1"
+        if tp_size > 1:
+            assert dp_size == 1 and cp_size == 1 and pp_size ==1 and ep_size ==1, "When using TP for MoE, EP, CP, PP and DP sizes must be 1"
             device = "cpu" if not torch.cuda.is_available() else "cuda"
             self.world_mesh = init_device_mesh(
                 device,
-                (dp_size, ep_size, tp_size),
-                mesh_dim_names=("dp", "ep", "tp"),
+                (tp_size,),
+                mesh_dim_names=("tp",),
+            )
+        if ep_size > 1:
+            assert dp_size == 1 and cp_size == 1 and pp_size ==1, "When using EP, DP CP and PP sizes must be 1"
+            device = "cpu" if not torch.cuda.is_available() else "cuda"
+            self.world_mesh = init_device_mesh(
+                device,
+                (ep_size,),
+                mesh_dim_names=("ep",),
             )
     def __str__(self):
         return f"TP({self.tp_world_size})-CP({self.cp_world_size})-PP({self.pp_world_size})-DP({self.dp_world_size})-Rank({self.global_rank})"

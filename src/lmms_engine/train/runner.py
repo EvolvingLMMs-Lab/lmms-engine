@@ -52,7 +52,7 @@ class TrainRunner:
     def build(self):
         self.create_sp_dis_group()
         self.model = self._build_model()
-        if self.config.trainer_args.ep_degree > 1:
+        if self.config.trainer_args.ep_degree > 1 or self.config.trainer_args.tp_degree > 1:
             self._apply_ep_tp()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
@@ -104,15 +104,22 @@ class TrainRunner:
 
     def _apply_ep_tp(self):
         if self.config.trainer_args.ep_degree > 1:
-            world_mesh = pgm.process_group_manager.world_mesh
-            tp_mesh = world_mesh("tp") if self.config.trainer_args.tp_degree > 1 else None
-            ep_mesh = world_mesh("ep") if self.config.trainer_args.ep_degree > 1 else None
-            ep_tp_mesh = world_mesh("ep", "tp")
+            ep_mesh = pgm.process_group_manager.world_mesh
+            apply_moe_ep_tp(
+                model=self.model,
+                tp_mesh=None,
+                ep_mesh=ep_mesh,
+                ep_tp_mesh=None,
+                etp_enabled=False,
+            )
+        if self.config.trainer_args.tp_degree > 1:
+            tp_mesh = pgm.process_group_manager.world_mesh
             apply_moe_ep_tp(
                 model=self.model,
                 tp_mesh=tp_mesh,
-                ep_mesh=ep_mesh,
-                ep_tp_mesh=world_mesh,
+                ep_mesh=None,
+                ep_tp_mesh=None,
+                etp_enabled=False,
             )
     def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
