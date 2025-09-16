@@ -119,6 +119,8 @@ class Bagel(PreTrainedModel):
     config_class = BagelConfig
     base_model_prefix = "bagel"
     supports_gradient_checkpointing = True
+    _supports_sdpa = True
+    _supports_flash_attn = True
 
     def __init__(self, language_model, vit_model, vae_model, config: BagelConfig):
         super().__init__(config)
