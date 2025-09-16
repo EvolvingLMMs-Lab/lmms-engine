@@ -17,6 +17,11 @@ class MoEParallelPatcher:
             "moe.shared_experts.w2": "moe.shared_experts.w2",
             "moe.shared_experts.w3": "moe.shared_experts.w3",
         }
+        self._dict["expert"] = {
+            "w1": "w1",
+            "w2": "w2",
+            "w3": "w3",
+        }
 
     def register_model(self, attr_name, moe_stdname):
         if moe_stdname not in self._dict["model"]:
@@ -38,6 +43,17 @@ class MoEParallelPatcher:
         self._dict["transformer_block"][moe_stdname] = attr_name
         Logging.info(
             f"Registered transformer_block attribute '{moe_stdname}' as '{attr_name}' for MoE parallel patching."
+        )
+
+    def register_expert(self, attr_name, moe_stdname):
+        if moe_stdname not in self._dict["expert"]:
+            Logging.warning(
+                f"Attribute '{moe_stdname}' not found in expert. Available attributes: {self._dict['expert'].keys()}"
+            )
+            return
+        self._dict["expert"][moe_stdname] = attr_name
+        Logging.info(
+            f"Registered expert attribute '{moe_stdname}' as '{attr_name}' for MoE parallel patching."
         )
 
     def get_attr_name(self, category, moe_stdname):

@@ -14,4 +14,6 @@ def deep_getattr(obj, attr_path: str, default=None):
             obj = getattr(obj, attr)
         return obj
     except AttributeError:
-        return default
+        if default is not None:
+            return default
+        raise AttributeError
