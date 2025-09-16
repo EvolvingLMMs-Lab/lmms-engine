@@ -107,12 +107,14 @@ class ExpertParallel(ParallelStyle):
                 num_tokens_per_expert.view(ep_size, -1)
                 .sum(dim=1)
                 .to(torch.device("cpu"), non_blocking=True)
+                .to(torch.int32)
             )
             # NOTE: this would incur a device-to-host sync
             output_splits = (
                 num_tokens_per_expert_group.view(ep_size, -1)
                 .sum(dim=1)
                 .to(torch.device("cpu"), non_blocking=False)
+                .to(torch.int32)
             )
             self.input_splits = input_splits.tolist()
             self.output_splits = output_splits.tolist()
