@@ -1,8 +1,9 @@
 from contextlib import redirect_stdout
-from typing import Dict, Any
+from typing import Any, Dict
 
 import torch.distributed as dist
 from loguru import logger
+from rich.logging import RichHandler
 
 
 def distributed_filter(record: Dict[str, Any]) -> bool:
@@ -22,14 +23,13 @@ def setup_distributed_logging():
     """
     # Remove default handler
     logger.remove()
-    
-    # Add handler with distributed filter
+
+    # Add handler with distributed filter and RichHandler for beautiful logging
     logger.add(
-        sink=lambda msg: print(msg, end=""),
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        RichHandler(rich_tracebacks=True, show_path=True, omit_repeated_times=False),
+        format="{message}",
         filter=distributed_filter,
-        colorize=True,
-        level="DEBUG"
+        level="DEBUG",
     )
 
 
@@ -38,6 +38,7 @@ class Logging:
     Legacy Logging class for backward compatibility.
     Recommend using loguru logger directly with setup_distributed_logging().
     """
+
     @staticmethod
     def show_deprecation_warning():
         logger.warning("Logging is deprecated. Use loguru logger directly.")
