@@ -142,7 +142,7 @@ class FSDP2SFTTrainer:
         full_state = self.model.state_dict()
         logger.info(f"Applying FSDP2 to model")
         apply_fsdp2(self.model, fsdp_kwargs, transformer_cls_names_to_wrap)
-        Logging.info(f"Loading full state dict to model")
+        logger.info(f"Loading full state dict to model")
         fsdp2_load_full_state_dict(self.model, full_state)
         logger.info(f"FSDP2 applied to model")
         self.fsdp2_model = self.model

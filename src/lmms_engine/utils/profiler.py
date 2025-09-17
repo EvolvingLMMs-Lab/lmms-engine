@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import torch
 from torch import profiler as torch_profiler
 
-from lmms_engine.utils.logging_utils import Logging
+from loguru import logger
 
 
 class StepProfiler:
@@ -49,7 +49,7 @@ class StepProfiler:
 
     def start(self):
         if self.check():
-            Logging.info(f"[Profiler] started for rank {self.rank}")
+            logger.info(f"[Profiler] started for rank {self.rank}")
             self.prof.start()
 
     def step(self):
@@ -58,7 +58,7 @@ class StepProfiler:
 
     def stop(self):
         if self.check():
-            Logging.info(f"[Profiler] stopped for rank {self.rank}")
+            logger.info(f"[Profiler] stopped for rank {self.rank}")
             self.prof.stop()
 
     def save(self):
@@ -66,7 +66,7 @@ class StepProfiler:
             if not os.path.exists(self.directory):
                 os.makedirs(self.directory)
             save_file_name = f"/prof_start_{self.start_step}_end_{self.end_step}_rank_{self.rank}.json"
-            Logging.info(
+            logger.info(
                 f"[Profiler] Saving trace to {self.directory + save_file_name}"
             )
             self.prof.export_chrome_trace(self.directory + save_file_name)
@@ -85,5 +85,5 @@ class StepProfiler:
 
     def stop_trace(self):
         if self.check():
-            Logging.info(f"[Profiler] Trace stopped for rank {self.rank}")
+            logger.info(f"[Profiler] Trace stopped for rank {self.rank}")
             self.skip_prof = True

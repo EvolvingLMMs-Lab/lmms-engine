@@ -6,9 +6,7 @@ import deepspeed
 import torch
 from transformers import AutoProcessor
 
-from .logging_utils import Logging
-
-
+from loguru import logger
 class TrainUtilities:
     @staticmethod
     def format_tokens(tokens: Union[int, float]) -> str:
@@ -171,7 +169,7 @@ class TrainUtilities:
         if hasattr(param, "ds_id"):
             if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
                 if not ignore_status:
-                    Logging.warning(
+                    logger.warning(
                         f"{name}: param.ds_status != ZeroParamStatus.NOT_AVAILABLE: {param.ds_status}"
                     )
             with zero.GatheredParameters([param]):

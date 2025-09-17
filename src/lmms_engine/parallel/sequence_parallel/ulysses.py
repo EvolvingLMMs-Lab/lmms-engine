@@ -24,7 +24,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from lmms_engine.utils import Logging
+from loguru import logger
 
 _ULYSSES_SEQUENCE_PARALLEL_GROUP = None
 
@@ -98,7 +98,7 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
     original_forward = model_class.forward
     wrapped_forward = _create_ulysses_wrapped_decoder_forward(original_forward)
     model_class.forward = wrapped_forward
-    Logging.info(
+    logger.info(
         f"Monkey patch {model_class.__name__}.forward for Ulysses SP input slicing."
     )
 

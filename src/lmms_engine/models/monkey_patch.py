@@ -6,7 +6,7 @@ import inspect
 
 from transformers import PreTrainedModel
 
-from ..utils.logging_utils import Logging
+from loguru import logger
 
 
 class MonkeyPatcher:
@@ -20,7 +20,7 @@ class MonkeyPatcher:
             if not callable(func):
                 raise TypeError(f"Error: {func} must be callable!")
             if patch_type in self._dict[model_type]:
-                Logging.warning(
+                logger.warning(
                     f"Monkey patch for model_type='{model_type}', patch_type='{patch_type}' already exists and will be overwritten by {getattr(func, '__name__', repr(func))}."
                 )
             self._dict[model_type][patch_type] = func

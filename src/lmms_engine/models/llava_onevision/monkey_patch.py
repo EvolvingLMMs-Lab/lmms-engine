@@ -10,8 +10,8 @@ TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 wi
 
 from lmms_engine.models.aero.monkey_patch import apply_liger_kernel_to_aero
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
-from lmms_engine.utils.logging_utils import Logging
 
+from loguru import logger
 
 @MONKEY_PATCHER.register("llava_onevision", "liger")
 def apply_liger_kernel_to_llava_onevision(

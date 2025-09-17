@@ -39,7 +39,12 @@ class Logging:
     Recommend using loguru logger directly with setup_distributed_logging().
     """
     @staticmethod
+    def show_deprecation_warning():
+        logger.warning("Logging is deprecated. Use loguru logger directly.")
+
+    @staticmethod
     def info(msg: str):
+        Logging.show_deprecation_warning()
         if dist.is_initialized():
             if dist.get_rank() == 0:
                 logger.info(msg)
@@ -48,6 +53,7 @@ class Logging:
 
     @staticmethod
     def error(msg: str):
+        Logging.show_deprecation_warning()
         if dist.is_initialized():
             if dist.get_rank() == 0:
                 logger.error(msg)
@@ -56,6 +62,7 @@ class Logging:
 
     @staticmethod
     def warning(msg: str):
+        Logging.show_deprecation_warning()
         if dist.is_initialized():
             if dist.get_rank() == 0:
                 logger.warning(msg)
@@ -64,6 +71,7 @@ class Logging:
 
     @staticmethod
     def debug(msg: str):
+        Logging.show_deprecation_warning()
         if dist.is_initialized():
             if dist.get_rank() == 0:
                 logger.debug(msg)
@@ -72,5 +80,6 @@ class Logging:
 
     @staticmethod
     def null_logging(msg):
+        Logging.show_deprecation_warning()
         with redirect_stdout(None):
             print(msg)

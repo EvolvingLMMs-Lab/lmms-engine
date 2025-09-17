@@ -17,12 +17,13 @@ from decord import VideoReader, cpu
 from PIL import Image
 from tqdm import tqdm
 
-from lmms_engine.utils import DataUtilities, Logging
+from lmms_engine.utils import DataUtilities
+from loguru import logger
 
 try:
     from qwen_vl_utils import fetch_video
 except ImportError:
-    Logging.info("qwen_vl_utils not installed. Skipping import.")
+    logger.info("qwen_vl_utils not installed. Skipping import.")
 
 
 class MultiModalDataLoadingMixin:

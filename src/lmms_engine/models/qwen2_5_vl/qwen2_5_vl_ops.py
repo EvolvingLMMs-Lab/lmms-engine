@@ -33,7 +33,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     repeat_kv,
     ulysses_pad,
 )
-from lmms_engine.utils import Logging
+from loguru import logger
 
 from ..sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,

@@ -8,6 +8,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 import torch.distributed as dist
+from loguru import logger
 import yaml
 
 import lmms_engine.parallel.process_group_manager as pgm
@@ -23,7 +24,6 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
 )
 from lmms_engine.train.hf import Trainer
 
-from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
 from .registry import TRAINER_REGISTER
@@ -93,11 +93,11 @@ class TrainRunner:
                 setattr(model.config, key, value)
                 if getattr(model, key, None) is not None:
                     setattr(model, key, value)
-                Logging.info(f"Overwrite {key} to {value}")
+                logger.info(f"Overwrite {key} to {value}")
 
         setup_flops_counter(model.config)
-        Logging.info(f"Model Structure: {model}")
-        Logging.info(
+        logger.info(f"Model Structure: {model}")
+        logger.info(
             f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B"
         )
         return model
@@ -118,7 +118,7 @@ class TrainRunner:
         try:
             MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
         except Exception as e:
-            Logging.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
+            logger.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]
@@ -156,7 +156,7 @@ class TrainRunner:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         np.random.seed(random_seed)
-        Logging.info(f"Set random seed to {random_seed}")
+        logger.info(f"Set random seed to {random_seed}")
         return random_seed
 
     def create_sp_dis_group(self):
@@ -209,7 +209,7 @@ class TrainRunner:
         trainer.accelerator.wait_for_everyone()
         torch.cuda.synchronize()
         check_only_save_mm_adapter = self.config.trainer_args.only_save_mm_adapter
-        Logging.info(f"Only save projectors: {check_only_save_mm_adapter}")
+        logger.info(f"Only save projectors: {check_only_save_mm_adapter}")
 
         if check_only_save_mm_adapter:
             # Only save Adapter

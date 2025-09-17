@@ -16,7 +16,7 @@ from transformers import PreTrainedModel
 # )
 from transformers.utils import ModelOutput
 
-from lmms_engine.utils import Logging
+from loguru import logger
 
 from .configuration_wanvideo import WanVideoConfig
 from .wan_video_dit import WanDitModel, sinusoidal_embedding_1d
@@ -134,7 +134,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 // self.height_division_factor
                 * self.height_division_factor
             )
-            Logging.info(
+            logger.info(
                 f"height % {self.height_division_factor} != 0. We round it up to {height}."
             )
 
@@ -144,7 +144,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 // self.width_division_factor
                 * self.width_division_factor
             )
-            Logging.info(
+            logger.info(
                 f"width % {self.width_division_factor} != 0. We round it up to {width}."
             )
 
@@ -156,7 +156,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                     * self.time_division_factor
                     + self.time_division_remainder
                 )
-                Logging.info(
+                logger.info(
                     f"num_frames % {self.time_division_factor} != {self.time_division_remainder}. We round it up to {num_frames}."
                 )
 
