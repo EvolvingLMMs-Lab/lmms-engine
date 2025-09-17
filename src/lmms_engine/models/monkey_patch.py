@@ -33,11 +33,11 @@ class MonkeyPatcher:
             for patch in patch_type:
                 self.apply_monkey_patch(model_type, patch, **kwargs)
         if not model_type:
-            Logging.info("Model type was not provided. No patches will be applied.")
+            logger.info("Model type was not provided. No patches will be applied.")
             return
 
         if model_type not in self._dict.keys():
-            Logging.info(
+            logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
@@ -52,7 +52,7 @@ class MonkeyPatcher:
             if key in apply_fn_signature.parameters
         }
 
-        Logging.info(
+        logger.info(
             f"Applying patches for model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 
@@ -69,12 +69,12 @@ class MonkeyPatcher:
             model.config, "model_type", None
         )
         if not model_type:
-            Logging.info(
+            logger.info(
                 "Model type could not be determined from model config. No patches will be applied."
             )
             return
         if model_type not in self._dict.keys():
-            Logging.info(
+            logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
@@ -89,7 +89,7 @@ class MonkeyPatcher:
             for key, value in kwargs.items()
             if key in apply_fn_signature.parameters
         }
-        Logging.info(
+        logger.info(
             f"Applying patches to model instance with model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 
