@@ -4,11 +4,10 @@ from typing import Protocol
 import torch
 import triton
 import triton.language as tl
+from loguru import logger
 from torch import Tensor
 from torch.distributed import all_gather_into_tensor, gather, scatter
 from torch.distributed.tensor import DTensor
-
-from lmms_engine.utils.logging_utils import Logging
 
 
 def get_autotune_config():
@@ -345,14 +344,14 @@ class Muon(torch.optim.Optimizer):
                 group["weight_decay"] = group.get("weight_decay", 0)
                 rms_scale = group.get("rms_scale", True)
                 if self.is_deepspeed_enabled and rms_scale:
-                    Logging.warning(
+                    logger.warning(
                         "rms_scale for Muon is not supported in deepspeed, setting rms_scale to False"
                     )
                     rms_scale = False
                 group["rms_scale"] = rms_scale
                 nesterov = group.get("nesterov", True)
                 if self.is_deepspeed_enabled and not nesterov:
-                    Logging.warning(
+                    logger.warning(
                         "disabled nesterov for Muon is not supported in deepspeed, setting nesterov to True"
                     )
                     nesterov = False

@@ -3,6 +3,7 @@ import warnings
 from typing import List, Optional, Tuple, Union
 
 import torch
+from loguru import logger
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.masking_utils import (
     create_causal_mask,
@@ -30,7 +31,6 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad,
     ulysses_pad_and_slice_inputs,
 )
-from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,

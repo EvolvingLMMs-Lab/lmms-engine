@@ -6,17 +6,18 @@ from typing import List
 import torch.distributed as dist
 from datasets import Dataset as HFDataset
 from datasets import load_dataset, load_from_disk
+from loguru import logger
 from tqdm import tqdm
 
 from lmms_engine.datasets.multimodal_mixin import MultiModalDataLoadingMixin
-from lmms_engine.utils import DataUtilities, Logging
+from lmms_engine.utils import DataUtilities
 
 from .base_dataset import BaseDataset
 
 try:
     from google.cloud.storage import Client
 except ImportError:
-    Logging.info("Google Cloud SDK not installed. Skipping import.")
+    logger.info("Google Cloud SDK not installed. Skipping import.")
 
 try:
     from azure.storage.blob import BlobServiceClient, LinearRetry
@@ -24,7 +25,7 @@ try:
     RETRY_POLICY = LinearRetry(backoff=10, retry_total=5, random_jitter_range=0)
     SAS_URL = os.environ.get("AZURE_STORAGE_SAS_URL", "YOUR_SAS_URL")
 except ImportError:
-    Logging.info("Azure SDK not installed. Skipping import.")
+    logger.info("Azure SDK not installed. Skipping import.")
 
 
 class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
@@ -60,7 +61,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
                 if self.config.max_length is not None
                 else self.config.packing_length
             )
-            Logging.info(f"Filter overlong data, max length: {max_length}")
+            logger.info(f"Filter overlong data, max length: {max_length}")
             original_length = len(self.data_list)
             seq_len = max_length
             overlong_indices = [
@@ -80,7 +81,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             if getattr(self, "data_folder", None) is not None:
                 self.data_folder = [self.data_folder[i] for i in select_indices]
             self.data_lengths = [self.data_lengths[i] for i in select_indices]
-            Logging.info(
+            logger.info(
                 f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}"
             )
 
@@ -118,7 +119,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             raise NotImplementedError
 
         if self.config.shuffle:
-            Logging.info("Shuffle Dataset ...")
+            logger.info("Shuffle Dataset ...")
             data_index = [i for i in range(len(self.data_list))]
             random.shuffle(data_index)
             if isinstance(self.data_list, HFDataset):
@@ -158,7 +159,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
                 )
             else:
                 raise NotImplementedError
-            Logging.info(
+            logger.info(
                 f"Before packing : {len(self.data_list)}, After packing : {len(self.packing_index)}"
             )
 
@@ -237,7 +238,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             List of packed index groups
         """
         max_length = packing_length
-        Logging.info(f"Packing inputs...pack max length: {max_length}")
+        logger.info(f"Packing inputs...pack max length: {max_length}")
 
         result = []
         current_concatenated_length = 0
@@ -281,7 +282,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             List of packed index groups
         """
         max_length = packing_length
-        Logging.info(f"Packing inputs...pack length:{max_length}")
+        logger.info(f"Packing inputs...pack length:{max_length}")
         result = []
         current_concatenated_length = 0
         current_list = []

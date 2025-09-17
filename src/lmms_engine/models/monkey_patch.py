@@ -4,9 +4,8 @@
 import collections
 import inspect
 
+from loguru import logger
 from transformers import PreTrainedModel
-
-from ..utils.logging_utils import Logging
 
 
 class MonkeyPatcher:
@@ -20,7 +19,7 @@ class MonkeyPatcher:
             if not callable(func):
                 raise TypeError(f"Error: {func} must be callable!")
             if patch_type in self._dict[model_type]:
-                Logging.warning(
+                logger.warning(
                     f"Monkey patch for model_type='{model_type}', patch_type='{patch_type}' already exists and will be overwritten by {getattr(func, '__name__', repr(func))}."
                 )
             self._dict[model_type][patch_type] = func
@@ -33,11 +32,11 @@ class MonkeyPatcher:
             for patch in patch_type:
                 self.apply_monkey_patch(model_type, patch, **kwargs)
         if not model_type:
-            Logging.info("Model type was not provided. No patches will be applied.")
+            logger.info("Model type was not provided. No patches will be applied.")
             return
 
         if model_type not in self._dict.keys():
-            Logging.info(
+            logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
@@ -52,7 +51,7 @@ class MonkeyPatcher:
             if key in apply_fn_signature.parameters
         }
 
-        Logging.info(
+        logger.info(
             f"Applying patches for model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 
@@ -69,12 +68,12 @@ class MonkeyPatcher:
             model.config, "model_type", None
         )
         if not model_type:
-            Logging.info(
+            logger.info(
                 "Model type could not be determined from model config. No patches will be applied."
             )
             return
         if model_type not in self._dict.keys():
-            Logging.info(
+            logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
@@ -89,7 +88,7 @@ class MonkeyPatcher:
             for key, value in kwargs.items()
             if key in apply_fn_signature.parameters
         }
-        Logging.info(
+        logger.info(
             f"Applying patches to model instance with model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 

@@ -10,9 +10,9 @@ import pandas as pd
 import yaml
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from librosa import resample
+from loguru import logger
 from tqdm import tqdm
 
-from .logging_utils import Logging
 from .train_utils import TrainUtilities
 
 FRAME_FACTOR = 2
@@ -91,7 +91,7 @@ class DataUtilities:
             data_folders = [dataset.get("data_folder") for dataset in datasets]
             data_types = [dataset.get("data_type") for dataset in datasets]
             with Pool(cpu_count()) as p:
-                Logging.info("Loading data with multiprocess...")
+                logger.info("Loading data with multiprocess...")
                 nested_data_list = list(
                     p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
                 )
@@ -99,14 +99,14 @@ class DataUtilities:
             for data, data_folder, data_path in zip(
                 nested_data_list, data_folders, data_paths
             ):
-                Logging.info(f"Data : {data_path}")
+                logger.info(f"Data : {data_path}")
                 if isinstance(data, Dataset):
                     data_list.append(data)
                 else:
-                    Logging.info(f"Convert to hf dataset")
+                    logger.info(f"Convert to hf dataset")
                     data = Dataset.from_list(data)
                     data_list.append(data)
-                Logging.info(f"Dataset size: {len(data)}")
+                logger.info(f"Dataset size: {len(data)}")
                 data_folder_list.extend([data_folder] * len(data))
             data_list = concatenate_datasets(data_list)
         return data_list, data_folder_list
@@ -185,9 +185,9 @@ class DataUtilities:
                     blob_client.download_blob().readinto(file_obj)
                 break
             except Exception as e:
-                Logging.error(f"Attempt {i} Error downloading blob: {source_blob_name}")
-                Logging.error(f"Error: {e}")
-                Logging.error(f"Retrying ...")
+                logger.error(f"Attempt {i} Error downloading blob: {source_blob_name}")
+                logger.error(f"Error: {e}")
+                logger.error(f"Retrying ...")
 
         return file_obj
 
@@ -223,7 +223,7 @@ class DataUtilities:
         data_types = [dataset.get("data_type", "json") for dataset in datasets]
 
         with Pool(cpu_count()) as p:
-            Logging.info("Loading data with multiprocess...")
+            logger.info("Loading data with multiprocess...")
             nested_data_list = list(
                 p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
             )
@@ -231,14 +231,14 @@ class DataUtilities:
         for data, data_folder, data_path in zip(
             nested_data_list, data_folders, data_paths
         ):
-            Logging.info(f"Data : {data_path}")
+            logger.info(f"Data : {data_path}")
             if isinstance(data, Dataset):
                 data_list.append(data)
             else:
-                Logging.info(f"Convert to hf dataset")
+                logger.info(f"Convert to hf dataset")
                 data = Dataset.from_list(data)
                 data_list.append(data)
-            Logging.info(f"Dataset size: {len(data)}")
+            logger.info(f"Dataset size: {len(data)}")
             data_folder_list.extend([data_folder] * len(data))
         data_list = concatenate_datasets(data_list)
 

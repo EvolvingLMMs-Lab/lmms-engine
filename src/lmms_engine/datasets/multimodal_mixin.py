@@ -14,15 +14,16 @@ import torchvision.io
 from datasets import Dataset as HFDataset
 from datasets import load_dataset, load_from_disk
 from decord import VideoReader, cpu
+from loguru import logger
 from PIL import Image
 from tqdm import tqdm
 
-from lmms_engine.utils import DataUtilities, Logging
+from lmms_engine.utils import DataUtilities
 
 try:
     from qwen_vl_utils import fetch_video
 except ImportError:
-    Logging.info("qwen_vl_utils not installed. Skipping import.")
+    logger.info("qwen_vl_utils not installed. Skipping import.")
 
 
 class MultiModalDataLoadingMixin:

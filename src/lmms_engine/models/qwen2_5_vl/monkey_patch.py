@@ -46,7 +46,6 @@ SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
-from lmms_engine.utils.logging_utils import Logging
 
 
 @MONKEY_PATCHER.register("qwen2_5_vl", "liger")

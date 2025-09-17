@@ -47,6 +47,7 @@ dependencies = [
     "qwen-vl-utils",
     "einops",
     "pandas",
+    "rich>=14.1.0",
 ]
 
 [project.optional-dependencies]

@@ -13,12 +13,12 @@ from transformers.modeling_utils import PreTrainedModel
 DATASET_MAPPING = {}
 DATAPROCESSOR_MAPPING = {}
 
-from lmms_engine.utils import Logging
+from loguru import logger
 
 try:
     import fla
 except ImportError as e:
-    Logging.warning(
+    logger.warning(
         f"Failed to import the lib 'fla'. If you do not need it, you can ignore this warning."
     )
 
