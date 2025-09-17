@@ -9,12 +9,13 @@ from datasets import load_dataset, load_from_disk
 from torch.utils.data import get_worker_info
 
 from lmms_engine.datasets.multimodal_mixin import MultiModalDataLoadingMixin
-from lmms_engine.utils import DataUtilities, Logging
+from lmms_engine.utils import DataUtilities
+from loguru import logger
 
 try:
     from google.cloud.storage import Client
 except ImportError:
-    Logging.info("Google Cloud SDK not installed. Skipping import.")
+    logger.info("Google Cloud SDK not installed. Skipping import.")
 
 try:
     from azure.storage.blob import BlobServiceClient, LinearRetry
@@ -22,7 +23,7 @@ try:
     RETRY_POLICY = LinearRetry(backoff=10, retry_total=5, random_jitter_range=0)
     SAS_URL = os.environ.get("AZURE_STORAGE_SAS_URL", "YOUR_SAS_URL")
 except ImportError:
-    Logging.info("Azure SDK not installed. Skipping import.")
+    logger.info("Azure SDK not installed. Skipping import.")
 
 from lmms_engine.datasets.iterable.base_iterable_dataset import BaseIterableDataset
 
@@ -50,13 +51,13 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             self.bucket_name = self.config.bucket_name
         self.cur_idx = 0
         if not dist.is_initialized():
-            Logging.info(
+            logger.info(
                 "Distributed environment not initialized, setting rank and world size to 0 and 1"
             )
             self.rank = 0
             self.world_size = 1
         else:
-            Logging.info(
+            logger.info(
                 "Distributed environment initialized, setting rank and world size to dist.get_rank() and dist.get_world_size()"
             )
             self.rank = dist.get_rank()
@@ -96,7 +97,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             raise NotImplementedError
 
         if self.config.shuffle:
-            Logging.info("Shuffle Dataset ...")
+            logger.info("Shuffle Dataset ...")
             data_index = [i for i in range(len(self.data_list))]
             random.shuffle(data_index)
             if isinstance(self.data_list, HFDataset):
@@ -186,7 +187,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                         self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
                     )
                 except Exception as e:
-                    Logging.error(f"Error getting one sample: {e}, skip this sample")
+                    logger.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
                     continue
                 input_ids = data_dict["input_ids"]
@@ -224,7 +225,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                         self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
                     )
                 except Exception as e:
-                    Logging.error(f"Error getting one sample: {e}, skip this sample")
+                    logger.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
                     continue
                 self.cur_idx += 1

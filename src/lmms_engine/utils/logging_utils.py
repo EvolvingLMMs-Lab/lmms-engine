@@ -1,10 +1,43 @@
 from contextlib import redirect_stdout
+from typing import Dict, Any
 
 import torch.distributed as dist
 from loguru import logger
 
 
+def distributed_filter(record: Dict[str, Any]) -> bool:
+    """
+    Filter function for distributed training.
+    Only allows logs from rank 0 when distributed training is initialized.
+    """
+    if dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
+
+
+def setup_distributed_logging():
+    """
+    Setup loguru logger with distributed training filter.
+    Call this function once at the beginning of your program.
+    """
+    # Remove default handler
+    logger.remove()
+    
+    # Add handler with distributed filter
+    logger.add(
+        sink=lambda msg: print(msg, end=""),
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        filter=distributed_filter,
+        colorize=True,
+        level="DEBUG"
+    )
+
+
 class Logging:
+    """
+    Legacy Logging class for backward compatibility.
+    Recommend using loguru logger directly with setup_distributed_logging().
+    """
     @staticmethod
     def info(msg: str):
         if dist.is_initialized():
