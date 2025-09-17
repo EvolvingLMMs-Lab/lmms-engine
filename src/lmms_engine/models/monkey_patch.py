@@ -31,10 +31,10 @@ class MonkeyPatcher:
         if isinstance(patch_type, list):
             for patch in patch_type:
                 self.apply_monkey_patch(model_type, patch, **kwargs)
+            return
         if not model_type:
             logger.info("Model type was not provided. No patches will be applied.")
             return
-
         if model_type not in self._dict.keys():
             logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
@@ -63,6 +63,7 @@ class MonkeyPatcher:
         if isinstance(patch_type, list):
             for patch in patch_type:
                 self.apply_monkey_patch_to_instance(model, patch, **kwargs)
+            return
 
         model_type = getattr(model, "config", None) and getattr(
             model.config, "model_type", None
