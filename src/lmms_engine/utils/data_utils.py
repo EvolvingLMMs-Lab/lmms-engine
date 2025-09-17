@@ -10,9 +10,8 @@ import pandas as pd
 import yaml
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from librosa import resample
-from tqdm import tqdm
 from loguru import logger
-
+from tqdm import tqdm
 
 from .train_utils import TrainUtilities
 

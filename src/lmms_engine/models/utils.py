@@ -1,9 +1,9 @@
 from typing import Iterable
 
 import torch
+from loguru import logger
 from transformers import PretrainedConfig
 
-from loguru import logger
 from lmms_engine.utils import TrainUtilities
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates

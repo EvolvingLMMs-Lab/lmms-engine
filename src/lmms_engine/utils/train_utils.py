@@ -4,9 +4,10 @@ from typing import Iterable, List, Union
 
 import deepspeed
 import torch
+from loguru import logger
 from transformers import AutoProcessor
 
-from loguru import logger
+
 class TrainUtilities:
     @staticmethod
     def format_tokens(tokens: Union[int, float]) -> str:

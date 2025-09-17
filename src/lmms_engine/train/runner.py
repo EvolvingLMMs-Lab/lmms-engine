@@ -8,8 +8,8 @@ from copy import deepcopy
 import numpy as np
 import torch
 import torch.distributed as dist
-from loguru import logger
 import yaml
+from loguru import logger
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
@@ -97,9 +97,7 @@ class TrainRunner:
 
         setup_flops_counter(model.config)
         logger.info(f"Model Structure: {model}")
-        logger.info(
-            f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B"
-        )
+        logger.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B")
         return model
 
     def _apply_monkey_patch(self):

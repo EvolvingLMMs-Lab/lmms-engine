@@ -11,6 +11,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from accelerate.utils import send_to_device
+from loguru import logger
 from torch.distributed.fsdp import MixedPrecisionPolicy
 from torch.utils.data import Dataset, DistributedSampler, IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -23,7 +24,6 @@ import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import TrainUtilities
-from loguru import logger
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,

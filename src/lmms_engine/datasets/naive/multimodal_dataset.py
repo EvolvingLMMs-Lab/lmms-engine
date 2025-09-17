@@ -6,12 +6,11 @@ from typing import List
 import torch.distributed as dist
 from datasets import Dataset as HFDataset
 from datasets import load_dataset, load_from_disk
+from loguru import logger
 from tqdm import tqdm
 
 from lmms_engine.datasets.multimodal_mixin import MultiModalDataLoadingMixin
 from lmms_engine.utils import DataUtilities
-
-from loguru import logger
 
 from .base_dataset import BaseDataset
 

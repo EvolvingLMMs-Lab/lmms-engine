@@ -4,12 +4,12 @@ from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
+from loguru import logger
 from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
 
 from lmms_engine.models.wanvideo.wan_video_scheduler import FlowMatchScheduler
 from lmms_engine.train.registry import TRAINER_REGISTER
-from loguru import logger
 
 
 class WanVideoCallback(TrainerCallback):

@@ -21,10 +21,9 @@ from typing import Any, List, Optional
 
 import torch
 import torch.distributed as dist
+from loguru import logger
 from torch import Tensor
 from torch.distributed import ProcessGroup
-
-from loguru import logger
 
 _ULYSSES_SEQUENCE_PARALLEL_GROUP = None
 

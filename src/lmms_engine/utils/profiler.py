@@ -3,9 +3,8 @@ from contextlib import contextmanager, nullcontext
 from typing import Any, Dict, Optional
 
 import torch
-from torch import profiler as torch_profiler
-
 from loguru import logger
+from torch import profiler as torch_profiler
 
 
 class StepProfiler:
@@ -66,9 +65,7 @@ class StepProfiler:
             if not os.path.exists(self.directory):
                 os.makedirs(self.directory)
             save_file_name = f"/prof_start_{self.start_step}_end_{self.end_step}_rank_{self.rank}.json"
-            logger.info(
-                f"[Profiler] Saving trace to {self.directory + save_file_name}"
-            )
+            logger.info(f"[Profiler] Saving trace to {self.directory + save_file_name}")
             self.prof.export_chrome_trace(self.directory + save_file_name)
             self.skip_prof = True
 

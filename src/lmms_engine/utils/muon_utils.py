@@ -4,11 +4,10 @@ from typing import Protocol
 import torch
 import triton
 import triton.language as tl
+from loguru import logger
 from torch import Tensor
 from torch.distributed import all_gather_into_tensor, gather, scatter
 from torch.distributed.tensor import DTensor
-
-from loguru import logger
 
 
 def get_autotune_config():

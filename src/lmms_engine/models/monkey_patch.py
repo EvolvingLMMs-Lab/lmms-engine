@@ -4,9 +4,8 @@
 import collections
 import inspect
 
-from transformers import PreTrainedModel
-
 from loguru import logger
+from transformers import PreTrainedModel
 
 
 class MonkeyPatcher:

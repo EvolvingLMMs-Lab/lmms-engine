@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import rearrange, repeat
+from loguru import logger
 from safetensors.torch import load_file
 from transformers import PreTrainedModel
 
@@ -15,8 +16,6 @@ from transformers import PreTrainedModel
 #     restore_default_torch_dtype,
 # )
 from transformers.utils import ModelOutput
-
-from loguru import logger
 
 from .configuration_wanvideo import WanVideoConfig
 from .wan_video_dit import WanDitModel, sinusoidal_embedding_1d

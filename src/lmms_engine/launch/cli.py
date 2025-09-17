@@ -1,11 +1,11 @@
 import argparse
-from lmms_engine.utils.logging_utils import setup_distributed_logging
 import datetime
 import os
 
 import torch.distributed as dist
 
 from lmms_engine.parallel.process_group_manager import setup_process_group_manager
+from lmms_engine.utils.logging_utils import setup_distributed_logging
 
 from ..datasets import DatasetConfig
 from ..models import ModelConfig

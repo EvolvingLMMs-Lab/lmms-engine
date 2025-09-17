@@ -14,11 +14,11 @@ import torchvision.io
 from datasets import Dataset as HFDataset
 from datasets import load_dataset, load_from_disk
 from decord import VideoReader, cpu
+from loguru import logger
 from PIL import Image
 from tqdm import tqdm
 
 from lmms_engine.utils import DataUtilities
-from loguru import logger
 
 try:
     from qwen_vl_utils import fetch_video
