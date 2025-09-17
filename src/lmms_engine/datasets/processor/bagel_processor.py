@@ -79,7 +79,8 @@ class BagelDataProcessor:
         """
         A wrapper method to process single data
         """
-        image_tensor = [self.image_transform(image) for image in images]
+        # TODO: transformation should be performed differently for vae and vit images
+        image_tensor = [self.image_transform(image.convert("RGB")) for image in images]
         image_index = 0
         text = []
         vae_images = []

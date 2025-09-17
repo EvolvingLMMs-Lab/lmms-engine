@@ -226,6 +226,8 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                     )
                 except Exception as e:
                     logger.error(f"Error getting one sample: {e}, skip this sample")
+                    import traceback
+                    traceback.print_exc()
                     self.cur_idx += 1
                     continue
                 self.cur_idx += 1
