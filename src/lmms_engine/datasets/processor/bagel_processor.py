@@ -207,7 +207,7 @@ class BagelDataProcessor:
         sequence_status["packed_text_indexes"].extend(
             range(curr, curr + len(shifted_text_ids))
         )
-        if role == "user":
+        if role == "assistant":
             sequence_status["ce_loss_indexes"].extend(
                 range(curr, curr + len(shifted_text_ids))
             )
