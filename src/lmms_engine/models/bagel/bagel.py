@@ -365,21 +365,23 @@ class Bagel(PreTrainedModel):
         loss = 0
         if ce is not None:
             total_ce_tokens = torch.tensor(len(ce_loss_indexes), device=self.device)
-            dist.all_reduce(total_ce_tokens, op=dist.ReduceOp.SUM)
+            # dist.all_reduce(total_ce_tokens, op=dist.ReduceOp.SUM)
             if self.config.ce_loss_reweighting:
                 ce_loss_weights = kwargs.get(
                     "ce_loss_weights", []
                 )  # TODO: check if this is correct
                 ce = ce * ce_loss_weights
                 total_ce_loss_weights = ce_loss_weights.sum()
-                dist.all_reduce(total_ce_loss_weights, op=dist.ReduceOp.SUM)
-                ce = ce.sum() * dist.get_world_size() / total_ce_loss_weights
+                # dist.all_reduce(total_ce_loss_weights, op=dist.ReduceOp.SUM)
+                # ce = ce.sum() * dist.get_world_size() / total_ce_loss_weights
+                ce = ce.sum() / total_ce_loss_weights
             else:
-                ce = ce.sum() * dist.get_world_size() / total_ce_tokens
+                # ce = ce.sum() * dist.get_world_size() / total_ce_tokens
+                ce = ce.sum() / total_ce_tokens
             loss_dict["ce"] = ce.detach()
             loss = loss + ce * self.config.ce_weight  # TODO: check if this is correct
         else:
-            assert not self.config.visual_und
+            assert not self.config.visual_und, "ce loss is not supported when visual_und is True"
             loss_dict["ce"] = torch.tensor(0, device=self.device)
             total_ce_tokens = torch.tensor(0, device=self.device)
 
@@ -393,7 +395,7 @@ class Bagel(PreTrainedModel):
             loss_dict["mse"] = mse
             loss = loss + mse * self.config.mse_weight
         else:
-            assert not self.config.visual_gen
+            assert not self.config.visual_gen, "mse loss is not supported when visual_gen is True"
             loss_dict["mse"] = torch.tensor(0, device=self.device)
             total_mse_tokens = torch.tensor(0, device=self.device)
 

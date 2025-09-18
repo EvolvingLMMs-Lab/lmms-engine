@@ -57,9 +57,9 @@ class BagelDataProcessor:
             self.config.extra_kwargs, "vae_min_image_size", 512
         )
         self.vae_image_transform = ImageTransform(
-            self.vae_image_stride,
-            self.vae_max_image_size,
-            self.vae_min_image_size,
+            image_stride=self.vae_image_stride,
+            max_image_size=self.vae_max_image_size,
+            min_image_size=self.vae_min_image_size,
         )
         self.vit_image_stride = getattr(
             self.config.extra_kwargs, "vit_image_stride", 14
@@ -74,10 +74,10 @@ class BagelDataProcessor:
             self.config.extra_kwargs, "vit_max_pixels", 2_007_040
         )
         self.vit_image_transform = ImageTransform(
-            self.vit_image_stride,
-            self.vit_max_image_size,
-            self.vit_min_image_size,
-            self.vit_max_pixels,
+            image_stride=self.vit_image_stride,
+            max_image_size=self.vit_max_image_size,
+            min_image_size=self.vit_min_image_size,
+            max_pixels=self.vit_max_pixels,
         )
         return processor
 
