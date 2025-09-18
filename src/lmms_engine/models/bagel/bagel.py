@@ -50,6 +50,8 @@ class BagelConfig(PretrainedConfig):
         ce_weight=1.0,
         ce_loss_reweighting=False,
         mse_weight=1.0,
+        vit_select_layer=-2,
+        vit_rope=False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -67,6 +69,8 @@ class BagelConfig(PretrainedConfig):
         self.ce_weight = ce_weight
         self.mse_weight = mse_weight
         self.ce_loss_reweighting = ce_loss_reweighting
+        self.vit_select_layer = vit_select_layer
+        self.vit_rope = vit_rope
 
     def to_dict(self):
         output = super().to_dict()
@@ -152,6 +156,8 @@ class Bagel(PreTrainedModel):
             self.vit_model = vit_model
             self.vit_patch_size = config.vit_config.patch_size
             self.vit_max_num_patch_per_side = config.vit_max_num_patch_per_side
+            self.vit_select_layer = config.vit_select_layer
+            self.vit_rope = config.vit_rope
             self.vit_hidden_size = config.vit_config.hidden_size
             self.connector = MLPconnector(
                 self.vit_hidden_size, self.hidden_size, config.connector_act
@@ -1369,6 +1375,9 @@ class Bagel(PreTrainedModel):
         vit_config = SiglipVisionConfig.from_json_file(
             os.path.join(model_path, "vit_config.json")
         )
+        vit_config.num_hidden_layers = vit_config.num_hidden_layers + 1 + config.vit_select_layer
+        vit_config.rope = config.vit_rope
+        # vit_model = SiglipVisionModel(vit_config)
 
         vae_model, vae_config = load_ae(
             local_path=os.path.join(model_path, "ae.safetensors"),
