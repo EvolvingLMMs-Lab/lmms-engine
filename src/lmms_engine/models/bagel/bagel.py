@@ -48,6 +48,7 @@ class BagelConfig(PretrainedConfig):
         interpolate_pos=False,
         timestep_shift=1.0,
         ce_weight=1.0,
+        ce_loss_reweighting=False,
         mse_weight=1.0,
         **kwargs,
     ):
@@ -358,7 +359,7 @@ class Bagel(PreTrainedModel):
         if ce is not None:
             total_ce_tokens = torch.tensor(len(ce_loss_indexes), device=self.device)
             dist.all_reduce(total_ce_tokens, op=dist.ReduceOp.SUM)
-            if self.config.ce_loss_reweighting:  # TODO: add ce_loss_reweighting
+            if self.config.ce_loss_reweighting:
                 ce_loss_weights = kwargs.get(
                     "ce_loss_weights", []
                 )  # TODO: check if this is correct
