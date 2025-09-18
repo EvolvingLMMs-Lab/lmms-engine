@@ -105,76 +105,69 @@ class BagelDataProcessor:
         """
         image_index = 0
         text = []
-        vae_images = []
-        vit_images = []
+        # vae_images = []
+        # vit_images = []
         sequence_status = self.set_sequence_status()
-        process_order = []
-        for message in hf_messages:
-            role = message["role"]
-            for content in message["content"]:
-                if content["type"] == "text" and role == "user":
-                    text.append(content["text"])
-                    process_order.append("text")
-                elif content["type"] == "image" and role == "assistant":
-                    vae_images.append(images[image_index])
-                    image_index += 1
-                    process_order.append("vae_image")
-                elif content["type"] == "image" and role == "user":
-                    vit_images.append(images[image_index])
-                    image_index += 1
-                    process_order.append("vit_image")
-
+        # process_order = []
         curr = 0
         curr_rope_id = 0
         full_attn_modes = []
         split_lens = []
-        for order in process_order:
-            curr_split_len = 0
-            if order == "text":
-                (
-                    attn_modes,
-                    sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
-                ) = self.process_text(
-                    text[0], role, sequence_status, curr, curr_split_len, curr_rope_id
-                )
-                text.pop(0)
-            elif order == "vae_image":
-                (
-                    attn_modes,
-                    sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
-                ) = self.process_vae_image(
-                    vae_images[0],
-                    role,
-                    sequence_status,
-                    curr_rope_id=curr_rope_id,
-                    curr=curr,
-                    curr_split_len=curr_split_len,
-                )
-                vae_images.pop(0)
-            elif order == "vit_image":
-                (
-                    attn_modes,
-                    sequence_status,
-                    curr,
-                    curr_split_len,
-                    curr_rope_id,
-                ) = self.process_vit_image(
-                    vit_images[0],
-                    role,
-                    sequence_status,
-                    curr_rope_id=curr_rope_id,
-                    curr=curr,
-                    curr_split_len=curr_split_len,
-                )
-                vit_images.pop(0)
-            full_attn_modes.extend(attn_modes)
-            split_lens.append(curr_split_len)
+
+        for message in hf_messages:
+            role = message["role"]
+            for content in message["content"]:
+                curr_split_len = 0
+                if content["type"] == "text":
+                    curr_text = text
+                    (
+                        attn_modes,
+                        sequence_status,
+                        curr,
+                        curr_split_len,
+                        curr_rope_id,
+                    ) = self.process_text(
+                        curr_text, role, sequence_status, curr, curr_split_len, curr_rope_id
+                    )
+                elif content["type"] == "image" and role == "assistant":
+                    curr_image = images[image_index]
+                    image_index += 1
+                    # process_order.append("vae_image", role)
+                    (
+                        attn_modes,
+                        sequence_status,
+                        curr,
+                        curr_split_len,
+                        curr_rope_id,
+                    ) = self.process_vae_image(
+                        curr_image,
+                        role,
+                        sequence_status,
+                        curr_rope_id=curr_rope_id,
+                        curr=curr,
+                        curr_split_len=curr_split_len,
+                    )
+                elif content["type"] == "image" and role == "user":
+                    curr_image = images[image_index]
+                    image_index += 1
+                    # process_order.append("vit_image")
+                    (
+                        attn_modes,
+                        sequence_status,
+                        curr,
+                        curr_split_len,
+                        curr_rope_id,
+                    ) = self.process_vit_image(
+                        curr_image,
+                        role,
+                        sequence_status,
+                        curr_rope_id=curr_rope_id,
+                        curr=curr,
+                        curr_split_len=curr_split_len,
+                    )
+
+                full_attn_modes.extend(attn_modes)
+                split_lens.append(curr_split_len)
 
         sequence_status["attn_modes"] = full_attn_modes
         sequence_status["curr"] = curr
