@@ -52,7 +52,9 @@ def create_sparse_mask(document_lens, split_lens, attn_modes, device):
 def patchify(image, patch_size):
     p = patch_size
     c, h, w = image.shape
-    assert h % p == 0 and w % p == 0
+    assert (
+        h % p == 0 and w % p == 0
+    ), f"Image size {h}x{w} is not divisible by patch size {p}"
     image = image.reshape(c, h // p, p, w // p, p)
     image = torch.einsum("chpwq->hwpqc", image)
     image = image.reshape(-1, p**2 * c)

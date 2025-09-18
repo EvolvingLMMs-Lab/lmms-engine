@@ -47,13 +47,37 @@ class BagelDataProcessor:
         processor, self.new_token_ids, self.num_new_tokens = self.add_special_tokens(
             processor
         )
-        self.image_stride = getattr(self.config.extra_kwargs, "image_stride", 16)
-        self.max_image_size = getattr(self.config.extra_kwargs, "max_image_size", 1024)
-        self.min_image_size = getattr(self.config.extra_kwargs, "min_image_size", 512)
-        self.image_transform = ImageTransform(
-            self.image_stride,
-            self.max_image_size,
-            self.min_image_size,
+        self.vae_image_stride = getattr(
+            self.config.extra_kwargs, "vae_image_stride", 16
+        )
+        self.vae_max_image_size = getattr(
+            self.config.extra_kwargs, "vae_max_image_size", 1024
+        )
+        self.vae_min_image_size = getattr(
+            self.config.extra_kwargs, "vae_min_image_size", 512
+        )
+        self.vae_image_transform = ImageTransform(
+            self.vae_image_stride,
+            self.vae_max_image_size,
+            self.vae_min_image_size,
+        )
+        self.vit_image_stride = getattr(
+            self.config.extra_kwargs, "vit_image_stride", 14
+        )
+        self.vit_max_image_size = getattr(
+            self.config.extra_kwargs, "vit_max_image_size", 980
+        )
+        self.vit_min_image_size = getattr(
+            self.config.extra_kwargs, "vit_min_image_size", 378
+        )
+        self.vit_max_pixels = getattr(
+            self.config.extra_kwargs, "vit_max_pixels", 2_007_040
+        )
+        self.vit_image_transform = ImageTransform(
+            self.vit_image_stride,
+            self.vit_max_image_size,
+            self.vit_min_image_size,
+            self.vit_max_pixels,
         )
         return processor
 
@@ -220,7 +244,7 @@ class BagelDataProcessor:
         curr: int,
         curr_split_len: int,
     ):
-        image_tensor = self.image_transform(image.convert("RGB"))
+        image_tensor = self.vae_image_transform(image.convert("RGB"))
         attn_modes = []
         # add a <|startofimage|> token
         sequence_status["packed_text_ids"].append(self.start_of_image)
@@ -266,7 +290,7 @@ class BagelDataProcessor:
         )
 
         return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
-    
+
     def process_vit_image(
         self,
         image: Image.Image,
@@ -277,8 +301,8 @@ class BagelDataProcessor:
         curr_split_len: int,
     ):
         attn_modes = []
-        image_tensor = self.image_transform(image.convert("RGB"))
-        
+        image_tensor = self.vit_image_transform(image.convert("RGB"))
+
         # add a <|vision_start|> token
         sequence_status["packed_text_ids"].append(self.start_of_image)
         sequence_status["packed_text_indexes"].append(curr)
@@ -288,23 +312,26 @@ class BagelDataProcessor:
         # add the image tensor
         vit_tokens = patchify(image_tensor, self.vit_patch_size)
         num_img_tokens = vit_tokens.shape[0]
-        sequence_status['packed_vit_token_indexes'].extend(range(curr, curr + num_img_tokens))
+        sequence_status["packed_vit_token_indexes"].extend(
+            range(curr, curr + num_img_tokens)
+        )
         curr += num_img_tokens
         curr_split_len += num_img_tokens
 
-        sequence_status['packed_vit_tokens'].append(vit_tokens)
-        sequence_status['vit_token_seqlens'].append(num_img_tokens)
-        sequence_status['packed_vit_position_ids'].append(
+        sequence_status["packed_vit_tokens"].append(vit_tokens)
+        sequence_status["vit_token_seqlens"].append(num_img_tokens)
+        sequence_status["packed_vit_position_ids"].append(
             self.get_flattened_position_ids(
-                image_tensor.size(1), image_tensor.size(2),
-                self.vit_patch_size, 
-                max_num_patches_per_side=self.max_num_patch_per_side
+                image_tensor.size(1),
+                image_tensor.size(2),
+                self.vit_patch_size,
+                max_num_patches_per_side=self.max_num_patch_per_side,
             )
         )
 
         # add a <|endofimage|> token
-        sequence_status['packed_text_ids'].append(self.end_of_image)
-        sequence_status['packed_text_indexes'].append(curr)
+        sequence_status["packed_text_ids"].append(self.end_of_image)
+        sequence_status["packed_text_indexes"].append(curr)
 
         # if item['special_token_loss'] == 1: # <|endofimage|> may have loss
         #     sequence_status['ce_loss_indexes'].append(curr)
@@ -316,7 +343,7 @@ class BagelDataProcessor:
 
         # update sequence status
         attn_modes.append("full")
-        sequence_status['packed_position_ids'].extend([curr_rope_id] * curr_split_len)
+        sequence_status["packed_position_ids"].extend([curr_rope_id] * curr_split_len)
         curr_rope_id += 1
 
         return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
