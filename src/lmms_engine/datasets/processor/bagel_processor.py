@@ -80,7 +80,7 @@ class BagelDataProcessor:
         A wrapper method to process single data
         """
         # TODO: transformation should be performed differently for vae and vit images
-        image_tensor = [self.image_transform(image.convert("RGB")) for image in images]
+        # image_tensor = [self.image_transform(image.convert("RGB")) for image in images]
         image_index = 0
         text = []
         vae_images = []
@@ -94,12 +94,13 @@ class BagelDataProcessor:
                     text.append(content["text"])
                     process_order.append("text")
                 elif content["type"] == "image" and role == "assistant":
-                    vae_images.append(image_tensor[image_index])
+                    vae_images.append(images[image_index])
                     image_index += 1
                     process_order.append("vae_image")
                 elif content["type"] == "image" and role == "user":
-                    vit_images.append(image_tensor[image_index])
+                    vit_images.append(images[image_index])
                     image_index += 1
+                    process_order.append("vit_image")
 
         curr = 0
         curr_rope_id = 0
@@ -135,7 +136,6 @@ class BagelDataProcessor:
                 )
                 vae_images.pop(0)
             elif order == "vit_image":
-                # TODO: implement vit image processing
                 (
                     attn_modes,
                     sequence_status,
@@ -212,13 +212,15 @@ class BagelDataProcessor:
 
     def process_vae_image(
         self,
-        image_tensor: torch.Tensor,
+        # image_tensor: torch.Tensor,
+        image: Image.Image,
         role: str,
         sequence_status: dict,
         curr_rope_id: int,
         curr: int,
         curr_split_len: int,
     ):
+        image_tensor = self.image_transform(image.convert("RGB"))
         attn_modes = []
         # add a <|startofimage|> token
         sequence_status["packed_text_ids"].append(self.start_of_image)
@@ -262,6 +264,60 @@ class BagelDataProcessor:
         sequence_status["packed_position_ids"].extend(
             [curr_rope_id] * (num_img_tokens + 2)
         )
+
+        return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
+    
+    def process_vit_image(
+        self,
+        image: Image.Image,
+        role: str,
+        sequence_status: dict,
+        curr_rope_id: int,
+        curr: int,
+        curr_split_len: int,
+    ):
+        attn_modes = []
+        image_tensor = self.image_transform(image.convert("RGB"))
+        
+        # add a <|vision_start|> token
+        sequence_status["packed_text_ids"].append(self.start_of_image)
+        sequence_status["packed_text_indexes"].append(curr)
+        curr += 1
+        curr_split_len += 1
+
+        # add the image tensor
+        vit_tokens = patchify(image_tensor, self.vit_patch_size)
+        num_img_tokens = vit_tokens.shape[0]
+        sequence_status['packed_vit_token_indexes'].extend(range(curr, curr + num_img_tokens))
+        curr += num_img_tokens
+        curr_split_len += num_img_tokens
+
+        sequence_status['packed_vit_tokens'].append(vit_tokens)
+        sequence_status['vit_token_seqlens'].append(num_img_tokens)
+        sequence_status['packed_vit_position_ids'].append(
+            self.get_flattened_position_ids(
+                image_tensor.size(1), image_tensor.size(2),
+                self.vit_patch_size, 
+                max_num_patches_per_side=self.max_num_patch_per_side
+            )
+        )
+
+        # add a <|endofimage|> token
+        sequence_status['packed_text_ids'].append(self.end_of_image)
+        sequence_status['packed_text_indexes'].append(curr)
+
+        # if item['special_token_loss'] == 1: # <|endofimage|> may have loss
+        #     sequence_status['ce_loss_indexes'].append(curr)
+        #     sequence_status['ce_loss_weights'].append(1.0)
+        #     sequence_status['packed_label_ids'].append(item['special_token_label'])
+
+        curr += 1
+        curr_split_len += 1
+
+        # update sequence status
+        attn_modes.append("full")
+        sequence_status['packed_position_ids'].extend([curr_rope_id] * curr_split_len)
+        curr_rope_id += 1
 
         return attn_modes, sequence_status, curr, curr_split_len, curr_rope_id
 
