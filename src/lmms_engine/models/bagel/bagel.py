@@ -66,6 +66,7 @@ class BagelConfig(PretrainedConfig):
         self.timestep_shift = timestep_shift
         self.ce_weight = ce_weight
         self.mse_weight = mse_weight
+        self.ce_loss_reweighting = ce_loss_reweighting
 
     def to_dict(self):
         output = super().to_dict()
