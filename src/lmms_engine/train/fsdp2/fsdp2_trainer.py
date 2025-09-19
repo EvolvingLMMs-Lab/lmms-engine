@@ -134,6 +134,7 @@ class FSDP2SFTTrainer:
                 "reshard_after_forward", True
             ),
             "mp_policy": mp_policy,
+            "mesh": pgm.process_group_manager.device_mesh["dp"],
         }
 
         transformer_cls_names_to_wrap = self.args.fsdp_config.get(
@@ -146,6 +147,10 @@ class FSDP2SFTTrainer:
         fsdp2_load_full_state_dict(self.model, full_state)
         logger.info(f"FSDP2 applied to model")
         self.fsdp2_model = self.model
+
+        del full_state
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def prepare_optimizer(self):
         self.optimizer = torch.optim.AdamW(

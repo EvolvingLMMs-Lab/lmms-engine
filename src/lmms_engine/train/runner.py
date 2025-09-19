@@ -19,6 +19,7 @@ from lmms_engine.mapping_func import (
 )
 from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
+from lmms_engine.parallel.parallelize import Parallelizer
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
@@ -52,6 +53,7 @@ class TrainRunner:
     def build(self):
         self.create_sp_dis_group()
         self.model = self._build_model()
+        self.apply_parallelism_on_model()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
         else:
@@ -247,3 +249,14 @@ class TrainRunner:
             cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
             del state_dict
             trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
+
+    def apply_parallelism_on_model(self):
+        model_config = self.model.config
+        model_type = getattr(model_config, "model_type", None)
+        ep_degree = self.config.trainer_args.ep_degree
+        ep_mesh = pgm.process_group_manager.device_mesh["ep"]
+        apply_parallel = ep_degree > 1
+        if apply_parallel and model_type is not None:
+            Parallelizer.apply_parallelize(self.model, model_type, ep_mesh=ep_mesh)
+        else:
+            logger.info(f"No parallelism applied on model")

@@ -31,7 +31,8 @@ def create_train_task(config):
     world_size = int(os.environ["WORLD_SIZE"])
 
     sp_degree = config.get("sp_ulysses_degree", 1)
-    dp_size = world_size // sp_degree
+    ep_degree = config.get("ep_degree", 1)
+    dp_size = world_size // sp_degree // ep_degree
 
     # For now, we haven't implement the tp and pp
     use_cpu = config.get("use_cpu", False)
@@ -47,7 +48,7 @@ def create_train_task(config):
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
     setup_process_group_manager(
-        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
+        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree
     )
 
     trainer_args = TrainingArguments(**config)
