@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
+from torch.distributed.tensor import DTensor
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     MoeModelOutputWithPast,
@@ -250,6 +251,7 @@ def moe_sparse_layer_forward(
 
     routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
     routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+    selected_experts = selected_experts.to(torch.float32)
 
     if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
@@ -261,6 +263,9 @@ def moe_sparse_layer_forward(
     num_tokens_per_expert = torch.histc(
         selected_experts, bins=self.num_experts, min=0, max=self.num_experts
     )
+    # Histc does not support half tensor or int64, so we cast to float32 and cast back to int64
+    selected_experts = selected_experts.to(torch.int64)
+    num_tokens_per_expert = num_tokens_per_expert.to(torch.int64)
 
     # Will need to compute num_tokens * top_k num tokens, sorted by the token index and match the expert order
     token_indices_experts_sorted = torch.argsort(selected_experts.view(-1), stable=True)
@@ -282,10 +287,10 @@ def moe_sparse_layer_forward(
             routed_input, num_tokens_per_expert
         )
 
-    num_tokens_per_expert = num_tokens_per_expert.tolist()
+    # num_tokens_per_expert = num_tokens_per_expert.tolist()
     routed_input = torch.split(
-        routed_input[: sum(num_tokens_per_expert)],
-        split_size_or_sections=num_tokens_per_expert,
+        routed_input[: sum(output_splits)],
+        split_size_or_sections=output_splits,
         dim=0,
     )
 
@@ -297,7 +302,9 @@ def moe_sparse_layer_forward(
     out_experts_split = torch.cat(out_experts_split, dim=0)
 
     if pgm.process_group_manager.ep_world_size > 1:
-        routed_output = _token_combine(out_experts_split, input_splits, output_splits)
+        out_experts_split = _token_combine(
+            out_experts_split, input_splits, output_splits
+        )
 
     # Gather the output from the experts
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
