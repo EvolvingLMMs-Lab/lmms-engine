@@ -13,12 +13,15 @@ class TrainingArguments(transformers.TrainingArguments):
     freeze_modules: Optional[List[str]] = None
     use_rmpad: Optional[bool] = False
     fsdp2: Optional[bool] = False
-    sp_ulysses_degree: Optional[int] = 1
     reduce_dtype: Optional[str] = "bfloat16"
     output_dtype: Optional[str] = "bfloat16"
     print_batch_input_steps: Optional[int] = -1
     enable_profiler: Optional[bool] = False
     profiler_config: Optional[Dict[str, Any]] = None
+
+    # Parallelism
+    ep_degree: Optional[int] = 1
+    sp_ulysses_degree: Optional[int] = 1
 
 
 @dataclass
