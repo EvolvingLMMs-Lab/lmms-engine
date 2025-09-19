@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from typing import Dict, Sequence
 
 import torch
+from loguru import logger
 
 from ...protocol import Processable
-from loguru import logger
 
 
 @dataclass

@@ -127,7 +127,12 @@ class BagelDataProcessor:
                         curr_split_len,
                         curr_rope_id,
                     ) = self.process_text(
-                        curr_text, role, sequence_status, curr, curr_split_len, curr_rope_id
+                        curr_text,
+                        role,
+                        sequence_status,
+                        curr,
+                        curr_split_len,
+                        curr_rope_id,
                     )
                 elif content["type"] == "image" and role == "assistant":
                     curr_image = images[image_index]

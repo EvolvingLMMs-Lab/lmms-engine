@@ -381,7 +381,9 @@ class Bagel(PreTrainedModel):
             loss_dict["ce"] = ce.detach()
             loss = loss + ce * self.config.ce_weight  # TODO: check if this is correct
         else:
-            assert not self.config.visual_und, "ce loss is not supported when visual_und is True"
+            assert (
+                not self.config.visual_und
+            ), "ce loss is not supported when visual_und is True"
             loss_dict["ce"] = torch.tensor(0, device=self.device)
             total_ce_tokens = torch.tensor(0, device=self.device)
 
@@ -395,7 +397,9 @@ class Bagel(PreTrainedModel):
             loss_dict["mse"] = mse
             loss = loss + mse * self.config.mse_weight
         else:
-            assert not self.config.visual_gen, "mse loss is not supported when visual_gen is True"
+            assert (
+                not self.config.visual_gen
+            ), "mse loss is not supported when visual_gen is True"
             loss_dict["mse"] = torch.tensor(0, device=self.device)
             total_mse_tokens = torch.tensor(0, device=self.device)
 
@@ -1377,7 +1381,9 @@ class Bagel(PreTrainedModel):
         vit_config = SiglipVisionConfig.from_json_file(
             os.path.join(model_path, "vit_config.json")
         )
-        vit_config.num_hidden_layers = vit_config.num_hidden_layers + 1 + config.vit_select_layer
+        vit_config.num_hidden_layers = (
+            vit_config.num_hidden_layers + 1 + config.vit_select_layer
+        )
         vit_config.rope = config.vit_rope
         # vit_model = SiglipVisionModel(vit_config)
 
