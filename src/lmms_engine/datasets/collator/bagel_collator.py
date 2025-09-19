@@ -44,11 +44,7 @@ class BagelCollator:
         sample_lens = inputs.pop("sample_lens")
         for keys, values in inputs.items():
             if isinstance(values[0], torch.Tensor):
-                try:
-                    batched_inputs[keys] = torch.concatenate(values, dim=0)
-                except Exception as e:
-                    logger.warning("=" * 1000)
-                    logger.warning(keys)
+                batched_inputs[keys] = torch.concatenate(values, dim=0)
             elif isinstance(values[0], list):
                 for value in values:
                     batched_inputs[keys].extend(value)
