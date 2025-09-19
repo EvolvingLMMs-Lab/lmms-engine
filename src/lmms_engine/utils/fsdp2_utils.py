@@ -237,7 +237,12 @@ def get_constant_schedule(
 def fsdp2_clip_grad_norm_(
     parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None
 ):
-    """torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor"""
+    """
+    torch.nn.utils.clip_grad_norm_ can't run on cpu parameter DTensor.
+    This function groups parameters by device mesh and clips grad norm for each group separately.
+    """
+    from collections import defaultdict
+
     from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
     if isinstance(parameters, torch.Tensor):
@@ -245,8 +250,73 @@ def fsdp2_clip_grad_norm_(
     else:
         # prevent generators from being exhausted
         parameters = list(parameters)
-    grads = [p.grad for p in parameters if p.grad is not None]
-    total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
-    total_norm = total_norm.to(torch.cuda.current_device(), non_blocking=True)
-    _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
-    return total_norm
+
+    # Group parameters by device mesh
+    mesh_groups = defaultdict(list)
+    non_dtensor_params = []
+
+    for p in parameters:
+        if p.grad is not None:
+            if isinstance(p.grad, DTensor):
+                # Use device mesh id as key to group parameters with same mesh
+                mesh_key = id(p.grad.device_mesh)
+                mesh_groups[mesh_key].append(p)
+            else:
+                # Regular tensors (non-DTensor) go to separate group
+                non_dtensor_params.append(p)
+
+    total_norms = []
+
+    # Process each device mesh group separately
+    for mesh_key, mesh_params in mesh_groups.items():
+        grads = [p.grad for p in mesh_params]
+        if grads:
+            mesh_total_norm = _get_total_norm(
+                grads, norm_type, error_if_nonfinite, foreach
+            )
+            mesh_total_norm = mesh_total_norm.to(
+                torch.cuda.current_device(), non_blocking=True
+            )
+            _clip_grads_with_norm_(mesh_params, max_norm, mesh_total_norm, foreach)
+            total_norms.append(mesh_total_norm)
+
+    # Process non-DTensor parameters
+    if non_dtensor_params:
+        grads = [p.grad for p in non_dtensor_params]
+        if grads:
+            non_dtensor_total_norm = _get_total_norm(
+                grads, norm_type, error_if_nonfinite, foreach
+            )
+            non_dtensor_total_norm = non_dtensor_total_norm.to(
+                torch.cuda.current_device(), non_blocking=True
+            )
+            _clip_grads_with_norm_(
+                non_dtensor_params, max_norm, non_dtensor_total_norm, foreach
+            )
+            total_norms.append(non_dtensor_total_norm)
+
+    # Combine all norms - sum individual norm components then compute final norm
+    if total_norms:
+        if len(total_norms) == 1:
+            return total_norms[0]
+        else:
+            # Sum the norm_type power of each norm, then take the final root
+            # This avoids stacking tensors from different device meshes
+            total_norm_sum = 0.0
+            if norm_type == float("inf"):
+                # For infinity norm, take the maximum
+                max_norm = 0.0
+                for norm in total_norms:
+                    max_norm = max(max_norm, norm.item())
+                return torch.tensor(max_norm, device=torch.cuda.current_device())
+            else:
+                # For other norms, sum the powered norms then take the root
+                for norm in total_norms:
+                    total_norm_sum += norm.item() ** norm_type
+                return torch.tensor(
+                    total_norm_sum ** (1.0 / norm_type),
+                    device=torch.cuda.current_device(),
+                )
+    else:
+        # No gradients found, return zero norm
+        return torch.tensor(0.0, device=torch.cuda.current_device())
