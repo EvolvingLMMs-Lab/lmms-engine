@@ -389,6 +389,7 @@ class Bagel(PreTrainedModel):
 
         if self.config.visual_gen:
             mse = loss_dict["mse"]
+            assert mse is not None, "mse is not supported when visual_gen is False"
             total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
             # dist.all_reduce(total_mse_tokens, op=dist.ReduceOp.SUM)
             # mse = mse.mean(dim=-1).sum() * dist.get_world_size() / total_mse_tokens
@@ -397,9 +398,6 @@ class Bagel(PreTrainedModel):
             loss_dict["mse"] = mse
             loss = loss + mse * self.config.mse_weight
         else:
-            assert (
-                not self.config.visual_gen
-            ), "mse loss is not supported when visual_gen is True"
             loss_dict["mse"] = torch.tensor(0, device=self.device)
             total_mse_tokens = torch.tensor(0, device=self.device)
 
