@@ -109,6 +109,7 @@ def lce_forward(
     shift_labels = kwargs.pop("shift_labels", None)
     logits = None
     loss = None
+    labels = labels.view(-1)[word_idx.long()]
 
     if skip_logits is None:
         skip_logits = self.training and (labels is not None or shift_labels is not None)
@@ -169,5 +170,5 @@ def lce_forward(
         past_key_values=outputs.past_key_values,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,
-        router_logits=outputs.router_logits,
+        router_logits=None,  # Current always None
     )
