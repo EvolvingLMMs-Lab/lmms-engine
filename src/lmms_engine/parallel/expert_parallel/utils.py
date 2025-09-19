@@ -1,0 +1,59 @@
+import torch
+from torch.distributed._functional_collectives import (
+    all_to_all_single,
+    all_to_all_single_autograd,
+)
+
+import lmms_engine.parallel.process_group_manager as pgm
+
+
+def _token_dispatch(
+    routed_input: torch.Tensor, num_tokens_per_expert: torch.Tensor
+) -> torch.Tensor:
+    ep_size = pgm.process_group_manager.ep_world_size
+    ep_group = pgm.process_group_manager.ep_group
+    with torch.no_grad():
+        num_tokens_per_expert_group = all_to_all_single(
+            num_tokens_per_expert,
+            None,
+            None,
+            group=ep_group,
+        )
+
+        # Need to wait explicitly because it is used by a triton kernel later
+        # which doesn't realize that AsyncCollectiveTensor needs unwrapping
+        num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
+            num_tokens_per_expert_group
+        )
+        input_splits = (
+            num_tokens_per_expert.view(ep_size, -1)
+            .sum(dim=1)
+            .to(torch.device("cpu"), non_blocking=True)
+        )
+        # NOTE: this would incur a device-to-host sync
+        output_splits = (
+            num_tokens_per_expert_group.view(ep_size, -1)
+            .sum(dim=1)
+            .to(torch.device("cpu"), non_blocking=False)
+        )
+        input_splits = input_splits.tolist()
+        output_splits = output_splits.tolist()
+    # perform all-to-all
+    routed_input = all_to_all_single_autograd(
+        routed_input,
+        output_splits,
+        input_splits,
+        ep_group,
+    )
+    return routed_input, input_splits, output_splits
+
+
+def _token_combine(routed_output, input_splits, output_splits):
+    ep_group = pgm.process_group_manager.ep_group
+    routed_output = all_to_all_single_autograd(
+        routed_output,
+        input_splits,
+        output_splits,
+        ep_group,
+    )
+    return routed_output
