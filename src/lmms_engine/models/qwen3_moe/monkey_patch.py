@@ -115,7 +115,10 @@ def apply_liger_kernel_to_qwen3_moe(
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
     # Apply patch for sparse layer
-    # from .qwen3_moe_ops import (
-    #     moe_sparse_layer_forward as qwen3_moe_ops_moe_sparse_layer_forward,
-    # )
-    # modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = qwen3_moe_ops_moe_sparse_layer_forward
+    from .qwen3_moe_ops import (
+        moe_sparse_layer_forward as qwen3_moe_ops_moe_sparse_layer_forward,
+    )
+
+    modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = (
+        qwen3_moe_ops_moe_sparse_layer_forward
+    )

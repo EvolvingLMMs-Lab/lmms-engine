@@ -1,6 +1,7 @@
 from typing import List, Optional, Union
 
 import torch
+from torch.distributed.tensor import DTensor
 from transformers.modeling_outputs import (
     MoeCausalLMOutputWithPast,
     MoeModelOutputWithPast,
