@@ -52,13 +52,13 @@ class TrainRunner:
         if dist.is_initialized():
             self.create_sp_dis_group()
         self.model = self._build_model()
-        self.apply_parallelism_on_model()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
         else:
             self.eval_dataset = None
         self.train_dataset = self._build_train_dataset()
         self._apply_monkey_patch()
+        self.apply_parallelism_on_model()
         self.trainer = self._build_trainer()
 
     def _build_model(self):
