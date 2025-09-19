@@ -73,41 +73,33 @@ class Qwen3MoeParallelStyle(ParallelStyle):
     # dispatch here
     @staticmethod
     def _input_fn(input_layouts, desired_input_layouts, mod, input, device_mesh):
-        if not isinstance(input, tuple):
-            input = (input,)
+        return input
 
-        new_input = []
-        for input_tensor in input:
-            if isinstance(input_tensor, torch.Tensor):
-                input_tensor = DTensor.from_local(
-                    input_tensor, device_mesh, input_layouts, run_check=False
-                )
+    #  if not isinstance(input, tuple):
+    #      input = (input,)
 
-            # transform the input layouts to the desired layouts of ColwiseParallel
-            if input_layouts != desired_input_layouts:
-                input_tensor = input_tensor.redistribute(
-                    placements=desired_input_layouts, async_op=True
-                )
-            new_input.append(input_tensor)
-        return tuple(new_input)
+    #  new_input = []
+    #  for input_tensor in input:
+    #      if isinstance(input_tensor, torch.Tensor):
+    #          input_tensor = DTensor.from_local(
+    #              input_tensor, device_mesh, input_layouts, run_check=False
+    #          )
+
+    #      # transform the input layouts to the desired layouts of ColwiseParallel
+    #      if input_layouts != desired_input_layouts:
+    #          input_tensor = input_tensor.redistribute(
+    #              placements=desired_input_layouts, async_op=True
+    #          )
+    #      new_input.append(input_tensor)
+    #  return tuple(new_input)
 
     @staticmethod
     def _output_fn(output_layouts, use_local_output, mod, output, device_mesh):
-        if isinstance(output, tuple):
-            output = tuple(output)
-        else:
-            output = (output,)
-
-        new_output = []
-        for output_tensor in output:
-            if isinstance(output_tensor, DTensor):
-                output_tensor = output_tensor.redistribute(
-                    placements=output_layouts, async_op=True
-                )
-                if use_local_output:
-                    output_tensor = output_tensor.to_local()
-            new_output.append(output_tensor)
-        return tuple(new_output)
+        if isinstance(output, DTensor):
+            output = output.redistribute(placements=output_layouts, async_op=True)
+            if use_local_output:
+                output = output.to_local()
+        return output
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
         return distribute_module(

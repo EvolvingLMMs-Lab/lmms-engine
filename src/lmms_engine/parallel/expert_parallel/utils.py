@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 from torch.distributed._functional_collectives import (
     all_to_all_single,
     all_to_all_single_autograd,
