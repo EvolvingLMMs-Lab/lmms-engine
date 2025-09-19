@@ -31,7 +31,8 @@ def create_train_task(config):
 
     trainer_args = config.get("trainer_args")
     sp_degree = trainer_args.get("sp_ulysses_degree", 1)
-    dp_size = world_size // sp_degree
+    ep_degree = trainer_args.get("ep_degree", 1)
+    dp_size = world_size // sp_degree // ep_degree
 
     # For now, we haven't implement the tp and pp
     use_cpu = trainer_args.get("use_cpu", False)
@@ -54,9 +55,9 @@ def create_train_task(config):
             init_method=f"env://",
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
-
-    # Always setup ProcessGroupManager - required by trainers even in single-GPU mode
-    setup_process_group_manager(tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size)
+    setup_process_group_manager(
+        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree
+    )
 
     trainer_args = config.pop("trainer_args")
     trainer_args = TrainingArguments(**trainer_args)

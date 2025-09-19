@@ -14,8 +14,11 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.fsdp import fully_shard
+from torch.distributed.tensor import DTensor, distribute_tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR, LinearLR
+
+import lmms_engine.parallel.process_group_manager as pgm
 
 
 def apply_fsdp2(model, fsdp_kwargs, fsdp_transformer_layer_cls_to_wrap=None):
@@ -54,29 +57,47 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
         model (`torch.nn.Module`): The model to load the state dict into
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
-    from torch.distributed.checkpoint.state_dict import (
-        StateDictOptions,
-        set_model_state_dict,
-    )
-
-    # To broadcast, it needs to be instantiated in the GPU.
-    if dist.get_rank() == 0:
-        model = model.to(device=torch.cuda.current_device(), non_blocking=True)
+    # If we are applying other parallelism, load state dict in sharded way
+    if pgm.process_group_manager.dp_world_size < pgm.process_group_manager.world_size:
+        meta_sharded_sd = model.state_dict()
+        sharded_sd = {}
+        for param_name, full_tensor in full_state.items():
+            sharded_meta_param = meta_sharded_sd.get(param_name)
+            if isinstance(full_tensor, DTensor):
+                full_tensor = full_tensor.to_local()
+            sharded_tensor = distribute_tensor(
+                full_tensor,
+                sharded_meta_param.device_mesh,
+                sharded_meta_param.placements,
+            )
+            sharded_sd[param_name] = nn.Parameter(sharded_tensor)
+        model.load_state_dict(sharded_sd, assign=True)
     else:
-        model = model.to_empty(device=torch.cuda.current_device())
+        from torch.distributed.checkpoint.state_dict import (
+            StateDictOptions,
+            set_model_state_dict,
+        )
 
-    cpu_offload = cpu_offload is not None
-    options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
-    set_model_state_dict(model, full_state, options=options)
+        # To broadcast, it needs to be instantiated in the GPU.
+        if dist.get_rank() == 0:
+            model = model.to(device=torch.cuda.current_device(), non_blocking=True)
+        else:
+            model = model.to_empty(device=torch.cuda.current_device())
 
-    # rotary_emb is not in state_dict, so we need to broadcast it manually
-    for name, buf in model.named_buffers():
-        dist.broadcast(buf, src=0)
+        cpu_offload = cpu_offload is not None
+        options = StateDictOptions(
+            full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True
+        )
+        set_model_state_dict(model, full_state, options=options)
 
-    if cpu_offload:
-        model.to("cpu", non_blocking=True)
-        for buf in model.buffers():
-            buf.data = buf.data.to(torch.cuda.current_device())
+        # rotary_emb is not in state_dict, so we need to broadcast it manually
+        for name, buf in model.named_buffers():
+            dist.broadcast(buf, src=0)
+
+        if cpu_offload:
+            model.to("cpu", non_blocking=True)
+            for buf in model.buffers():
+                buf.data = buf.data.to(torch.cuda.current_device())
 
 
 """
