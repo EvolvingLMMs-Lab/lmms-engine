@@ -13,10 +13,12 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 from transformers.utils import is_flash_attn_2_available
 
+import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.models.sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _unpad_input,
 )
+from lmms_engine.parallel.expert_parallel.utils import _token_combine, _token_dispatch
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -238,7 +240,9 @@ def attn_forward(
 def moe_sparse_layer_forward(
     self: Qwen3MoeSparseMoeBlock, hidden_states: torch.Tensor, **kwargs
 ) -> torch.Tensor:
-    """ """
+    """
+    Modified from the original code to support parallelization, similar to the MoE in torchtitan
+    """
     batch_size, sequence_length, hidden_dim = hidden_states.shape
     hidden_states = hidden_states.view(-1, hidden_dim)
     # router_logits: (batch * sequence_length, n_experts)
@@ -246,56 +250,62 @@ def moe_sparse_layer_forward(
 
     routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
     routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+
     if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
     # we cast back to the input dtype
     routing_weights = routing_weights.to(hidden_states.dtype)
 
-    final_hidden_states = torch.zeros(
-        (batch_size * sequence_length, hidden_dim),
-        dtype=hidden_states.dtype,
-        device=hidden_states.device,
+    # Calculate the number of tokens per expert
+    # [num_tokens on expert_0, num_tokens on expert_1, ...]
+    num_tokens_per_expert = torch.histc(
+        selected_experts, bins=self.num_experts, min=0, max=self.num_experts
     )
 
-    # One hot encode the selected experts to create an expert mask
-    # this will be used to easily index which expert is going to be sollicitated
-    expert_mask = torch.nn.functional.one_hot(
-        selected_experts, num_classes=self.num_experts
-    ).permute(2, 1, 0)
+    # Will need to compute num_tokens * top_k num tokens, sorted by the token index and match the expert order
+    token_indices_experts_sorted = torch.argsort(selected_experts.view(-1), stable=True)
+    # Get scores for each token
+    top_scores_experts_sorted = routing_weights.view(-1)[token_indices_experts_sorted]
+    # Divide by top_k to get the token index that matches the expert order
+    # [token_index_on_expert_0, token_index_on_expert_1, ...]
+    token_indices_experts_sorted = token_indices_experts_sorted // self.top_k
 
-    # Loop over all available experts in the model and perform the computation on each expert
-    expert_hitted = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
-    for expert_idx in range(self.num_experts):
-        if expert_idx in expert_hitted:
-            expert_layer = self.experts[expert_idx]
-            idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
+    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(
+        -1, hidden_dim
+    )
+    routed_input = torch.gather(
+        hidden_states, dim=0, index=token_indices_experts_sorted
+    )
 
-            # Index the correct hidden states and compute the expert hidden state for
-            # the current expert. We need to make sure to multiply the output hidden
-            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-            current_hidden_states = (
-                expert_layer(current_state) * routing_weights[top_x, idx, None]
-            )
+    if pgm.process_group_manager.ep_world_size > 1:
+        routed_input, input_splits, output_splits = _token_dispatch(
+            routed_input, num_tokens_per_expert
+        )
 
-            # However `index_add_` only support torch tensors for indexing so we'll use
-            # the `top_x` tensor here.
-            final_hidden_states.index_add_(
-                0, top_x, current_hidden_states.to(hidden_states.dtype)
-            )
-        else:
-            expert_layer = self.experts[expert_idx]
-            current_state = hidden_states[None, :].reshape(-1, hidden_dim)[:1, :]
-            current_hidden_states = expert_layer(current_state)
-            # Zero out the fake hidden states
-            current_hidden_states = (
-                current_hidden_states - current_hidden_states.detach()
-            )
-            final_hidden_states.index_add_(
-                0,
-                torch.arange(sequence_length),
-                current_hidden_states.to(hidden_states.dtype),
-            )
+    num_tokens_per_expert = num_tokens_per_expert.tolist()
+    routed_input = torch.split(
+        routed_input[: sum(num_tokens_per_expert)],
+        split_size_or_sections=num_tokens_per_expert,
+        dim=0,
+    )
+
+    out_experts_split = []
+    for expert_idx, x_expert in enumerate(routed_input):
+        expert_layer = self.experts[expert_idx]
+        out_experts_split.append(expert_layer(x_expert))
+
+    out_experts_split = torch.cat(out_experts_split, dim=0)
+
+    if pgm.process_group_manager.ep_world_size > 1:
+        routed_output = _token_combine(out_experts_split, input_splits, output_splits)
+
+    # Gather the output from the experts
+    routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
+    final_hidden_states = torch.zeros_like(hidden_states)
+    final_hidden_states = final_hidden_states.scatter_add(
+        dim=0, index=token_indices_experts_sorted, src=routed_output
+    )
+
     final_hidden_states = final_hidden_states.reshape(
         batch_size, sequence_length, hidden_dim
     )
