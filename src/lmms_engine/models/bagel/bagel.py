@@ -908,7 +908,7 @@ class Bagel(PreTrainedModel):
         timestep_shift: float = 1.0,
         cfg_renorm_min: float = 0.0,
         cfg_renorm_type: str = "global",
-        cfg_interval: Optional[Tuple[float, float]] = [0, 1],
+        cfg_interval: Optional[Tuple[float, float]] = (0.0, 1.0),
         # cfg_text
         cfg_text_scale: float = 1.0,
         cfg_text_packed_query_indexes: Optional[torch.LongTensor] = None,
@@ -1156,7 +1156,7 @@ class Bagel(PreTrainedModel):
                     norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
                     norm_v_t_ = torch.norm(v_t_, dim=-1, keepdim=True)
                 else:
-                    raise NotImplementedError(f"{cfg_renorm_type} is not suppoprted")
+                    raise NotImplementedError(f"{cfg_renorm_type} is not supported")
                 scale = (norm_v_t / (norm_v_t_ + 1e-8)).clamp(
                     min=cfg_renorm_min, max=1.0
                 )

@@ -65,7 +65,7 @@ class BagelDataProcessor:
             self.config.extra_kwargs, "vit_image_stride", 14
         )
         self.vit_max_image_size = getattr(
-            self.config.extra_kwargs, "vit_max_image_size", 980
+            self.config.extra_kwargs, "vit_max_image_size", 512
         )
         self.vit_min_image_size = getattr(
             self.config.extra_kwargs, "vit_min_image_size", 378
@@ -104,7 +104,7 @@ class BagelDataProcessor:
         A wrapper method to process single data
         """
         image_index = 0
-        text = []
+        # text = []
         # vae_images = []
         # vit_images = []
         sequence_status = self.set_sequence_status()
@@ -119,7 +119,7 @@ class BagelDataProcessor:
             for content in message["content"]:
                 curr_split_len = 0
                 if content["type"] == "text":
-                    curr_text = text
+                    curr_text = content["text"]
                     (
                         attn_modes,
                         sequence_status,
