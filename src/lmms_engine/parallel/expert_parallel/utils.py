@@ -39,6 +39,7 @@ def _token_dispatch(
         )
         input_splits = input_splits.tolist()
         output_splits = output_splits.tolist()
+        num_tokens_per_expert_group = num_tokens_per_expert_group.tolist()
     # perform all-to-all
     routed_input = all_to_all_single_autograd(
         routed_input,
@@ -46,7 +47,7 @@ def _token_dispatch(
         input_splits,
         ep_group,
     )
-    return routed_input, input_splits, output_splits
+    return routed_input, input_splits, output_splits, num_tokens_per_expert_group
 
 
 def _token_combine(routed_output, input_splits, output_splits):
