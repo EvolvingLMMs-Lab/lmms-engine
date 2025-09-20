@@ -383,7 +383,7 @@ class Bagel(PreTrainedModel):
         else:
             assert (
                 not self.config.visual_und
-            ), "ce loss is not supported when visual_und is True"
+            ), "ce loss is not supported when visual_und is False"
             loss_dict["ce"] = torch.tensor(0, device=self.device)
             total_ce_tokens = torch.tensor(0, device=self.device)
 
