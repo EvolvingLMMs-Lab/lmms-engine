@@ -6,6 +6,7 @@
 from lmms_engine.mapping_func import register_model
 
 from .bagel import Bagel, BagelConfig
+from .monkey_patch import apply_nsa_to_bagel
 from .qwen2_navit import Qwen2Config, Qwen2ForCausalLM, Qwen2Model
 from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
 
@@ -23,4 +24,5 @@ __all__ = [
     "Qwen2ForCausalLM",
     "SiglipVisionConfig",
     "SiglipVisionModel",
+    "apply_nsa_to_bagel",
 ]
