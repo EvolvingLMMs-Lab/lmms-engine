@@ -102,14 +102,14 @@ BAGEL expects datasets with the following structure:
     {
       "role": "user", 
       "content": [
-        {"type": "image", "image": "path/to/image.jpg"},
-        {"type": "text", "text": "Describe this image"}
+        { "type": "image_url", "image_url": { "url": "path/to/image.jpg" } },
+        { "type": "text", "text": "Describe this image" }
       ]
     },
     {
       "role": "assistant",
       "content": [
-        {"type": "text", "text": "This image shows..."}
+        { "type": "text", "text": "This image shows..." }
       ]
     }
   ]
