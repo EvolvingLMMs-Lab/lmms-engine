@@ -379,7 +379,7 @@ class Bagel(PreTrainedModel):
                 # ce = ce.sum() * dist.get_world_size() / total_ce_tokens
                 ce = ce.sum() / total_ce_tokens
             loss_dict["ce"] = ce.detach()
-            loss = loss + ce * self.config.ce_weight  # TODO: check if this is correct
+            loss = loss + ce * self.config.ce_weight
         else:
             assert (
                 not self.config.visual_und
