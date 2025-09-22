@@ -27,6 +27,7 @@ An example dataset is available on `https://huggingface.co/datasets/kcz358/bagel
 Since the original Bagel config is not hf compatible and can't be used in AutoConfig, we prepare a config here `https://huggingface.co/kcz358/bagel_hf/blob/main/config.json`. Please overwrite this json file to the original `config.json` in the Bagel model path
 
 ### 3. Configure Training
+
 Create a YAML configuration file based on the template above, adjusting:
 - Dataset paths and format
 - Model checkpoint path
@@ -93,9 +94,11 @@ Create a YAML configuration file based on the template above, adjusting:
 BAGEL expects datasets with the following structure:
 
 ### Required Fields
+
 - `messages`: Conversation format with roles (system, user, assistant)
 
 ### Example Dataset Entry
+
 ```json
 {
   "messages": [
@@ -134,15 +137,18 @@ fsdp_config:
 ## Advanced Features
 
 ### Sequence Packing
+
 BAGEL supports efficient sequence packing to maximize GPU utilization:
 - `first_fit`: Pack sequences to minimize padding
 - Configurable `packing_length` for optimal memory usage
 
 ### Mixed Precision Training
+
 - `bf16`: Recommended for stability and performance
 - Automatic loss scaling for gradient stability
 
 ### Gradient Checkpointing
+
 - Reduces memory usage at the cost of computation
 - Essential for training large models
 
@@ -150,12 +156,14 @@ BAGEL supports efficient sequence packing to maximize GPU utilization:
 ## Model Architecture Details
 
 ### Components
+
 - **Language Model**: Qwen2 architecture with MoT extensions
 - **Vision Encoder**: SigLIP for image understanding
 - **VAE**: Autoencoder for image generation
 - **Connectors**: MLPs bridging different modalities
 
 ### Training Objectives
+
 - Cross-entropy loss for language modeling
 - MSE loss for visual generation
 - Configurable loss weighting
