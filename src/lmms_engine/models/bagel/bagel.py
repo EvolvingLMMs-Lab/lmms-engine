@@ -17,7 +17,6 @@ from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
-from loguru import logger
 
 from .autoencoder import AutoEncoder, AutoEncoderParams, load_ae
 from .cache_utils import cache_init
@@ -270,7 +269,7 @@ class Bagel(PreTrainedModel):
             size=(sequence_length, self.hidden_size)
         )
         packed_sequence[packed_text_indexes] = packed_text_embedding
-        
+
         need_visual_gen = self.config.visual_gen and padded_latent is not None
         need_visual_und = self.config.visual_und and packed_vit_tokens is not None
 
@@ -1389,7 +1388,6 @@ class Bagel(PreTrainedModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, config, *args, **kwargs):
         ema_path = os.path.join(pretrained_model_name_or_path, "ema.safetensors")
-        logger.info(f"config: {config}")
         if not os.path.exists(ema_path):
             return super().from_pretrained(
                 pretrained_model_name_or_path, config, *args, **kwargs
