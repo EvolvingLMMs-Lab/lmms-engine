@@ -17,6 +17,7 @@ from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
+from loguru import logger
 
 from .autoencoder import AutoEncoder, AutoEncoderParams, load_ae
 from .cache_utils import cache_init
@@ -269,6 +270,9 @@ class Bagel(PreTrainedModel):
             size=(sequence_length, self.hidden_size)
         )
         packed_sequence[packed_text_indexes] = packed_text_embedding
+        
+        need_visual_gen = self.config.visual_gen and padded_latent is not None
+        need_visual_und = self.config.visual_und and packed_vit_tokens is not None
 
         # Convert back to original format if we pack them into tensors
         if isinstance(sample_lens, torch.Tensor):
@@ -302,7 +306,7 @@ class Bagel(PreTrainedModel):
         else:
             attention_mask = nested_attention_masks
 
-        if self.config.visual_und:
+        if need_visual_und:
             cu_seqlens = torch.nn.functional.pad(
                 torch.cumsum(vit_token_seqlens, dim=0), (1, 0)
             )
@@ -319,7 +323,7 @@ class Bagel(PreTrainedModel):
             packed_vit_token_embed = packed_vit_token_embed + vit_token_pos_emb
             packed_sequence[packed_vit_token_indexes] = packed_vit_token_embed
 
-        if self.config.visual_gen:
+        if need_visual_gen:
             p = self.latent_patch_size
             packed_latent = []
             for latent, (h, w) in zip(padded_latent, patchified_vae_latent_shapes):
@@ -373,7 +377,7 @@ class Bagel(PreTrainedModel):
         )
 
         mse = None
-        if self.config.visual_gen:
+        if need_visual_gen:
             packed_mse_preds = self.llm2vae(last_hidden_state[mse_loss_indexes])
             target = (
                 noise - packed_latent_clean
@@ -415,7 +419,7 @@ class Bagel(PreTrainedModel):
             loss_dict["ce"] = torch.tensor(0, device=self.device)
             total_ce_tokens = torch.tensor(0, device=self.device)
 
-        if self.config.visual_gen:
+        if need_visual_gen:
             mse = loss_dict["mse"]
             assert mse is not None, "mse is not supported when visual_gen is False"
             total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
@@ -1385,6 +1389,7 @@ class Bagel(PreTrainedModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, config, *args, **kwargs):
         ema_path = os.path.join(pretrained_model_name_or_path, "ema.safetensors")
+        logger.info(f"config: {config}")
         if not os.path.exists(ema_path):
             return super().from_pretrained(
                 pretrained_model_name_or_path, config, *args, **kwargs
