@@ -63,6 +63,11 @@ def apply_qwen3_moe_parallel(
                 desired_output_layouts=(Replicate(), None),
                 use_local_output=True,
             )
+            parallelize_module(
+                module,
+                device_mesh=ep_mesh,
+                parallelize_plan=attention_parallel_style,
+            )
         # No need to prepare input for the norm layer in model
         if (
             isinstance(module, nn.Linear)
