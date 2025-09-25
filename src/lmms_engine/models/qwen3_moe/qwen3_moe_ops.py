@@ -283,9 +283,12 @@ def moe_sparse_layer_forward(
     )
 
     if pgm.process_group_manager.ep_world_size > 1:
-        routed_input, input_splits, output_splits, num_tokens_per_expert_group= _token_dispatch(
-            routed_input, num_tokens_per_expert
-        )
+        (
+            routed_input,
+            input_splits,
+            output_splits,
+            num_tokens_per_expert_group,
+        ) = _token_dispatch(routed_input, num_tokens_per_expert)
         routed_input = torch.split(
             routed_input[: sum(output_splits)],
             split_size_or_sections=num_tokens_per_expert_group,
@@ -300,7 +303,7 @@ def moe_sparse_layer_forward(
 
     out_experts_split = []
     for expert_idx, x_expert in enumerate(routed_input):
-        expert_layer = self.experts[expert_idx%self.num_experts]
+        expert_layer = self.experts[expert_idx % self.num_experts]
         out_experts_split.append(expert_layer(x_expert))
 
     out_experts_split = torch.cat(out_experts_split, dim=0)
