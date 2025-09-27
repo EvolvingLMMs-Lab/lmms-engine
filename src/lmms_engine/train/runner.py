@@ -102,6 +102,8 @@ class TrainRunner:
 
     def _apply_monkey_patch(self):
         kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
+
+        # Always set patch_type for liger kernel if use_liger_kernel is True
         if self.config.trainer_args.use_liger_kernel:
             kwargs["patch_type"] = "liger"
             # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
@@ -109,6 +111,11 @@ class TrainRunner:
 
         if self.model_config.monkey_patch_kwargs:
             kwargs.update(self.model_config.monkey_patch_kwargs)
+
+        # Ensure patch_type is always set if any liger-related options are enabled
+        if any(key in kwargs for key in ['rope', 'rms_norm', 'swiglu', 'fused_linear_cross_entropy', 'cross_entropy']):
+            kwargs.setdefault("patch_type", "liger")
+
         try:
             MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
         except Exception as e:

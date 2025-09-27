@@ -3,9 +3,17 @@ from typing import List, Optional
 import numpy as np
 import torch
 from PIL import Image
-from transformers.models.qwen2_5_vl.processing_qwen2_5_vl import (
-    Qwen2_5_VLProcessorKwargs,
-)
+try:
+    from transformers.models.qwen2_5_omni.processing_qwen2_5_omni import (
+        Qwen2_5OmniProcessorKwargs,
+    )
+    ProcessorKwargs = Qwen2_5OmniProcessorKwargs
+except ImportError:
+    # Fallback to Qwen2.5-VL if Omni is not available
+    from transformers.models.qwen2_5_vl.processing_qwen2_5_vl import (
+        Qwen2_5_VLProcessorKwargs,
+    )
+    ProcessorKwargs = Qwen2_5_VLProcessorKwargs
 
 from .aero_processor import AeroDataProcessor
 
@@ -32,7 +40,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
 
         if hasattr(self.processor, "_merge_kwargs"):
             output_kwargs = self.processor._merge_kwargs(
-                Qwen2_5_VLProcessorKwargs,
+                ProcessorKwargs,
                 tokenizer_init_kwargs=self.tokenizer.init_kwargs,
                 **kwargs,
             )

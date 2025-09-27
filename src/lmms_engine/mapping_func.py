@@ -27,7 +27,8 @@ except ImportError as e:
 def register_processor(processor_type: str):
     def decorator(cls):
         if processor_type in DATAPROCESSOR_MAPPING:
-            raise ValueError(f"Processor type {processor_type} is already registered.")
+            # Warning instead of error to allow re-imports
+            Logging.warning(f"Processor type {processor_type} is already registered. Overwriting.")
         DATAPROCESSOR_MAPPING[processor_type] = cls
         return cls
 
@@ -68,6 +69,26 @@ def register_model(
 def create_model_from_pretrained(load_from_pretrained_path):
     # Handle both config object and model name/path
     config = AutoConfig.from_pretrained(load_from_pretrained_path)
+
+    # Special case for Qwen2.5-Omni - use ThinkerForConditionalGeneration
+    if config.model_type == "qwen2_5_omni":
+        # Use the Thinker variant which has proper forward implementation
+        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerForConditionalGeneration
+
+        class Qwen2_5OmniThinkerForConditionalGenerationWithDtype(Qwen2_5OmniThinkerForConditionalGeneration):
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                # Force torch_dtype to bfloat16 if not specified
+                if 'torch_dtype' not in kwargs:
+                    kwargs['torch_dtype'] = 'auto'
+                model = super().from_pretrained(*args, **kwargs)
+                # Ensure all parameters are in bfloat16 for FSDP compatibility
+                import torch
+                model = model.to(dtype=torch.bfloat16)
+                return model
+
+        return Qwen2_5OmniThinkerForConditionalGenerationWithDtype
+
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():

@@ -24,6 +24,13 @@ try:
 except ImportError:
     Logging.info("qwen_vl_utils not installed. Skipping import.")
 
+try:
+    from qwen_omni_utils import process_mm_info
+except ImportError:
+    process_mm_info = None
+    Logging.info("qwen_omni_utils not installed. Skipping import.")
+
+
 
 class MultiModalDataLoadingMixin:
     """
@@ -127,6 +134,8 @@ class MultiModalDataLoadingMixin:
             return self.load_video_decord(video_path, fps)
         elif self.config.video_backend == "qwen_vl_utils":
             return self.load_video_qwen_vl_utils(video_path, fps)
+        elif self.config.video_backend == "qwen_omni_utils":
+            return self.load_video_qwen_omni_utils(video_path, fps)
         else:
             raise ValueError(f"Video backend {self.config.video_backend} not supported")
 
@@ -214,3 +223,50 @@ class MultiModalDataLoadingMixin:
             raise ValueError(
                 f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
             )
+
+    def load_video_qwen_omni_utils(
+        self,
+        video_path: str,
+        fps: int,
+    ) -> Tuple[np.ndarray, float]:
+        """
+        Load video using Qwen Omni utils with audio extraction support.
+
+        Args:
+            video_path: Path to video file
+            fps: Target frames per second
+
+        Returns:
+            Tuple of (video frames, sample fps)
+
+        Note:
+            When use_audio_in_video is True, audio is stored in self.video_extracted_audio
+            for later processing in the dataset.
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video", "video": f"file://{video_path}"}
+                ]
+            }
+        ]
+        use_audio_in_video = self.config.extra_kwargs.get("use_audio_in_video", False)
+        audios, images, videos = process_mm_info(messages, use_audio_in_video=use_audio_in_video)
+        if videos and len(videos) > 0:
+            video_frames = videos[0]
+            if isinstance(video_frames, torch.Tensor):
+                video_frames = video_frames.numpy()
+            elif not isinstance(video_frames, np.ndarray):
+                video_frames = np.array(video_frames)
+            if self.config.video_sampling_strategy == "frame_num":
+                if len(video_frames) > self.config.frame_num:
+                    indices = np.linspace(0, len(video_frames)-1, self.config.frame_num, dtype=int)
+                    video_frames = video_frames[indices]
+                sample_fps = fps
+            else:
+                sample_fps = fps
+
+            return video_frames, sample_fps
+        else:
+            raise ValueError("No video frames returned from process_mm_info")
