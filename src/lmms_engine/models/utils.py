@@ -73,17 +73,23 @@ class FlopsCounter:
         return 0
 
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
-        hidden_size = self.config.hidden_size
-        vocab_size = self.config.vocab_size
-        num_hidden_layers = self.config.num_hidden_layers
-        num_key_value_heads = self.config.num_key_value_heads
-        num_attention_heads = self.config.num_attention_heads
-        intermediate_size = self.config.intermediate_size
+        # For Qwen2_5OmniThinker, config attributes are nested in text_config
+        if hasattr(self.config, 'text_config'):
+            config = self.config.text_config
+        else:
+            config = self.config
+
+        hidden_size = config.hidden_size
+        vocab_size = config.vocab_size
+        num_hidden_layers = config.num_hidden_layers
+        num_key_value_heads = config.num_key_value_heads
+        num_attention_heads = config.num_attention_heads
+        intermediate_size = config.intermediate_size
 
         head_dim = getattr(
-            self.config,
+            config,
             "head_dim",
-            self.config.hidden_size // self.config.num_attention_heads,
+            config.hidden_size // config.num_attention_heads,
         )
         q_size = num_attention_heads * head_dim
         k_size = num_key_value_heads * head_dim

@@ -93,6 +93,11 @@ class TrainRunner:
                     setattr(model, key, value)
                 Logging.info(f"Overwrite {key} to {value}")
 
+        # For Qwen2.5-Omni, disable talker if freeze_talker is specified
+        if hasattr(model, 'disable_talker') and getattr(self.model_config, 'freeze_talker', False):
+            model.disable_talker()
+            Logging.info("Disabled talker for Qwen2.5-Omni model")
+
         setup_flops_counter(model.config)
         Logging.info(f"Model Structure: {model}")
         Logging.info(

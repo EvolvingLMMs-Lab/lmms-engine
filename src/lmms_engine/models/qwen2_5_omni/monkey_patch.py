@@ -62,7 +62,7 @@ from lmms_engine.utils.logging_utils import Logging
 @MONKEY_PATCHER.register("qwen2_5_omni", "liger")
 @MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
 def apply_liger_kernel_to_qwen2_5_omni(
-    rope: bool = True,
+    rope: bool = False,  # Disabled by default for Qwen2.5-Omni due to compatibility issues
     cross_entropy: bool = False,
     fused_linear_cross_entropy: bool = True,
     rms_norm: bool = True,
@@ -134,6 +134,12 @@ def apply_liger_kernel_to_qwen2_5_omni(
         from .qwen2_5_omni_ops import (
             vision_encoder_forward as qwen2_5_omni_vision_encoder_forward,
         )
+        from .qwen2_5_omni_ops import (
+            omni_model_forward as qwen2_5_omni_model_forward,
+        )
+
+        # Patch the main model forward
+        modeling_qwen2_5_omni.Qwen2_5OmniThinkerModel.forward = qwen2_5_omni_model_forward
 
         # Use the correct model class names based on investigation
         modeling_qwen2_5_omni.Qwen2_5OmniThinkerTextModel.forward = qwen2_5_omni_text_model_forward
@@ -176,11 +182,12 @@ def apply_liger_kernel_to_qwen2_5_omni(
         # They may not exist as separate modules to patch
 
         if text_model is not None:
-            if rms_norm:
+            if rms_norm and hasattr(text_model, 'norm'):
                 _patch_rms_norm_module(text_model.norm)
-            for decoder_layer in text_model.layers:
-                if swiglu:
-                    _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
-                if rms_norm:
-                    _patch_rms_norm_module(decoder_layer.input_layernorm)
-                    _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
+            if hasattr(text_model, 'layers'):
+                for decoder_layer in text_model.layers:
+                    if swiglu:
+                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
+                    if rms_norm:
+                        _patch_rms_norm_module(decoder_layer.input_layernorm)
+                        _patch_rms_norm_module(decoder_layer.post_attention_layernorm)

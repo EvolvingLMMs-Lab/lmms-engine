@@ -334,6 +334,19 @@ def text_model_forward(
             device=inputs_embeds.device,
         )
 
+    # Initialize position_ids if None
+    if position_ids is None:
+        seq_length = inputs_embeds.shape[1]
+        batch_size = inputs_embeds.shape[0]
+        position_ids = torch.arange(
+            seq_length, dtype=torch.long, device=inputs_embeds.device
+        ).view(1, -1).expand(batch_size, -1)
+        # Expand to 3D for multimodal rope (3 dimensions for Qwen2.5-Omni)
+        position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+    elif position_ids.dim() == 2:
+        # If 2D, expand to 3D
+        position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
+
     # Create position embeddings for RoPE
     hidden_states = inputs_embeds
     position_embeddings = self.rotary_emb(hidden_states, position_ids)
@@ -345,7 +358,7 @@ def text_model_forward(
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
-        hidden_states = decoder_layer(
+        layer_outputs = decoder_layer(
             hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -359,9 +372,16 @@ def text_model_forward(
             **kwargs,
         )
 
+        hidden_states = layer_outputs[0]
+
+        if use_cache:
+            # Cache is at index 2 if output_attentions, else 1
+            cache_idx = 2 if output_attentions else 1
+            if len(layer_outputs) > cache_idx:
+                past_key_values = layer_outputs[cache_idx]
+
         if output_attentions:
-            all_attentions += (hidden_states[1],)
-            hidden_states = hidden_states[0]
+            all_attentions += (layer_outputs[1],)
 
     hidden_states = self.norm(hidden_states)
 
@@ -489,7 +509,7 @@ def attn_forward(
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
 
         # Cat the cu_seq_lens to the max seq len if padding is used
-        if cu_seq_lens.max().item() < query_states.shape[0]:
+        if cu_seq_lens is not None and cu_seq_lens.max().item() < query_states.shape[0]:
             cu_seq_lens = torch.cat(
                 [
                     cu_seq_lens,
@@ -504,31 +524,63 @@ def attn_forward(
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
 
-    query_states, key_states = apply_multimodal_rotary_pos_emb(
-        query_states, key_states, cos, sin, position_ids
-    )
+    # Get mrope_section from config if available
+    mrope_section = None
+    if hasattr(self, 'rope_scaling') and isinstance(self.rope_scaling, dict):
+        mrope_section = self.rope_scaling.get("mrope_section", None)
+
+    if mrope_section is not None:
+        # Use liger kernel version with mrope_section
+        query_states, key_states = apply_multimodal_rotary_pos_emb(
+            query_states, key_states, cos, sin, mrope_section
+        )
+    else:
+        # Fallback to standard rotary embedding
+        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import apply_rotary_pos_emb
+        query_states = apply_rotary_pos_emb(query_states, cos, sin)
+        key_states = apply_rotary_pos_emb(key_states, cos, sin)
 
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
-    window_size = (-1, -1)
+    if cu_seq_lens is not None:
+        # Use varlen flash attention when cu_seq_lens is provided
+        max_seqlen = torch.diff(cu_seq_lens).max().item()
+        window_size = (-1, -1)
 
-    attn_output = flash_attn_varlen_func(
-        q=query_states,
-        k=key_states,
-        v=value_states,
-        cu_seqlens_q=cu_seq_lens,
-        cu_seqlens_k=cu_seq_lens,
-        max_seqlen_q=max_seqlen,
-        max_seqlen_k=max_seqlen,
-        causal=True,
-        window_size=window_size,
-        softmax_scale=self.head_dim**-0.5,
-        dropout_p=0.0,
-    )
+        attn_output = flash_attn_varlen_func(
+            q=query_states,
+            k=key_states,
+            v=value_states,
+            cu_seqlens_q=cu_seq_lens,
+            cu_seqlens_k=cu_seq_lens,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            causal=True,
+            window_size=window_size,
+            softmax_scale=self.head_dim**-0.5,
+            dropout_p=0.0,
+        )
+    else:
+        # Use regular flash attention when cu_seq_lens is None
+        # Reshape for regular flash attention (batch, seq_len, num_heads, head_dim)
+        batch_size = 1  # Assuming single batch for now
+        seq_len = query_states.shape[0]
+        query_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim)
+        key_states = key_states.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
+        value_states = value_states.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
+
+        attn_output = flash_attn_func(
+            q=query_states,
+            k=key_states,
+            v=value_states,
+            causal=True,
+            softmax_scale=self.head_dim**-0.5,
+            dropout_p=0.0,
+        )
+
+        # Reshape back to (seq_len, hidden_size)
+        attn_output = attn_output.view(seq_len, -1)
 
     # AlltoAll for Ulysses
     if ulysses_sp_size > 1:

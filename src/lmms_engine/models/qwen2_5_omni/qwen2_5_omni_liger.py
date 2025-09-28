@@ -171,7 +171,8 @@ def lce_forward(
                 shift_labels = torch.where(audio_mask, -100, shift_labels)
 
         # flatten tokens
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        hidden_size = self.config.text_config.hidden_size if hasattr(self.config, 'text_config') else self.config.hidden_size
+        shift_hidden_states = shift_hidden_states.view(-1, hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
