@@ -4,9 +4,6 @@ import torch
 from loguru import logger
 from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
-from lmms_engine.models.nsa.naive import naive_nsa_with_compression
-from lmms_engine.models.nsa.triton_fa import triton_fa_nsa
-
 try:
     from native_sparse_attention.ops import (
         compressed_attention,
