@@ -92,7 +92,7 @@ def apply_nsa_to_bagel(
     **kwargs,
 ):
     """
-    Apply NSA (Neural Sparse Attention) modifications to Bagel model.
+    Apply NSA modifications to Bagel model.
 
     Args:
         model (Bagel): The Bagel model to modify
