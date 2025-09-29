@@ -252,7 +252,7 @@ class MultiModalDataLoadingMixin:
             }
         ]
         use_audio_in_video = self.config.extra_kwargs.get("use_audio_in_video", False)
-        audios, images, videos = process_mm_info(messages, use_audio_in_video=use_audio_in_video)
+        _, _, videos = process_mm_info(messages, use_audio_in_video=use_audio_in_video)
         if videos and len(videos) > 0:
             video_frames = videos[0]
             if isinstance(video_frames, torch.Tensor):

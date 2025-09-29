@@ -121,71 +121,82 @@ class Qwen2_5OmniModelOutputWithPast(HFQwen2_5OmniModelOutputWithPast):
     word_idx: Optional[torch.IntTensor] = None
 
 
-# Omni Model forward
-def omni_model_forward(
-    self: Qwen2_5OmniThinkerModel,
-    input_ids: torch.LongTensor = None,
+# Note: Qwen2_5OmniThinkerForConditionalGeneration uses lce_forward from qwen2_5_omni_liger.py
+# The unpacking is handled at the text model level when rmpad is enabled
+
+# Unused function - kept for reference
+# The main model forward is handled by lce_forward which properly manages multimodal inputs
+def _omni_main_model_forward_reference(
+    self,  # Qwen2_5OmniThinkerForConditionalGeneration
+    input_ids: Optional[torch.LongTensor] = None,
+    input_features: Optional[torch.FloatTensor] = None,
+    pixel_values: Optional[torch.FloatTensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
     attention_mask: Optional[torch.Tensor] = None,
+    feature_attention_mask: Optional[torch.Tensor] = None,
+    audio_feature_lengths: Optional[torch.LongTensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_values: Optional[Cache] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
+    rope_deltas: Optional[torch.LongTensor] = None,
+    labels: Optional[torch.LongTensor] = None,
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
-    pixel_values: Optional[torch.Tensor] = None,
-    pixel_values_videos: Optional[torch.FloatTensor] = None,
-    image_grid_thw: Optional[torch.LongTensor] = None,
-    video_grid_thw: Optional[torch.LongTensor] = None,
-    audio_values: Optional[torch.FloatTensor] = None,
-    audio_attention_mask: Optional[torch.Tensor] = None,
-    rope_deltas: Optional[torch.LongTensor] = None,
+    use_audio_in_video: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    second_per_grid_ts: Optional[torch.Tensor] = None,
+    video_second_per_grid: Optional[torch.LongTensor] = None,
     **kwargs,
 ) -> Union[tuple, Qwen2_5OmniModelOutputWithPast]:
     output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
+        output_attentions if output_attentions is not None else self.config.output_attentions
     )
     output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
-    batch_size, seq_length = input_ids.shape
+    use_cache = use_cache if use_cache is not None else self.config.use_cache
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+    if input_ids is not None and inputs_embeds is not None:
+        raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+    elif input_ids is not None:
+        batch_size, seq_length = input_ids.shape
+    elif inputs_embeds is not None:
+        batch_size, seq_length, _ = inputs_embeds.shape
+    else:
+        raise ValueError("You have to specify either input_ids or inputs_embeds")
+
+    # Unpad the input ids here for rmpad
     original_input_ids = input_ids
-
-    # Unpad the input ids here
-    input_ids, indices, cu_seq_lens, _ = _unpad_input(
-        input_ids, attention_mask=attention_mask
-    )
-
-    if attention_mask is not None:
-        attention_mask = attention_mask.to(input_ids.device)
+    if input_ids is not None and attention_mask is not None:
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(
+            input_ids, attention_mask=attention_mask
+        )
+    else:
+        indices = None
+        cu_seq_lens = None
 
     # Calculate position ids and rope deltas for multimodal inputs
     if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
         # calculate RoPE index once per generation in the pre-fill stage only
-        if (
-            cache_position is not None and cache_position[0] == 0
-        ) or self.rope_deltas is None:
+        if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
             position_ids, rope_deltas = self.get_rope_index(
-                original_input_ids,  # Here we use the padded input ids
+                original_input_ids if original_input_ids is not None else input_ids,
                 image_grid_thw,
                 video_grid_thw,
-                second_per_grid_ts,
+                video_second_per_grid,
                 attention_mask,
-                audio_values,
-                audio_attention_mask,
+                input_features,
+                feature_attention_mask,
+                audio_feature_lengths,
+                use_audio_in_video,
             )
             self.rope_deltas = rope_deltas
-        # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
+            # Use pre-calculated rope-deltas to get the correct position ids
             delta = (
                 (cache_position[0] + self.rope_deltas).to(input_ids.device)
                 if cache_position is not None
@@ -193,40 +204,38 @@ def omni_model_forward(
             )
             position_ids = torch.arange(seq_length, device=input_ids.device)
             position_ids = position_ids.view(1, -1).expand(batch_size, -1)
-            if cache_position is not None:  # otherwise `deltas` is an int `0`
+            if cache_position is not None:
                 delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-    # Get vision features if images/videos provided
+    # Process vision if provided
     if pixel_values is not None or pixel_values_videos is not None:
-        vision_embeds = self.visual(
-            pixel_values=pixel_values,
-            pixel_values_videos=pixel_values_videos,
-            image_grid_thw=image_grid_thw,
-            video_grid_thw=video_grid_thw,
+        image_features = self.get_image_features(pixel_values, image_grid_thw) if pixel_values is not None else None
+        video_features = self.get_video_features(pixel_values_videos, video_grid_thw) if pixel_values_videos is not None else None
+    else:
+        image_features = None
+        video_features = None
+
+    # Process audio if provided
+    if input_features is not None:
+        audio_features = self.get_audio_features(
+            input_features, feature_attention_mask, audio_feature_lengths, use_audio_in_video
         )
     else:
-        vision_embeds = None
+        audio_features = None
 
-    # Get audio features if audio provided
-    if audio_values is not None:
-        audio_embeds = self.audio(
-            audio_values=audio_values,
-            attention_mask=audio_attention_mask,
-        )
-    else:
-        audio_embeds = None
-
-    # Process through text model
-    outputs = self.language_model(
+    # Call the text model with proper parameters
+    outputs = self.model(
         input_ids=input_ids,
         attention_mask=attention_mask,
         position_ids=position_ids,
         past_key_values=past_key_values,
         inputs_embeds=inputs_embeds,
-        vision_embeds=vision_embeds,
-        audio_embeds=audio_embeds,
+        image_features=image_features,
+        video_features=video_features,
+        audio_features=audio_features,
+        rope_deltas=rope_deltas,
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
@@ -236,17 +245,39 @@ def omni_model_forward(
         indices=indices,
     )
 
-    if not return_dict:
-        return outputs
+    hidden_states = outputs[0]
+    logits = self.lm_head(hidden_states)
 
-    return Qwen2_5OmniModelOutputWithPast(
-        last_hidden_state=outputs.last_hidden_state,
+    loss = None
+    if labels is not None:
+        # Handle loss calculation with rmpad
+        if indices is not None:
+            # Unpad labels
+            labels = labels.view(-1)[indices.long()]
+        # Shift so that tokens < n predict n
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        # Flatten the tokens
+        loss_fct = nn.CrossEntropyLoss()
+        shift_logits = shift_logits.view(-1, self.config.text_config.vocab_size)
+        shift_labels = shift_labels.view(-1)
+        # Enable model parallelism
+        shift_labels = shift_labels.to(shift_logits.device)
+        loss = loss_fct(shift_logits, shift_labels)
+
+    if not return_dict:
+        output = (logits,) + outputs[1:]
+        return (loss,) + output if loss is not None else output
+
+    # Return the proper output format
+    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerCausalLMOutputWithPast
+    return Qwen2_5OmniThinkerCausalLMOutputWithPast(
+        loss=loss,
+        logits=logits,
         past_key_values=outputs.past_key_values,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,
         rope_deltas=rope_deltas,
-        seq_lens=cu_seq_lens,
-        word_idx=indices,
     )
 
 

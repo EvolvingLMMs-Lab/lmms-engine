@@ -36,17 +36,23 @@ def lce_forward(
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
+    # Vision inputs
     pixel_values: Optional[torch.Tensor] = None,
     pixel_values_videos: Optional[torch.FloatTensor] = None,
-    audio_values: Optional[torch.FloatTensor] = None,
-    audio_attention_mask: Optional[torch.Tensor] = None,
     image_grid_thw: Optional[torch.LongTensor] = None,
     video_grid_thw: Optional[torch.LongTensor] = None,
+    # Audio inputs - note: main model expects input_features, not audio_values
+    input_features: Optional[torch.FloatTensor] = None,
+    feature_attention_mask: Optional[torch.Tensor] = None,
+    audio_feature_lengths: Optional[torch.LongTensor] = None,
+    # Other multimodal parameters
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    second_per_grid_ts: Optional[torch.Tensor] = None,
+    video_second_per_grid: Optional[torch.Tensor] = None,
+    use_audio_in_video: Optional[bool] = None,
+    # Control flags
     use_rmpad: Optional[bool] = False,
-    freeze_talker: Optional[bool] = False,
+    freeze_talker: Optional[bool] = True,
     **kwargs,
 ) -> Union[Tuple, Qwen2_5OmniThinkerCausalLMOutputWithPast]:
     output_attentions = (
@@ -81,7 +87,7 @@ def lce_forward(
         pixel_values_videos=pixel_values_videos,
         image_grid_thw=image_grid_thw,
         video_grid_thw=video_grid_thw,
-        second_per_grid_ts=second_per_grid_ts,
+        video_second_per_grid=video_second_per_grid,
         position_ids=position_ids,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
@@ -91,8 +97,11 @@ def lce_forward(
         output_hidden_states=output_hidden_states,
         return_dict=return_dict,
         cache_position=cache_position,
-        audio_values=audio_values,
-        audio_attention_mask=audio_attention_mask,
+        input_features=input_features,
+        feature_attention_mask=feature_attention_mask,
+        audio_feature_lengths=audio_feature_lengths,
+        rope_deltas=rope_deltas,
+        use_audio_in_video=use_audio_in_video,
     )
     seq_lens = outputs.get("seq_lens", None)
     word_idx = outputs.get("word_idx", None)
