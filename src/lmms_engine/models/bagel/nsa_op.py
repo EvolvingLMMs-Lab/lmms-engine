@@ -4,6 +4,7 @@ import torch
 from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
 from lmms_engine.models.nsa.naive import naive_nsa_with_compression
+from lmms_engine.models.nsa.triton_fa import triton_fa_nsa
 
 
 def forward_train(
@@ -96,7 +97,7 @@ def forward_train(
         [0] + sample_lens, dtype=torch.int32, device=packed_query_states_.device
     )
 
-    packed_attn_output, block_indices = naive_nsa_with_compression(
+    packed_attn_output, block_indices = triton_fa_nsa(
         packed_query_states_.unsqueeze(0),
         packed_key_states_.unsqueeze(0),
         packed_value_states.unsqueeze(0),
@@ -107,7 +108,6 @@ def forward_train(
         block_size=self.config.block_size,
         window_size=self.config.window_size,
         cu_seqlens=cu_seqlens,
-        head_first=False,
     )
 
     packed_attn_output = packed_attn_output.squeeze(0)
