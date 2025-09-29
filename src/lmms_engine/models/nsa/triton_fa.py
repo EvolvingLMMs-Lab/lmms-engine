@@ -283,7 +283,6 @@ def triton_fa_nsa(
         o_swa = flash_attn_func(
             query, key, value, causal=True, window_size=(window_size - 1, 0)
         )
-    torch.distributed.breakpoint()
     o = (
         o_slc * g_slc.unsqueeze(-1)
         + o_swa * g_swa.unsqueeze(-1)

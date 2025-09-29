@@ -187,8 +187,18 @@ def _fwd_kernel(
         # BUG: Triton needs to determine the control flow at compile time.
         # Dynamic conditions at runtime can undermine this optimization.
         # any_active = tl.sum(mask) != 0
-        # Apply dynamic mask
-        acc_s += tl.where(mask > 0.0, 0.0, float("-inf"))
+        # Apply dynamic mask with improved threshold for numerical stability
+        # Use a small epsilon to handle floating-point precision issues
+        mask_threshold = 1e-6
+        acc_s += tl.where(mask > mask_threshold, 0.0, float("-inf"))
+
+        # Check for all-masked rows to prevent NaN
+        # If all elements in a row are -inf, set one element to 0 to maintain numerical stability
+        row_max = tl.max(acc_s, 1)
+        all_masked = row_max == float("-inf")
+        # For all-masked rows, set the first valid position to 0
+        first_pos_mask = tl.arange(0, BLOCK_N) == 0
+        acc_s = tl.where(all_masked[:, None] & first_pos_mask[None, :], 0.0, acc_s)
 
         # Apply scaling
         # Slightly faster to multiply the softmax_scale in the tl.exp below since the compiler
@@ -503,8 +513,18 @@ def _bwd_kernel_one_col_block(
             acc_s = tl.where(
                 offs_m_curr[:, None] >= (offs_n[None, :]), acc_s, float("-inf")
             )
-        # Apply dynamic mask
-        acc_s = tl.where(mask > 0.0, acc_s, float("-inf"))
+        # Apply dynamic mask with improved threshold for numerical stability
+        # Use a small epsilon to handle floating-point precision issues
+        mask_threshold = 1e-6
+        acc_s = tl.where(mask > mask_threshold, acc_s, float("-inf"))
+
+        # Check for all-masked rows to prevent NaN
+        # If all elements in a row are -inf, set one element to 0 to maintain numerical stability
+        row_max = tl.max(acc_s, 1)
+        all_masked = row_max == float("-inf")
+        # For all-masked rows, set the first valid position to 0
+        first_pos_mask = tl.arange(0, BLOCK_N) == 0
+        acc_s = tl.where(all_masked[:, None] & first_pos_mask[None, :], 0.0, acc_s)
 
         tl.debug_barrier()  # Race condition otherwise
         # Apply scaling
