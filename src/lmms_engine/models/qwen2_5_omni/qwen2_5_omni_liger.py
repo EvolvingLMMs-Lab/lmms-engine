@@ -3,11 +3,7 @@ from typing import List, Optional, Tuple, Union
 import torch
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniThinkerForConditionalGeneration,
-)
-from dataclasses import dataclass
-from transformers.utils import ModelOutput
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-    Qwen2_5OmniThinkerCausalLMOutputWithPast,
+    Qwen2_5OmniThinkerCausalLMOutputWithPast
 )
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
@@ -36,23 +32,18 @@ def lce_forward(
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
-    # Vision inputs
     pixel_values: Optional[torch.Tensor] = None,
     pixel_values_videos: Optional[torch.FloatTensor] = None,
     image_grid_thw: Optional[torch.LongTensor] = None,
     video_grid_thw: Optional[torch.LongTensor] = None,
-    # Audio inputs - note: main model expects input_features, not audio_values
     input_features: Optional[torch.FloatTensor] = None,
     feature_attention_mask: Optional[torch.Tensor] = None,
     audio_feature_lengths: Optional[torch.LongTensor] = None,
-    # Other multimodal parameters
     rope_deltas: Optional[torch.LongTensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
     video_second_per_grid: Optional[torch.Tensor] = None,
     use_audio_in_video: Optional[bool] = None,
-    # Control flags
     use_rmpad: Optional[bool] = False,
-    freeze_talker: Optional[bool] = True,
     **kwargs,
 ) -> Union[Tuple, Qwen2_5OmniThinkerCausalLMOutputWithPast]:
     output_attentions = (
@@ -76,10 +67,6 @@ def lce_forward(
     n_video_tokens = (input_ids == self.config.video_token_id).sum().item() if hasattr(self.config, 'video_token_id') else 0
     n_audio_tokens = (input_ids == self.config.audio_token_id).sum().item() if hasattr(self.config, 'audio_token_id') else 0
     visual_tokens = n_image_tokens + n_video_tokens
-
-    # Get audio start/end token ids for talker freezing
-    audio_start_token_id = getattr(self.config, 'audio_start_token_id', None)
-    audio_end_token_id = getattr(self.config, 'audio_end_token_id', None)
 
     outputs = self.model(
         input_ids=input_ids,
@@ -132,26 +119,6 @@ def lce_forward(
                 cur_labels = labels[seq_lens[i] : seq_lens[i + 1]]
                 cur_shift_labels = cur_labels[1:].contiguous()
 
-                # Handle talker freezing - mask out audio generation tokens
-                if freeze_talker and audio_start_token_id is not None and audio_end_token_id is not None:
-                    # Find audio generation regions (between audio_start and audio_end tokens)
-                    audio_start_mask = (cur_labels[:-1] == audio_start_token_id)
-                    audio_end_mask = (cur_labels[:-1] == audio_end_token_id)
-
-                    # Create mask for audio generation tokens
-                    in_audio = False
-                    audio_mask = torch.zeros_like(cur_shift_labels, dtype=torch.bool)
-                    for idx in range(len(cur_shift_labels)):
-                        if idx > 0 and audio_start_mask[idx-1]:
-                            in_audio = True
-                        if in_audio:
-                            audio_mask[idx] = True
-                        if idx > 0 and audio_end_mask[idx-1]:
-                            in_audio = False
-
-                    # Set audio generation tokens to -100 to ignore in loss
-                    cur_shift_labels = torch.where(audio_mask, -100, cur_shift_labels)
-
                 shift_hidden_states.append(cur_shift_hidden_states)
                 shift_labels.append(cur_shift_labels)
             shift_hidden_states = torch.cat(shift_hidden_states, dim=0)
@@ -160,24 +127,6 @@ def lce_forward(
             # We do the same thing as ForCausalLMLoss but using Liger FLCE
             shift_hidden_states = hidden_states[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-
-            # Handle talker freezing for non-rmpad case
-            if freeze_talker and audio_start_token_id is not None and audio_end_token_id is not None:
-                # Flatten for easier processing
-                flat_labels = labels.view(-1)
-                audio_start_positions = (flat_labels == audio_start_token_id).nonzero(as_tuple=True)[0]
-                audio_end_positions = (flat_labels == audio_end_token_id).nonzero(as_tuple=True)[0]
-
-                # Create mask for audio generation tokens
-                audio_mask = torch.zeros_like(shift_labels.view(-1), dtype=torch.bool)
-                for start_pos, end_pos in zip(audio_start_positions, audio_end_positions):
-                    if end_pos > start_pos:
-                        # Mask the region between start and end (exclusive)
-                        audio_mask[start_pos:end_pos] = True
-
-                # Reshape and apply mask
-                audio_mask = audio_mask.view(shift_labels.shape)
-                shift_labels = torch.where(audio_mask, -100, shift_labels)
 
         # flatten tokens
         hidden_size = self.config.text_config.hidden_size if hasattr(self.config, 'text_config') else self.config.hidden_size

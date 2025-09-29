@@ -9,66 +9,24 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
-try:
-    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-        apply_multimodal_rotary_pos_emb,
-        rotate_half,
-    )
-    # Try to import model components - some may not be directly accessible
-    try:
-        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-            Qwen2_5OmniAttention,
-            Qwen2_5OmniAudioEncoder,
-            Qwen2_5OmniAudioEncoderLayer,
-            Qwen2_5OmniDecoderLayer,
-            Qwen2_5OmniVisionEncoder,
-        )
-    except ImportError:
-        # Define dummy classes as placeholders
-        class Qwen2_5OmniAttention: pass
-        class Qwen2_5OmniAudioEncoder: pass
-        class Qwen2_5OmniAudioEncoderLayer: pass
-        class Qwen2_5OmniDecoderLayer: pass
-        class Qwen2_5OmniVisionEncoder: pass
 
-    # Import the correct text model class
-    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerTextModel
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    apply_multimodal_rotary_pos_emb,
+    rotate_half,
+)
 
-except ImportError as e:
-    print(f"Warning: Could not import Qwen2.5-Omni components: {e}")
-    # Create dummy classes
-    class Qwen2_5OmniAttention: pass
-    class Qwen2_5OmniAudioEncoder: pass
-    class Qwen2_5OmniAudioEncoderLayer: pass
-    class Qwen2_5OmniDecoderLayer: pass
-    class Qwen2_5OmniVisionEncoder: pass
-    class Qwen2_5OmniThinkerTextModel: pass
-    def apply_multimodal_rotary_pos_emb(*args, **kwargs): pass
-    def rotate_half(*args, **kwargs): pass
-
-# Try to import the main model
-try:
-    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerForConditionalGeneration
-    # Get the core model class
-    Qwen2_5OmniThinkerModel = type(Qwen2_5OmniThinkerForConditionalGeneration({}).model)
-except:
-    class Qwen2_5OmniThinkerModel: pass
-
-try:
-    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-        Qwen2_5OmniModelOutputWithPast as HFQwen2_5OmniModelOutputWithPast,
-    )
-except ImportError:
-    # Create a dummy output class
-    from dataclasses import dataclass
-    from transformers.utils import ModelOutput
-
-    @dataclass
-    class HFQwen2_5OmniModelOutputWithPast(ModelOutput):
-        last_hidden_state: torch.FloatTensor = None
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
-        hidden_states: Optional[Tuple[torch.FloatTensor]] = None
-        attentions: Optional[Tuple[torch.FloatTensor]] = None
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    Qwen2_5OmniAttention,
+    Qwen2_5OmniAudioEncoder,
+    Qwen2_5OmniAudioEncoderLayer,
+    Qwen2_5OmniDecoderLayer,
+    Qwen2_5OmniVisionEncoder,
+)
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerTextModel
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerForConditionalGeneration
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    Qwen2_5OmniModelOutputWithPast as HFQwen2_5OmniModelOutputWithPast,
+)
 from transformers.utils import is_flash_attn_2_available, logging
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (

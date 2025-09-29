@@ -13,6 +13,7 @@ try:
         lce_forward_deprecated as qwen2_lce_forward_deprecated,
     )
     from liger_kernel.transformers.monkey_patch import (
+        _patch_layer_norm_module,
         _patch_rms_norm_module,
         _patch_swiglu_module,
     )
@@ -56,10 +57,10 @@ def apply_liger_kernel_to_qwen2_5_omni(
     cross_entropy: bool = False,
     fused_linear_cross_entropy: bool = True,
     rms_norm: bool = True,
+    layer_norm: bool = True,
     swiglu: bool = True,
     model: PreTrainedModel = None,
     use_rmpad: bool = False,
-    freeze_talker: bool = True,  # Freeze audio generation in loss (talker = audio decoder)
 ) -> None:
     """
     Apply Liger kernels to replace original implementation in HuggingFace Qwen2.5-Omni models.
@@ -70,13 +71,11 @@ def apply_liger_kernel_to_qwen2_5_omni(
             `cross_entropy` and `fused_linear_cross_entropy` cannot both be True.
             If `fused_linear_cross_entropy` is True, the logits will not be materialized but more memory efficient.
         rms_norm (bool): Whether to apply Liger's RMSNorm. Default is True.
+        layer_norm (bool): Whether to apply Liger's LayerNorm. Default is True.
         swiglu (bool): Whether to apply Liger's SwiGLU MLP. Default is True.
         model (PreTrainedModel): The model instance to apply Liger kernels to, if the model has already been
             loaded. Default is None.
         use_rmpad (bool): Whether to use remove padding optimization. Default is False.
-        freeze_talker (bool): Whether to mask audio generation tokens in loss computation. Default is True.
-            Note: This only affects loss computation, not model architecture. The audio encoder is part of
-            the Thinker and is always optimized with rmpad when enabled.
     """
     assert not (
         cross_entropy and fused_linear_cross_entropy
@@ -90,7 +89,6 @@ def apply_liger_kernel_to_qwen2_5_omni(
         @wraps(func)
         def wrapper(*args, **kwargs):
             kwargs.setdefault('use_rmpad', use_rmpad)
-            kwargs.setdefault('freeze_talker', freeze_talker)
             return func(*args, **kwargs)
         return wrapper
 
@@ -100,7 +98,9 @@ def apply_liger_kernel_to_qwen2_5_omni(
     if rope:
         Logging.warning("RoPE optimization not supported for Qwen2.5-Omni, skipping")
     if rms_norm:
-        modeling_qwen2_5_omni.Qwen2RMSNorm = LigerRMSNorm 
+        modeling_qwen2_5_omni.Qwen2RMSNorm = LigerRMSNorm
+    if layer_norm:
+        modeling_qwen2_5_omni.LayerNorm = LigerLayerNorm 
     if cross_entropy:
         modeling_qwen2_5_omni.CrossEntropyLoss = LigerCrossEntropyLoss
     if fused_linear_cross_entropy:
@@ -138,37 +138,37 @@ def apply_liger_kernel_to_qwen2_5_omni(
         # The model instance already exists, so we need to additionally patch the
         # instance variables that reference already-instantiated modules
         if isinstance(model, Qwen2_5OmniThinkerForConditionalGeneration):
-            text_model = model.model
-            vision_model = None
+            text_model: Qwen2_5OmniThinkerTextModel = model.model
+            vision_model: Qwen2_5OmniVisionEncoder = model.visual
+            audio_model: Qwen2_5OmniAudioEncoder = model.audio_tower
         elif isinstance(model, Qwen2_5OmniThinkerTextModel):
-            text_model = model
+            text_model: Qwen2_5OmniThinkerTextModel = model
             vision_model = None
+            audio_model = None
         else:
-            # Note: Currently there's no support for patching vision model only. Feel free to raise an issue if needed.
             raise TypeError(
-                f"Unsupported  Qwen2_5Omni model type. `model` must be `Qwen2VLForConditionalGeneration`, `Qwen2VLModel` or `Qwen2VLTextModel`. Got: {type(model)}"
+                f"Unsupported Qwen2.5-Omni model type. `model` must be `Qwen2_5OmniThinkerForConditionalGeneration` or `Qwen2_5OmniThinkerTextModel`. Got: {type(model)}"
             )
 
-        # Patch text model components
+        if vision_model is not None and rms_norm:
+            for vision_block in vision_model.blocks:
+                _patch_rms_norm_module(vision_block.norm1)
+                _patch_rms_norm_module(vision_block.norm2)
+        if audio_model is not None and layer_norm:
+            # audio encoder uses layer norm
+            if hasattr(audio_model, 'layers'):
+                for audio_layer in audio_model.layers:
+                    if hasattr(audio_layer, 'layer_norm'):
+                        _patch_layer_norm_module(audio_layer.layer_norm)
+                    if hasattr(audio_layer, 'final_layer_norm'):
+                        _patch_layer_norm_module(audio_layer.final_layer_norm)
         if text_model is not None:
-            if rms_norm and hasattr(text_model, 'norm'):
+            if rms_norm:
                 _patch_rms_norm_module(text_model.norm)
-            if hasattr(text_model, 'layers'):
-                for decoder_layer in text_model.layers:
-                    if swiglu and hasattr(decoder_layer, 'mlp'):
-                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
-                    if rms_norm:
-                        if hasattr(decoder_layer, 'input_layernorm'):
-                            _patch_rms_norm_module(decoder_layer.input_layernorm)
-                        if hasattr(decoder_layer, 'post_attention_layernorm'):
-                            _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
-
-        # Patch vision encoder if present
-        if hasattr(model, 'visual'):
-            vision_model = model.visual
-            if vision_model is not None and rms_norm:
-                for vision_block in vision_model.blocks:
-                    if hasattr(vision_block, 'norm1'):
-                        _patch_rms_norm_module(vision_block.norm1)
-                    if hasattr(vision_block, 'norm2'):
-                        _patch_rms_norm_module(vision_block.norm2)
+            for decoder_layer in text_model.layers:
+                if swiglu:
+                    _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
+                if rms_norm:
+                    _patch_rms_norm_module(decoder_layer.input_layernorm)
+                    _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
+                    
