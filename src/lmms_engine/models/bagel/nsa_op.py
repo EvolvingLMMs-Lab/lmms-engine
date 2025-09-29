@@ -1,10 +1,28 @@
 from typing import List, Tuple
 
 import torch
+from loguru import logger
 from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
 from lmms_engine.models.nsa.naive import naive_nsa_with_compression
 from lmms_engine.models.nsa.triton_fa import triton_fa_nsa
+
+try:
+    from native_sparse_attention.ops import (
+        compressed_attention,
+        linear_compress,
+        topk_sparse_attention,
+    )
+except ImportError:
+    logger.warning(
+        "native_sparse_attention is not installed, please install with"
+        " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
+    )
+
+from transformers.utils import is_flash_attn_2_available
+
+if is_flash_attn_2_available():
+    from flash_attn import flash_attn_varlen_func
 
 
 def forward_train(
@@ -84,6 +102,27 @@ def forward_train(
     packed_key_states_[packed_gen_token_indexes] = self.k_norm_moe_gen(
         packed_key_states[packed_gen_token_indexes]
     )
+    cu_seqlens = torch.tensor(
+        [0] + sample_lens, dtype=torch.int32, device=packed_query_states_.device
+    )
+
+    # 1. key value compression
+    compressed_key, compressed_cu_seqlens = self.compress_func(
+        packed_key_states_,
+        self.compress_key,
+        cu_seqlens,
+        self.kernel_size,
+        self.kernel_stride,
+        self.intra_block_pe,
+    )
+    compressed_value, _ = self.compress_func(
+        packed_value_states,
+        self.compress_value,
+        cu_seqlens,
+        self.kernel_size,
+        self.kernel_stride,
+        None,
+    )
 
     packed_cos, packed_sin = packed_position_embeddings
     packed_query_states_, packed_key_states_ = apply_rotary_pos_emb(
@@ -93,24 +132,57 @@ def forward_train(
         packed_sin,
         unsqueeze_dim=1,
     )
-    cu_seqlens = torch.tensor(
-        [0] + sample_lens, dtype=torch.int32, device=packed_query_states_.device
+    seqlens = cu_seqlens[1:] - cu_seqlens[:-1]
+
+    compressed_seqlens = compressed_cu_seqlens[1:] - compressed_cu_seqlens[:-1]
+    compressed_attn_output, topk_idx = compressed_attention(
+        packed_query_states_,
+        compressed_key,
+        compressed_value,
+        self.kernel_size,
+        self.kernel_stride,
+        self.block_size,
+        self.topk,
+        cu_seqlens,
+        compressed_cu_seqlens,
+        seqlens.max().item(),
+        compressed_seqlens.max().item(),
+        None,
+        self.init_blocks,
+        self.local_blocks,
     )
 
-    packed_attn_output, block_indices = triton_fa_nsa(
-        packed_query_states_.unsqueeze(0),
-        packed_key_states_.unsqueeze(0),
-        packed_value_states.unsqueeze(0),
-        g_slc=g_slc,
-        g_swa=g_swa,
-        g_cmp=g_cmp,
-        block_counts=self.config.block_counts,
-        block_size=self.config.block_size,
-        window_size=self.config.window_size,
-        cu_seqlens=cu_seqlens,
+    # topk sparse attention
+    sparse_attn_output = topk_sparse_attention(
+        packed_query_states_,
+        packed_key_states_,
+        packed_value_states,
+        topk_idx,
+        self.block_size,
+        cu_seqlens,
+        None,
     )
 
-    packed_attn_output = packed_attn_output.squeeze(0)
+    # sliding window attention
+    sliding_attn_output = flash_attn_varlen_func(
+        packed_query_states_,
+        packed_key_states_,
+        packed_value_states,
+        cu_seqlens,
+        cu_seqlens,
+        seqlens.max().item(),
+        seqlens.max().item(),
+        causal=True,
+        window_size=(self.window_size, -1),
+    )
+
+    attn_output = (
+        compressed_attn_output * g_cmp.unsqueeze(-1)
+        + sparse_attn_output * g_swa.unsqueeze(-1)
+        + sliding_attn_output * g_slc.unsqueeze(-1)
+    )
+
+    packed_attn_output = attn_output.squeeze(0)
 
     packed_attn_output = packed_attn_output.transpose(0, 1).reshape(
         -1, self.num_heads * self.head_dim
