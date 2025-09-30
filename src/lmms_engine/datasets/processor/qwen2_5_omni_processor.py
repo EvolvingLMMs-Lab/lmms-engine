@@ -18,7 +18,11 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
     def _build_processor(self):
         # Use processor_path if available, fallback to processor_name
         model_path = getattr(self.config, 'processor_path', self.config.processor_name)
-        processor = Qwen2_5OmniProcessor.from_pretrained(model_path)
+        processor = Qwen2_5OmniProcessor.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+            local_files_only=False
+        )
 
         # Set image processor parameters
         image_max_pixels = self.config.extra_kwargs.get("image_max_pixels", None)

@@ -11,7 +11,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     slice_input_tensor,
 )
-
+from ..sequence_packing_utils import _unpad_input
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
         LigerFusedLinearCrossEntropyLoss,
@@ -62,33 +62,75 @@ def lce_forward(
 
     # count tokens
     if attention_mask is not None:
-        tokens_count = attention_mask.sum().item()
+        # Handle boolean masks for PyTorch 2.8+ compatibility
+        if attention_mask.dtype == torch.bool:
+            tokens_count = attention_mask.sum().item()
+        else:
+            tokens_count = attention_mask.sum().item()
     n_image_tokens = (input_ids == self.config.image_token_id).sum().item() if hasattr(self.config, 'image_token_id') else 0
     n_video_tokens = (input_ids == self.config.video_token_id).sum().item() if hasattr(self.config, 'video_token_id') else 0
     n_audio_tokens = (input_ids == self.config.audio_token_id).sum().item() if hasattr(self.config, 'audio_token_id') else 0
     visual_tokens = n_image_tokens + n_video_tokens
 
+    # Process multimodal inputs before passing to text model
+    # This is necessary because our patched text_model_forward expects processed embeddings
+    if inputs_embeds is None and input_ids is not None:
+        inputs_embeds = self.get_input_embeddings()(input_ids)
+
+    # Process and merge audio features
+    if input_features is not None:
+        audio_features = self.get_audio_features(
+            input_features,
+            feature_attention_mask=feature_attention_mask,
+            audio_feature_lengths=audio_feature_lengths,
+        )
+        audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
+        _, _, audio_mask = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds)
+        inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
+
+    # Process and merge image features
+    if pixel_values is not None:
+        image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+        image_mask, _, _ = self.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+    # Process and merge video features
+    if pixel_values_videos is not None:
+        video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
+        _, video_mask, _ = self.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+    # Handle rmpad unpacking for merged embeddings
+    cu_seq_lens = None
+    indices = None
+    if use_rmpad and attention_mask is not None and inputs_embeds is not None:
+        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(
+            inputs_embeds, attention_mask=attention_mask
+        )
+
+    # Now pass processed embeddings to text model
     outputs = self.model(
-        input_ids=input_ids,
-        pixel_values=pixel_values,
-        pixel_values_videos=pixel_values_videos,
-        image_grid_thw=image_grid_thw,
-        video_grid_thw=video_grid_thw,
-        video_second_per_grid=video_second_per_grid,
+        input_ids=None,  # We pass inputs_embeds instead
+        inputs_embeds=inputs_embeds,  # Merged and potentially unpaded multimodal embeddings
         position_ids=position_ids,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
-        inputs_embeds=inputs_embeds,
         use_cache=use_cache,
         output_attentions=output_attentions,
         output_hidden_states=output_hidden_states,
         return_dict=return_dict,
         cache_position=cache_position,
-        input_features=input_features,
-        feature_attention_mask=feature_attention_mask,
-        audio_feature_lengths=audio_feature_lengths,
         rope_deltas=rope_deltas,
         use_audio_in_video=use_audio_in_video,
+        video_second_per_grid=video_second_per_grid,
+        cu_seq_lens=cu_seq_lens,
+        indices=indices,
     )
     seq_lens = outputs.get("seq_lens", None)
     word_idx = outputs.get("word_idx", None)

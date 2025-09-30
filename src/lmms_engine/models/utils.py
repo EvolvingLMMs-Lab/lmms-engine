@@ -66,6 +66,8 @@ class FlopsCounter:
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
+        elif config.model_type == "qwen2_5_omni_thinker":
+            self.config = config.text_config if hasattr(config, 'text_config') else config
         else:
             self.config = config
 

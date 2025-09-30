@@ -51,7 +51,7 @@ from lmms_engine.models.monkey_patch import MONKEY_PATCHER
 from lmms_engine.utils.logging_utils import Logging
 
 
-@MONKEY_PATCHER.register("qwen2_5_omni", "liger")
+@MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
 def apply_liger_kernel_to_qwen2_5_omni(
     rope: bool = False,  # Not supported for Qwen2.5-Omni - different RoPE implementation
     cross_entropy: bool = False,
@@ -60,7 +60,7 @@ def apply_liger_kernel_to_qwen2_5_omni(
     layer_norm: bool = True,
     swiglu: bool = True,
     model: PreTrainedModel = None,
-    use_rmpad: bool = False,
+    use_rmpad: bool = True,
 ) -> None:
     """
     Apply Liger kernels to replace original implementation in HuggingFace Qwen2.5-Omni models.

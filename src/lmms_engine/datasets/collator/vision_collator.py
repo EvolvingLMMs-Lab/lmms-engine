@@ -52,7 +52,7 @@ class VisionCollator:
         if "attention_mask" in inputs.keys():
             inputs.pop("attention_mask")
 
-        attention_mask = input_ids.ne(self.processor.tokenizer.pad_token_id)
+        attention_mask = input_ids.ne(self.processor.tokenizer.pad_token_id).long()
         batched_inputs["attention_mask"] = attention_mask
 
         # for the other keys

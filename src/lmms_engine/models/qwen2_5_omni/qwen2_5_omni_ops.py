@@ -25,7 +25,7 @@ from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerTextModel
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerForConditionalGeneration
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-    Qwen2_5OmniModelOutputWithPast as HFQwen2_5OmniModelOutputWithPast,
+    Qwen2_5OmniThinkerCausalLMOutputWithPast as HFQwen2_5OmniModelOutputWithPast,
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
@@ -82,162 +82,6 @@ class Qwen2_5OmniModelOutputWithPast(HFQwen2_5OmniModelOutputWithPast):
 # Note: Qwen2_5OmniThinkerForConditionalGeneration uses lce_forward from qwen2_5_omni_liger.py
 # The unpacking is handled at the text model level when rmpad is enabled
 
-# Unused function - kept for reference
-# The main model forward is handled by lce_forward which properly manages multimodal inputs
-def _omni_main_model_forward_reference(
-    self,  # Qwen2_5OmniThinkerForConditionalGeneration
-    input_ids: Optional[torch.LongTensor] = None,
-    input_features: Optional[torch.FloatTensor] = None,
-    pixel_values: Optional[torch.FloatTensor] = None,
-    pixel_values_videos: Optional[torch.FloatTensor] = None,
-    image_grid_thw: Optional[torch.LongTensor] = None,
-    video_grid_thw: Optional[torch.LongTensor] = None,
-    attention_mask: Optional[torch.Tensor] = None,
-    feature_attention_mask: Optional[torch.Tensor] = None,
-    audio_feature_lengths: Optional[torch.LongTensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Cache] = None,
-    inputs_embeds: Optional[torch.FloatTensor] = None,
-    rope_deltas: Optional[torch.LongTensor] = None,
-    labels: Optional[torch.LongTensor] = None,
-    use_cache: Optional[bool] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-    use_audio_in_video: Optional[bool] = None,
-    cache_position: Optional[torch.LongTensor] = None,
-    video_second_per_grid: Optional[torch.LongTensor] = None,
-    **kwargs,
-) -> Union[tuple, Qwen2_5OmniModelOutputWithPast]:
-    output_attentions = (
-        output_attentions if output_attentions is not None else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-    )
-    use_cache = use_cache if use_cache is not None else self.config.use_cache
-    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-    if input_ids is not None and inputs_embeds is not None:
-        raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
-    elif input_ids is not None:
-        batch_size, seq_length = input_ids.shape
-    elif inputs_embeds is not None:
-        batch_size, seq_length, _ = inputs_embeds.shape
-    else:
-        raise ValueError("You have to specify either input_ids or inputs_embeds")
-
-    # Unpad the input ids here for rmpad
-    original_input_ids = input_ids
-    if input_ids is not None and attention_mask is not None:
-        input_ids, indices, cu_seq_lens, _ = _unpad_input(
-            input_ids, attention_mask=attention_mask
-        )
-    else:
-        indices = None
-        cu_seq_lens = None
-
-    # Calculate position ids and rope deltas for multimodal inputs
-    if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
-        # calculate RoPE index once per generation in the pre-fill stage only
-        if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
-            position_ids, rope_deltas = self.get_rope_index(
-                original_input_ids if original_input_ids is not None else input_ids,
-                image_grid_thw,
-                video_grid_thw,
-                video_second_per_grid,
-                attention_mask,
-                input_features,
-                feature_attention_mask,
-                audio_feature_lengths,
-                use_audio_in_video,
-            )
-            self.rope_deltas = rope_deltas
-        else:
-            # Use pre-calculated rope-deltas to get the correct position ids
-            delta = (
-                (cache_position[0] + self.rope_deltas).to(input_ids.device)
-                if cache_position is not None
-                else 0
-            )
-            position_ids = torch.arange(seq_length, device=input_ids.device)
-            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
-            if cache_position is not None:
-                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
-            position_ids = position_ids.add(delta)
-            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-
-    # Process vision if provided
-    if pixel_values is not None or pixel_values_videos is not None:
-        image_features = self.get_image_features(pixel_values, image_grid_thw) if pixel_values is not None else None
-        video_features = self.get_video_features(pixel_values_videos, video_grid_thw) if pixel_values_videos is not None else None
-    else:
-        image_features = None
-        video_features = None
-
-    # Process audio if provided
-    if input_features is not None:
-        audio_features = self.get_audio_features(
-            input_features, feature_attention_mask, audio_feature_lengths, use_audio_in_video
-        )
-    else:
-        audio_features = None
-
-    # Call the text model with proper parameters
-    outputs = self.model(
-        input_ids=input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        past_key_values=past_key_values,
-        inputs_embeds=inputs_embeds,
-        image_features=image_features,
-        video_features=video_features,
-        audio_features=audio_features,
-        rope_deltas=rope_deltas,
-        use_cache=use_cache,
-        output_attentions=output_attentions,
-        output_hidden_states=output_hidden_states,
-        return_dict=return_dict,
-        cache_position=cache_position,
-        cu_seq_lens=cu_seq_lens,
-        indices=indices,
-    )
-
-    hidden_states = outputs[0]
-    logits = self.lm_head(hidden_states)
-
-    loss = None
-    if labels is not None:
-        # Handle loss calculation with rmpad
-        if indices is not None:
-            # Unpad labels
-            labels = labels.view(-1)[indices.long()]
-        # Shift so that tokens < n predict n
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        # Flatten the tokens
-        loss_fct = nn.CrossEntropyLoss()
-        shift_logits = shift_logits.view(-1, self.config.text_config.vocab_size)
-        shift_labels = shift_labels.view(-1)
-        # Enable model parallelism
-        shift_labels = shift_labels.to(shift_logits.device)
-        loss = loss_fct(shift_logits, shift_labels)
-
-    if not return_dict:
-        output = (logits,) + outputs[1:]
-        return (loss,) + output if loss is not None else output
-
-    # Return the proper output format
-    from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerCausalLMOutputWithPast
-    return Qwen2_5OmniThinkerCausalLMOutputWithPast(
-        loss=loss,
-        logits=logits,
-        past_key_values=outputs.past_key_values,
-        hidden_states=outputs.hidden_states,
-        attentions=outputs.attentions,
-        rope_deltas=rope_deltas,
-    )
-
 
 # Text Model forward
 def text_model_forward(
@@ -247,8 +91,6 @@ def text_model_forward(
     position_ids: Optional[torch.LongTensor] = None,
     past_key_values: Optional[List[torch.FloatTensor]] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
-    vision_embeds: Optional[torch.FloatTensor] = None,
-    audio_embeds: Optional[torch.FloatTensor] = None,
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
@@ -279,36 +121,7 @@ def text_model_forward(
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
 
-    # Merge multimodal embeddings
-    if vision_embeds is not None:
-        inputs_embeds = self.merge_vision_embeddings(
-            inputs_embeds, vision_embeds, input_ids
-        )
-    if audio_embeds is not None:
-        inputs_embeds = self.merge_audio_embeddings(
-            inputs_embeds, audio_embeds, input_ids
-        )
-
-    # Apply rmpad if cu_seq_lens and indices are provided
-    if cu_seq_lens is not None and indices is not None:
-        # inputs_embeds are already unpaded from merge functions
-        bs, seqlen = input_ids.shape[:2] if input_ids is not None else inputs_embeds.shape[:2]
-
-        # Prepare position ids
-        if position_ids is not None:
-            position_ids = index_first_axis(
-                rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-            ).transpose(0, 1)
-            original_position_ids = position_ids
-
-            # Pad the position ids according to the original input ids for Ulysses
-            if get_ulysses_sequence_parallel_world_size() > 1:
-                input_ids_rmpad = input_ids.unsqueeze(0) if input_ids is not None else inputs_embeds.unsqueeze(0)
-                _, position_ids, pad_size = ulysses_pad(
-                    input_ids_rmpad,
-                    original_position_ids,
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
+    # Multimodal embeddings are now merged in lce_forward before calling this function
 
     if use_cache and past_key_values is None:
         past_key_values = DynamicCache(config=self.config)
@@ -317,21 +130,30 @@ def text_model_forward(
         past_seen_tokens = (
             past_key_values.get_seq_length() if past_key_values is not None else 0
         )
+        # Determine the sequence length based on whether rmpad is used
+        if cu_seq_lens is not None and indices is not None:
+            # With rmpad, inputs_embeds is already unpacked (seq_len, hidden_dim)
+            seq_len_for_cache = inputs_embeds.shape[0]
+        else:
+            # Without rmpad, inputs_embeds is (batch, seq_len, hidden_dim)
+            seq_len_for_cache = inputs_embeds.shape[1]
+
         cache_position = torch.arange(
             past_seen_tokens,
-            past_seen_tokens + inputs_embeds.shape[1],
+            past_seen_tokens + seq_len_for_cache,
             device=inputs_embeds.device,
         )
 
     # Initialize position_ids if None
+    # The hard coded `3` is for temporal, height and width dimensions for multimodal RoPE
     if position_ids is None:
-        seq_length = inputs_embeds.shape[1]
-        batch_size = inputs_embeds.shape[0]
-        position_ids = torch.arange(
-            seq_length, dtype=torch.long, device=inputs_embeds.device
-        ).view(1, -1).expand(batch_size, -1)
-        # Expand to 3D for multimodal rope (3 dimensions for Qwen2.5-Omni)
-        position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+        if cu_seq_lens is not None and indices is not None:
+            # With rmpad: generate position_ids for each sequence in the packed batch
+            # cache_position is already the correct length for unpacked tokens
+            position_ids = cache_position.view(1, 1, -1).expand(3, 1, -1)
+        else:
+            # Without rmpad: standard position_ids generation
+            position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
     elif position_ids.dim() == 2:
         # If 2D, expand to 3D
         position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
@@ -724,130 +546,71 @@ def audio_encoder_layer_forward(
 # Vision Encoder forward
 def vision_encoder_forward(
     self: Qwen2_5OmniVisionEncoder,
-    pixel_values: Optional[torch.FloatTensor] = None,
-    pixel_values_videos: Optional[torch.FloatTensor] = None,
-    image_grid_thw: Optional[torch.LongTensor] = None,
-    video_grid_thw: Optional[torch.LongTensor] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
+    hidden_states: torch.Tensor,
+    grid_thw: torch.Tensor,
+    **kwargs,
+) -> torch.Tensor:
+    """
+    Args:
+        hidden_states (`torch.Tensor`): The input pixel values (images or videos)
+        grid_thw (`torch.Tensor` of shape `(num_images_or_videos, 3)`):
+            The temporal, height and width of feature shape of each image/video in LLM.
+
+    Returns:
+        `torch.Tensor`: Processed visual features
+    """
+    # Patch embedding
+    hidden_states = self.patch_embed(hidden_states)
+
+    # Get rotary positional embeddings
+    rotary_pos_emb = self.rot_pos_emb(grid_thw)
+
+    # Get window indices for window attention
+    window_index, cu_window_seqlens = self.get_window_index(grid_thw)
+    cu_window_seqlens = torch.tensor(
+        cu_window_seqlens,
+        device=hidden_states.device,
+        dtype=grid_thw.dtype if torch.jit.is_tracing() else torch.int32,
     )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
+    cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
+
+    # Reshape and reorder according to window indices
+    seq_len, _ = hidden_states.size()
+    hidden_states = hidden_states.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
+    hidden_states = hidden_states[window_index, :, :]
+    hidden_states = hidden_states.reshape(seq_len, -1)
+
+    rotary_pos_emb = rotary_pos_emb.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
+    rotary_pos_emb = rotary_pos_emb[window_index, :, :]
+    rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
+
+    # Calculate cumulative sequence lengths for full attention
+    cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).cumsum(
+        dim=0,
+        dtype=grid_thw.dtype if torch.jit.is_tracing() else torch.int32,
     )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
-
-    # Process images
-    if pixel_values is not None:
-        batch_size = pixel_values.shape[0]
-        image_embeds = self.patch_embed(pixel_values)
-        image_embeds = image_embeds.flatten(2).transpose(1, 2)
-
-        # Unpad if needed
-        if image_grid_thw is not None:
-            # Calculate attention mask from grid
-            attention_mask = self._create_attention_mask_from_grid(
-                image_grid_thw, image_embeds.shape[1]
-            )
-            image_embeds, indices, cu_seq_lens, _ = _unpad_input(
-                image_embeds, attention_mask=attention_mask
-            )
-        else:
-            indices = None
-            cu_seq_lens = None
-    else:
-        image_embeds = None
-        indices = None
-        cu_seq_lens = None
-
-    # Process videos
-    if pixel_values_videos is not None:
-        batch_size = pixel_values_videos.shape[0]
-        video_embeds = self.patch_embed(pixel_values_videos)
-        video_embeds = video_embeds.flatten(2).transpose(1, 2)
-
-        # Unpad if needed
-        if video_grid_thw is not None:
-            # Calculate attention mask from grid
-            attention_mask = self._create_attention_mask_from_grid(
-                video_grid_thw, video_embeds.shape[1]
-            )
-            video_embeds, v_indices, v_cu_seq_lens, _ = _unpad_input(
-                video_embeds, attention_mask=attention_mask
-            )
-
-            # Merge with image if both present
-            if image_embeds is not None:
-                hidden_states = torch.cat([image_embeds, video_embeds], dim=0)
-                # Merge cu_seq_lens
-                cu_seq_lens = torch.cat([cu_seq_lens, v_cu_seq_lens + cu_seq_lens[-1]], dim=0)
-                indices = torch.cat([indices, v_indices + indices.max() + 1], dim=0)
-            else:
-                hidden_states = video_embeds
-                cu_seq_lens = v_cu_seq_lens
-                indices = v_indices
-        else:
-            if image_embeds is not None:
-                hidden_states = torch.cat([image_embeds, video_embeds], dim=0)
-            else:
-                hidden_states = video_embeds
-    else:
-        hidden_states = image_embeds
-
-    # Add positional embeddings
-    hidden_states = hidden_states + self.pos_embed
-
-    all_hidden_states = () if output_hidden_states else None
-    all_attentions = () if output_attentions else None
+    cu_seqlens = torch.nn.functional.pad(cu_seqlens, (1, 0), value=0)
 
     # Pass through vision transformer blocks
-    for i, block in enumerate(self.blocks):
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
+    for layer_num, blk in enumerate(self.blocks):
+        # Use full attention for specified blocks, window attention for others
+        if layer_num in self.fullatt_block_indexes:
+            cu_seqlens_now = cu_seqlens
+        else:
+            cu_seqlens_now = cu_window_seqlens
 
-        # Check if this is a full attention block or window attention
-        use_window = i not in self.config.fullatt_block_indexes if hasattr(self.config, 'fullatt_block_indexes') else False
-
-        layer_outputs = block(
+        hidden_states = blk(
             hidden_states,
-            output_attentions=output_attentions,
-            cu_seq_lens=cu_seq_lens if use_window else None,
-            indices=indices if use_window else None,
+            cu_seqlens=cu_seqlens_now,
+            rotary_pos_emb=rotary_pos_emb,
+            **kwargs,
         )
 
-        hidden_states = layer_outputs[0]
-
-        if output_attentions:
-            all_attentions += (layer_outputs[1],)
-
-    hidden_states = self.norm(hidden_states)
-
-    if output_hidden_states:
-        all_hidden_states += (hidden_states,)
-
-    # Project to output hidden size
+    # Merge patches to output dimension
     hidden_states = self.merger(hidden_states)
 
-    if not return_dict:
-        return tuple(
-            v
-            for v in [hidden_states, all_hidden_states, all_attentions]
-            if v is not None
-        )
+    # Reverse the window reordering
+    reverse_indices = torch.argsort(window_index)
+    hidden_states = hidden_states[reverse_indices, :]
 
-    return BaseModelOutputWithPastAndRmpad(
-        last_hidden_state=hidden_states,
-        hidden_states=all_hidden_states,
-        attentions=all_attentions,
-        seq_lens=cu_seq_lens,
-        word_idx=indices,
-    )
+    return hidden_states
