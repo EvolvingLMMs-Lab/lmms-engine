@@ -9,23 +9,21 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
-
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-    apply_multimodal_rotary_pos_emb,
-    rotate_half,
-)
-
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniAttention,
     Qwen2_5OmniAudioEncoder,
     Qwen2_5OmniAudioEncoderLayer,
     Qwen2_5OmniDecoderLayer,
-    Qwen2_5OmniVisionEncoder,
 )
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerTextModel
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerForConditionalGeneration
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniThinkerCausalLMOutputWithPast as HFQwen2_5OmniModelOutputWithPast,
+)
+from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    Qwen2_5OmniThinkerForConditionalGeneration,
+    Qwen2_5OmniThinkerTextModel,
+    Qwen2_5OmniVisionEncoder,
+    apply_multimodal_rotary_pos_emb,
+    rotate_half,
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
@@ -70,20 +68,11 @@ if is_flash_attn_2_available():
 
 @dataclass
 class Qwen2_5OmniModelOutputWithPast(HFQwen2_5OmniModelOutputWithPast):
-    """
-    Base class for the output of the Qwen2.5-Omni model with past key values.
-    It extends the HFQwen2_5OmniModelOutputWithPast to include rope_deltas.
-    """
-
     seq_lens: Optional[torch.IntTensor] = None
     word_idx: Optional[torch.IntTensor] = None
 
 
-# Note: Qwen2_5OmniThinkerForConditionalGeneration uses lce_forward from qwen2_5_omni_liger.py
-# The unpacking is handled at the text model level when rmpad is enabled
-
-
-# Text Model forward
+# text model forward
 def text_model_forward(
     self: Qwen2_5OmniThinkerTextModel,
     input_ids: torch.LongTensor = None,
@@ -118,24 +107,26 @@ def text_model_forward(
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-    if inputs_embeds is None:
-        inputs_embeds = self.embed_tokens(input_ids)
-
-    # Multimodal embeddings are now merged in lce_forward before calling this function
+    if self.gradient_checkpointing and self.training:
+        if use_cache:
+            logger.warning_once(
+                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+            )
+            use_cache = False
 
     if use_cache and past_key_values is None:
         past_key_values = DynamicCache(config=self.config)
+
+    if inputs_embeds is None:
+        inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
         past_seen_tokens = (
             past_key_values.get_seq_length() if past_key_values is not None else 0
         )
-        # Determine the sequence length based on whether rmpad is used
         if cu_seq_lens is not None and indices is not None:
-            # With rmpad, inputs_embeds is already unpacked (seq_len, hidden_dim)
             seq_len_for_cache = inputs_embeds.shape[0]
         else:
-            # Without rmpad, inputs_embeds is (batch, seq_len, hidden_dim)
             seq_len_for_cache = inputs_embeds.shape[1]
 
         cache_position = torch.arange(
@@ -144,21 +135,16 @@ def text_model_forward(
             device=inputs_embeds.device,
         )
 
-    # Initialize position_ids if None
-    # The hard coded `3` is for temporal, height and width dimensions for multimodal RoPE
+    # the hard coded `3` is for temporal, height and width dimensions
     if position_ids is None:
         if cu_seq_lens is not None and indices is not None:
-            # With rmpad: generate position_ids for each sequence in the packed batch
-            # cache_position is already the correct length for unpacked tokens
             position_ids = cache_position.view(1, 1, -1).expand(3, 1, -1)
         else:
-            # Without rmpad: standard position_ids generation
-            position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
+            position_ids = cache_position.view(1, 1, -1).expand(
+                3, inputs_embeds.shape[0], -1
+            )
     elif position_ids.dim() == 2:
-        # If 2D, expand to 3D
         position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
-
-    # Create position embeddings for RoPE
     hidden_states = inputs_embeds
     position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
@@ -186,7 +172,6 @@ def text_model_forward(
         hidden_states = layer_outputs[0]
 
         if use_cache:
-            # Cache is at index 2 if output_attentions, else 1
             cache_idx = 2 if output_attentions else 1
             if len(layer_outputs) > cache_idx:
                 past_key_values = layer_outputs[cache_idx]
@@ -196,7 +181,6 @@ def text_model_forward(
 
     hidden_states = self.norm(hidden_states)
 
-    # Add last hidden state
     if output_hidden_states:
         all_hidden_states += (hidden_states,)
 
@@ -217,7 +201,6 @@ def text_model_forward(
     )
 
 
-# Decoder layer forward
 def decoder_layer_forward(
     self: Qwen2_5OmniDecoderLayer,
     hidden_states: torch.Tensor,
@@ -235,7 +218,6 @@ def decoder_layer_forward(
 
     hidden_states = self.input_layernorm(hidden_states)
 
-    # Self Attention
     hidden_states, self_attn_weights, present_key_value = self.self_attn(
         hidden_states=hidden_states,
         attention_mask=attention_mask,
@@ -249,7 +231,6 @@ def decoder_layer_forward(
     )
     hidden_states = residual + hidden_states
 
-    # Fully Connected
     residual = hidden_states
     hidden_states = self.post_attention_layernorm(hidden_states)
     hidden_states = self.mlp(hidden_states)
@@ -266,7 +247,6 @@ def decoder_layer_forward(
     return outputs
 
 
-# Attention forward
 def attn_forward(
     self: Qwen2_5OmniAttention,
     hidden_states: torch.Tensor,
@@ -280,30 +260,24 @@ def attn_forward(
     position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,
     **kwargs,
 ):
-    if "padding_mask" in kwargs:
-        warnings.warn(
-            "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-        )
-        attention_mask = kwargs.pop("padding_mask")
-
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     bsz = hidden_states.shape[0]
-    q_len = torch.max(position_ids).item() + 1 if position_ids is not None else hidden_states.shape[0]
-    kv_seq_len = q_len
-
-    query_states = self.q_proj(hidden_states).view(
-        -1, self.config.num_attention_heads, self.head_dim
+    q_len = (
+        torch.max(position_ids).item() + 1
+        if position_ids is not None
+        else hidden_states.shape[0]
     )
+    kv_seq_len = q_len
+    query_states = self.q_proj(hidden_states).view(-1, self.num_heads, self.head_dim)
     key_states = self.k_proj(hidden_states).view(
-        -1, self.config.num_key_value_heads, self.head_dim
+        -1, self.num_key_value_heads, self.head_dim
     )
     value_states = self.v_proj(hidden_states).view(
-        -1, self.config.num_key_value_heads, self.head_dim
+        -1, self.num_key_value_heads, self.head_dim
     )
 
     cos, sin = position_embeddings
-
-    # AlltoAll for Ulysses
-    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+    ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
         assert (
             position_ids is not None
@@ -318,7 +292,6 @@ def attn_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-
         # Cat the cu_seq_lens to the max seq len if padding is used
         if cu_seq_lens is not None and cu_seq_lens.max().item() < query_states.shape[0]:
             cu_seq_lens = torch.cat(
@@ -334,71 +307,43 @@ def attn_forward(
 
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states,
+        key_states,
+        cos,
+        sin,
+        self.rope_scaling["mrope_section"],
+    )
 
-    # Get mrope_section from config if available
-    mrope_section = None
-    if hasattr(self, 'rope_scaling') and isinstance(self.rope_scaling, dict):
-        mrope_section = self.rope_scaling.get("mrope_section", None)
-
-    if mrope_section is not None:
-        # Use liger kernel version with mrope_section
-        query_states, key_states = apply_multimodal_rotary_pos_emb(
-            query_states, key_states, cos, sin, mrope_section
-        )
-    else:
-        # Fallback to standard rotary embedding
-        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import apply_rotary_pos_emb
-        query_states = apply_rotary_pos_emb(query_states, cos, sin)
-        key_states = apply_rotary_pos_emb(key_states, cos, sin)
+    # Reshape to the expected shape for Flash Attention
+    max_seqlen = (
+        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
+    )
 
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
 
-    if cu_seq_lens is not None:
-        # Use varlen flash attention when cu_seq_lens is provided
-        max_seqlen = torch.diff(cu_seq_lens).max().item()
-        window_size = (-1, -1)
+    window_size = (-1, -1)
 
-        attn_output = flash_attn_varlen_func(
-            q=query_states,
-            k=key_states,
-            v=value_states,
-            cu_seqlens_q=cu_seq_lens,
-            cu_seqlens_k=cu_seq_lens,
-            max_seqlen_q=max_seqlen,
-            max_seqlen_k=max_seqlen,
-            causal=True,
-            window_size=window_size,
-            softmax_scale=self.head_dim**-0.5,
-            dropout_p=0.0,
-        )
-    else:
-        # Use regular flash attention when cu_seq_lens is None
-        # Reshape for regular flash attention (batch, seq_len, num_heads, head_dim)
-        batch_size = 1  # Assuming single batch for now
-        seq_len = query_states.shape[0]
-        query_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim)
-        key_states = key_states.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
-        value_states = value_states.view(batch_size, seq_len, self.num_key_value_heads, self.head_dim)
+    attn_output = flash_attn_varlen_func(
+        q=query_states,
+        k=key_states,
+        v=value_states,
+        cu_seqlens_q=cu_seq_lens,
+        cu_seqlens_k=cu_seq_lens,
+        max_seqlen_q=max_seqlen,
+        max_seqlen_k=max_seqlen,
+        causal=True,
+        window_size=window_size,
+        softmax_scale=self.head_dim**-0.5,
+        dropout_p=0.0,
+    )
 
-        attn_output = flash_attn_func(
-            q=query_states,
-            k=key_states,
-            v=value_states,
-            causal=True,
-            softmax_scale=self.head_dim**-0.5,
-            dropout_p=0.0,
-        )
-
-        # Reshape back to (seq_len, hidden_size)
-        attn_output = attn_output.view(seq_len, -1)
-
-    # AlltoAll for Ulysses
+    ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
         attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
-    attn_output = attn_output.reshape(-1, self.config.hidden_size).contiguous()
+    attn_output = attn_output.reshape(-1, self.hidden_size).contiguous()
 
     attn_output = self.o_proj(attn_output)
 
@@ -406,211 +351,3 @@ def attn_forward(
         attn_weights = None
 
     return attn_output, attn_weights, past_key_value
-
-
-# Audio Encoder forward
-def audio_encoder_forward(
-    self: Qwen2_5OmniAudioEncoder,
-    audio_values: torch.FloatTensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
-
-    # Unpad audio if attention mask provided
-    if attention_mask is not None:
-        audio_values, indices, cu_seq_lens, _ = _unpad_input(
-            audio_values, attention_mask=attention_mask
-        )
-    else:
-        indices = None
-        cu_seq_lens = None
-
-    # Conv layers
-    hidden_states = self.conv1(audio_values)
-    hidden_states = torch.nn.functional.gelu(hidden_states)
-    hidden_states = self.conv2(hidden_states)
-    hidden_states = torch.nn.functional.gelu(hidden_states)
-
-    hidden_states = hidden_states.permute(0, 2, 1)
-    hidden_states = self.embed_positions.weight + hidden_states
-    hidden_states = self.dropout(hidden_states)
-
-    all_hidden_states = () if output_hidden_states else None
-    all_attentions = () if output_attentions else None
-
-    for encoder_layer in self.layers:
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
-
-        layer_outputs = encoder_layer(
-            hidden_states,
-            attention_mask=None,  # Flash attention doesn't need mask for audio
-            output_attentions=output_attentions,
-            cu_seq_lens=cu_seq_lens,
-            indices=indices,
-        )
-
-        hidden_states = layer_outputs[0]
-
-        if output_attentions:
-            all_attentions += (layer_outputs[1],)
-
-    hidden_states = self.layer_norm(hidden_states)
-
-    if output_hidden_states:
-        all_hidden_states += (hidden_states,)
-
-    # Project to output dimension
-    hidden_states = self.proj_out(hidden_states)
-
-    if not return_dict:
-        return tuple(
-            v
-            for v in [hidden_states, all_hidden_states, all_attentions]
-            if v is not None
-        )
-
-    return BaseModelOutputWithPastAndRmpad(
-        last_hidden_state=hidden_states,
-        hidden_states=all_hidden_states,
-        attentions=all_attentions,
-        seq_lens=cu_seq_lens,
-        word_idx=indices,
-    )
-
-
-# Audio Encoder Layer forward
-def audio_encoder_layer_forward(
-    self: Qwen2_5OmniAudioEncoderLayer,
-    hidden_states: torch.FloatTensor,
-    attention_mask: torch.FloatTensor = None,
-    output_attentions: bool = False,
-    cu_seq_lens: Optional[torch.IntTensor] = None,
-    indices: Optional[torch.IntTensor] = None,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    residual = hidden_states
-
-    hidden_states = self.self_attn_layer_norm(hidden_states)
-
-    # Self-attention with flash attention if available
-    if cu_seq_lens is not None:
-        # Use flash attention varlen
-        hidden_states, attn_weights = self.self_attn(
-            hidden_states,
-            attention_mask=attention_mask,
-            output_attentions=output_attentions,
-            cu_seq_lens=cu_seq_lens,
-            indices=indices,
-        )
-    else:
-        hidden_states, attn_weights = self.self_attn(
-            hidden_states,
-            attention_mask=attention_mask,
-            output_attentions=output_attentions,
-        )
-
-    hidden_states = self.dropout(hidden_states)
-    hidden_states = residual + hidden_states
-
-    residual = hidden_states
-    hidden_states = self.final_layer_norm(hidden_states)
-    hidden_states = self.activation_fn(self.fc1(hidden_states))
-    hidden_states = self.dropout(hidden_states)
-    hidden_states = self.fc2(hidden_states)
-    hidden_states = self.dropout(hidden_states)
-    hidden_states = residual + hidden_states
-
-    outputs = (hidden_states,)
-
-    if output_attentions:
-        outputs += (attn_weights,)
-
-    return outputs
-
-
-# Vision Encoder forward
-def vision_encoder_forward(
-    self: Qwen2_5OmniVisionEncoder,
-    hidden_states: torch.Tensor,
-    grid_thw: torch.Tensor,
-    **kwargs,
-) -> torch.Tensor:
-    """
-    Args:
-        hidden_states (`torch.Tensor`): The input pixel values (images or videos)
-        grid_thw (`torch.Tensor` of shape `(num_images_or_videos, 3)`):
-            The temporal, height and width of feature shape of each image/video in LLM.
-
-    Returns:
-        `torch.Tensor`: Processed visual features
-    """
-    # Patch embedding
-    hidden_states = self.patch_embed(hidden_states)
-
-    # Get rotary positional embeddings
-    rotary_pos_emb = self.rot_pos_emb(grid_thw)
-
-    # Get window indices for window attention
-    window_index, cu_window_seqlens = self.get_window_index(grid_thw)
-    cu_window_seqlens = torch.tensor(
-        cu_window_seqlens,
-        device=hidden_states.device,
-        dtype=grid_thw.dtype if torch.jit.is_tracing() else torch.int32,
-    )
-    cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
-
-    # Reshape and reorder according to window indices
-    seq_len, _ = hidden_states.size()
-    hidden_states = hidden_states.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
-    hidden_states = hidden_states[window_index, :, :]
-    hidden_states = hidden_states.reshape(seq_len, -1)
-
-    rotary_pos_emb = rotary_pos_emb.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
-    rotary_pos_emb = rotary_pos_emb[window_index, :, :]
-    rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
-
-    # Calculate cumulative sequence lengths for full attention
-    cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).cumsum(
-        dim=0,
-        dtype=grid_thw.dtype if torch.jit.is_tracing() else torch.int32,
-    )
-    cu_seqlens = torch.nn.functional.pad(cu_seqlens, (1, 0), value=0)
-
-    # Pass through vision transformer blocks
-    for layer_num, blk in enumerate(self.blocks):
-        # Use full attention for specified blocks, window attention for others
-        if layer_num in self.fullatt_block_indexes:
-            cu_seqlens_now = cu_seqlens
-        else:
-            cu_seqlens_now = cu_window_seqlens
-
-        hidden_states = blk(
-            hidden_states,
-            cu_seqlens=cu_seqlens_now,
-            rotary_pos_emb=rotary_pos_emb,
-            **kwargs,
-        )
-
-    # Merge patches to output dimension
-    hidden_states = self.merger(hidden_states)
-
-    # Reverse the window reordering
-    reverse_indices = torch.argsort(window_index)
-    hidden_states = hidden_states[reverse_indices, :]
-
-    return hidden_states

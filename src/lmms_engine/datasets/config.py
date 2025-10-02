@@ -36,7 +36,9 @@ class DatasetConfig(Args):
     video_max_frames: Optional[int] = 768
     frame_num: Optional[int] = 64
     fps: Optional[int] = 1
-    video_backend: Optional[Literal["decord", "qwen_vl_utils", "qwen_omni_utils"]] = "qwen_vl_utils"
+    video_backend: Optional[
+        Literal["decord", "qwen_vl_utils", "qwen_omni_utils"]
+    ] = "qwen_vl_utils"
 
     @field_validator(
         "video_max_pixels",

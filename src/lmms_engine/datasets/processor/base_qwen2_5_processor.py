@@ -3,16 +3,18 @@ from typing import List, Optional
 import numpy as np
 import torch
 from PIL import Image
+
 try:
     from transformers.models.qwen2_5_omni.processing_qwen2_5_omni import (
         Qwen2_5OmniProcessorKwargs,
     )
+
     ProcessorKwargs = Qwen2_5OmniProcessorKwargs
 except ImportError:
-    # Fallback to Qwen2.5-VL if Omni is not available
     from transformers.models.qwen2_5_vl.processing_qwen2_5_vl import (
         Qwen2_5_VLProcessorKwargs,
     )
+
     ProcessorKwargs = Qwen2_5_VLProcessorKwargs
 
 from .aero_processor import AeroDataProcessor
@@ -100,7 +102,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
                     f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number."
                 )
             videos_inputs.update(
-                {"second_per_grid_ts": torch.tensor(second_per_grid_ts)}
+                {"video_second_per_grid": torch.tensor(second_per_grid_ts)}
             )
             merge_length = self.processor.video_processor.merge_size**2
             num_video_tokens = [

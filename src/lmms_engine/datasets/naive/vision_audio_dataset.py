@@ -1,5 +1,5 @@
-from typing import Dict
 import os
+from typing import Dict
 
 import torch
 
@@ -59,7 +59,6 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                         video_path = os.path.join(data_folder, video_url)
                     else:
                         video_path = video_url
-
                     frames, sample_fps = self.load_videos(
                         video_url,
                         data_folder=data_folder,
@@ -69,30 +68,39 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                     # Update kwargs
                     kwargs["fps"] = sample_fps
 
-                    # Check if audio was extracted from video (for Qwen2.5-Omni)
-                    if hasattr(self, 'video_extracted_audio') and video_path in self.video_extracted_audio:
-                        # Get the extracted audio and add it to audios list
+                    # check if audio was extracted from video for Qwen2.5-Omni
+                    if (
+                        hasattr(self, "video_extracted_audio")
+                        and video_path in self.video_extracted_audio
+                    ):
                         extracted_audio = self.video_extracted_audio[video_path]
-
-                        # Check if we need to split the audio into chunks
-                        if hasattr(self.processor, 'sampling_rate'):
-                            max_audio_samples = MAX_AUDIO_LENGTH * self.processor.sampling_rate
+                        if hasattr(self.processor, "sampling_rate"):
+                            max_audio_samples = (
+                                MAX_AUDIO_LENGTH * self.processor.sampling_rate
+                            )
                             audio_splits = []
                             for i in range(0, len(extracted_audio), max_audio_samples):
                                 audio_splits.append(
-                                    extracted_audio[i:i + max_audio_samples]
+                                    extracted_audio[i : i + max_audio_samples]
                                 )
                             audios.extend(audio_splits)
 
-                            # Add audio placeholders to content if audio was extracted
+                            # Add audio placeholders to content if audio was extracted for processor compatibility
                             for _ in range(len(audio_splits)):
-                                # Add a synthetic audio_url content for processor compatibility
-                                new_content.append({"type": "audio_url", "audio_url": {"url": "from_video"}})
+                                new_content.append(
+                                    {
+                                        "type": "audio_url",
+                                        "audio_url": {"url": "from_video"},
+                                    }
+                                )
                         else:
                             audios.append(extracted_audio)
-                            new_content.append({"type": "audio_url", "audio_url": {"url": "from_video"}})
-
-                        # Clean up the extracted audio after use
+                            new_content.append(
+                                {
+                                    "type": "audio_url",
+                                    "audio_url": {"url": "from_video"},
+                                }
+                            )
                         del self.video_extracted_audio[video_path]
 
                     new_content.append(content)

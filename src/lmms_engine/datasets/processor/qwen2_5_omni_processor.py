@@ -16,12 +16,9 @@ from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 @register_processor("Qwen2_5OmniProcessor")
 class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
     def _build_processor(self):
-        # Use processor_path if available, fallback to processor_name
-        model_path = getattr(self.config, 'processor_path', self.config.processor_name)
+        model_path = getattr(self.config, "processor_path", self.config.processor_name)
         processor = Qwen2_5OmniProcessor.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            local_files_only=False
+            model_path, trust_remote_code=True, local_files_only=False
         )
 
         # Set image processor parameters
@@ -42,7 +39,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
 
         # Set audio processor parameters
         audio_max_length = self.config.extra_kwargs.get("audio_max_length", None)
-        if audio_max_length and hasattr(processor, 'audio_processor'):
+        if audio_max_length and hasattr(processor, "audio_processor"):
             processor.audio_processor.max_length = audio_max_length
 
         return processor
@@ -61,13 +58,13 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
     @property
     def audio_token_id(self):
         # Return the audio token ID if processor has one
-        if hasattr(self.processor, 'audio_token_id'):
+        if hasattr(self.processor, "audio_token_id"):
             return self.processor.audio_token_id
         # Fallback: try to get from tokenizer
-        if hasattr(self.tokenizer, 'audio_token_id'):
+        if hasattr(self.tokenizer, "audio_token_id"):
             return self.tokenizer.audio_token_id
         # Try to convert the audio token string to ID
-        if hasattr(self.processor, 'audio_token') and self.processor.audio_token:
+        if hasattr(self.processor, "audio_token") and self.processor.audio_token:
             return self.tokenizer.convert_tokens_to_ids(self.processor.audio_token)
         return None
 

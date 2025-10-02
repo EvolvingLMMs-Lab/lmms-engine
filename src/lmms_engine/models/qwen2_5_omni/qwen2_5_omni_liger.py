@@ -2,8 +2,8 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    Qwen2_5OmniThinkerCausalLMOutputWithPast,
     Qwen2_5OmniThinkerForConditionalGeneration,
-    Qwen2_5OmniThinkerCausalLMOutputWithPast
 )
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
@@ -11,7 +11,9 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     slice_input_tensor,
 )
+
 from ..sequence_packing_utils import _unpad_input
+
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
         LigerFusedLinearCrossEntropyLoss,
@@ -59,25 +61,27 @@ def lce_forward(
     return_dict = (
         return_dict if return_dict is not None else self.config.use_return_dict
     )
-
-    # count tokens
-    if attention_mask is not None:
-        # Handle boolean masks for PyTorch 2.8+ compatibility
-        if attention_mask.dtype == torch.bool:
-            tokens_count = attention_mask.sum().item()
-        else:
-            tokens_count = attention_mask.sum().item()
-    n_image_tokens = (input_ids == self.config.image_token_id).sum().item() if hasattr(self.config, 'image_token_id') else 0
-    n_video_tokens = (input_ids == self.config.video_token_id).sum().item() if hasattr(self.config, 'video_token_id') else 0
-    n_audio_tokens = (input_ids == self.config.audio_token_id).sum().item() if hasattr(self.config, 'audio_token_id') else 0
+    tokens_count = attention_mask.sum().item()
+    n_image_tokens = (
+        (input_ids == self.config.image_token_id).sum().item()
+        if hasattr(self.config, "image_token_id")
+        else 0
+    )
+    n_video_tokens = (
+        (input_ids == self.config.video_token_id).sum().item()
+        if hasattr(self.config, "video_token_id")
+        else 0
+    )
+    n_audio_tokens = (
+        (input_ids == self.config.audio_token_id).sum().item()
+        if hasattr(self.config, "audio_token_id")
+        else 0
+    )
     visual_tokens = n_image_tokens + n_video_tokens
 
-    # Process multimodal inputs before passing to text model
-    # This is necessary because our patched text_model_forward expects processed embeddings
     if inputs_embeds is None and input_ids is not None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
 
-    # Process and merge audio features
     if input_features is not None:
         audio_features = self.get_audio_features(
             input_features,
@@ -85,10 +89,11 @@ def lce_forward(
             audio_feature_lengths=audio_feature_lengths,
         )
         audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
-        _, _, audio_mask = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds)
+        _, _, audio_mask = self.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds
+        )
         inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
 
-    # Process and merge image features
     if pixel_values is not None:
         image_embeds = self.get_image_features(pixel_values, image_grid_thw)
         image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
@@ -97,7 +102,6 @@ def lce_forward(
         )
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
-    # Process and merge video features
     if pixel_values_videos is not None:
         video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
@@ -106,7 +110,6 @@ def lce_forward(
         )
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
-    # Handle rmpad unpacking for merged embeddings
     cu_seq_lens = None
     indices = None
     if use_rmpad and attention_mask is not None and inputs_embeds is not None:
@@ -114,10 +117,9 @@ def lce_forward(
             inputs_embeds, attention_mask=attention_mask
         )
 
-    # Now pass processed embeddings to text model
     outputs = self.model(
-        input_ids=None,  # We pass inputs_embeds instead
-        inputs_embeds=inputs_embeds,  # Merged and potentially unpaded multimodal embeddings
+        input_ids=None,
+        inputs_embeds=inputs_embeds,
         position_ids=position_ids,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
@@ -171,7 +173,11 @@ def lce_forward(
             shift_labels = labels[..., 1:].contiguous()
 
         # flatten tokens
-        hidden_size = self.config.text_config.hidden_size if hasattr(self.config, 'text_config') else self.config.hidden_size
+        hidden_size = (
+            self.config.text_config.hidden_size
+            if hasattr(self.config, "text_config")
+            else self.config.hidden_size
+        )
         shift_hidden_states = shift_hidden_states.view(-1, hidden_size)
         shift_labels = shift_labels.view(-1)
 

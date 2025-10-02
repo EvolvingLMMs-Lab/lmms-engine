@@ -23,7 +23,7 @@ VALID_CONFIG_TYPE = {
     "qwen2",
     "qwen2_vl",
     "qwen2_5_vl",
-    "qwen2_5_omni_thinker",
+    "qwen2_5_omni",
     "qwen3",
     "qwen3_moe",
     "deepseek_v3",
@@ -66,8 +66,10 @@ class FlopsCounter:
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
-        elif config.model_type == "qwen2_5_omni_thinker":
-            self.config = config.text_config if hasattr(config, 'text_config') else config
+        elif config.model_type == "qwen2_5_omni":
+            self.config = (
+                config.text_config if hasattr(config, "text_config") else config
+            )
         else:
             self.config = config
 
@@ -75,8 +77,8 @@ class FlopsCounter:
         return 0
 
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
-        # For Qwen2_5OmniThinker, config attributes are nested in text_config
-        if hasattr(self.config, 'text_config'):
+        # for qwen 2.5 omni
+        if hasattr(self.config, "text_config"):
             config = self.config.text_config
         else:
             config = self.config

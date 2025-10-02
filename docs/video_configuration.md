@@ -10,7 +10,7 @@ The following parameters can be configured in the `dataset_config` section of yo
 
 - **`video_backend`** (Optional[str], default: "qwen_vl_utils")
   - Specifies the backend to use for video loading
-  - Available options: `"decord"`, `"qwen_vl_utils (recommended)"`
+  - Available options: `"decord"`, `"qwen_vl_utils"`, `"qwen_omni_utils"`
   - Note: The `"torchvision"` backend has been removed. See [Migration Guide](#migration-from-torchvision-backend) below.
 
 - **`video_sampling_strategy`** (Optional[str], default: "fps")
@@ -107,6 +107,7 @@ The `torchvision` video backend has been removed since it was implemented as a f
 3. **Verify compatibility:**
    - `decord` naive decord video loading, used in load from cloud storage
    - `qwen_vl_utils` is optimized for Qwen models and provides additional features
+   - `qwen_omni_utils` supports audio extraction from videos for Qwen Omni variants
 
 ## Training Performance Optimization
 
@@ -152,3 +153,28 @@ This periodically clears the CUDA memory cache to prevent fragmentation during l
 4. **Optimize sampling strategy:**
    - Use `"fps"` for videos with consistent motion
    - Use `"frame_num"` when you need exactly N frames regardless of video length
+
+5. **Audio extraction from videos:**
+   - Use `video_backend: "qwen_omni_utils"` with `use_audio_in_video: true` in processor config to extract audio from video files
+
+## Audio from Video Extraction
+
+When training Qwen Omni models, you can extract audio tracks from video files automatically.
+
+### Configuration
+
+```yaml
+dataset_config:
+  dataset_type: vision_audio
+  video_backend: "qwen_omni_utils"
+  video_sampling_strategy: "fps"
+  fps: 1
+  video_max_frames: 60
+
+  processor_config:
+    processor_name: "Qwen/Qwen2.5-Omni-7B"
+    processor_type: "Qwen2_5OmniProcessor"
+    extra_kwargs:
+      use_audio_in_video: true
+      audio_max_length: 60
+```

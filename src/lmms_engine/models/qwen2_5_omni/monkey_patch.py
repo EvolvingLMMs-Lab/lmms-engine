@@ -27,16 +27,12 @@ except:
 
 import transformers
 from transformers import PreTrainedModel
-
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
+    Qwen2_5OmniAudioEncoder,
     Qwen2_5OmniThinkerForConditionalGeneration,
+    Qwen2_5OmniThinkerTextModel,
+    Qwen2_5OmniVisionEncoder,
 )
-
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import Qwen2_5OmniThinkerTextModel
-from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-        Qwen2_5OmniAudioEncoder,
-        Qwen2_5OmniVisionEncoder,
-    )
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
@@ -50,10 +46,12 @@ TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 wi
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
 from lmms_engine.utils.logging_utils import Logging
 
+MONKEY_PATCHER.register("qwen2_5_omni", "liger")
+MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
 
-@MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
+
 def apply_liger_kernel_to_qwen2_5_omni(
-    rope: bool = False,  # Not supported for Qwen2.5-Omni - different RoPE implementation
+    rope: bool = False,
     cross_entropy: bool = False,
     fused_linear_cross_entropy: bool = True,
     rms_norm: bool = True,
@@ -88,55 +86,48 @@ def apply_liger_kernel_to_qwen2_5_omni(
     def wrap_forward(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            kwargs.setdefault('use_rmpad', use_rmpad)
+            kwargs.setdefault("use_rmpad", use_rmpad)
             return func(*args, **kwargs)
+
         return wrapper
 
     qwen2_5_omni_lce_forward = wrap_forward(qwen2_5_omni_lce_forward)
 
-    # qwen omni uses TMRoPE
     if rope:
         Logging.warning("RoPE optimization not supported for Qwen2.5-Omni, skipping")
     if rms_norm:
         modeling_qwen2_5_omni.Qwen2RMSNorm = LigerRMSNorm
-    if layer_norm:
-        modeling_qwen2_5_omni.LayerNorm = LigerLayerNorm 
     if cross_entropy:
         modeling_qwen2_5_omni.CrossEntropyLoss = LigerCrossEntropyLoss
     if fused_linear_cross_entropy:
-        modeling_qwen2_5_omni.Qwen2_5OmniThinkerForConditionalGeneration.forward = qwen2_5_omni_lce_forward
+        modeling_qwen2_5_omni.Qwen2_5OmniThinkerForConditionalGeneration.forward = (
+            qwen2_5_omni_lce_forward
+        )
     if swiglu:
-        modeling_qwen2_5_omni.Qwen2MLP = LigerSwiGLUMLP 
+        modeling_qwen2_5_omni.Qwen2MLP = LigerSwiGLUMLP
     if use_rmpad:
         from .qwen2_5_omni_ops import attn_forward as qwen2_5_omni_attn_forward
-        from .qwen2_5_omni_ops import (
-            audio_encoder_forward as qwen2_5_omni_audio_encoder_forward,
-        )
-        from .qwen2_5_omni_ops import (
-            audio_encoder_layer_forward as qwen2_5_omni_audio_encoder_layer_forward,
-        )
         from .qwen2_5_omni_ops import (
             decoder_layer_forward as qwen2_5_omni_decoder_layer_forward,
         )
         from .qwen2_5_omni_ops import (
             text_model_forward as qwen2_5_omni_text_model_forward,
         )
-        from .qwen2_5_omni_ops import (
-            vision_encoder_forward as qwen2_5_omni_vision_encoder_forward,
+
+        modeling_qwen2_5_omni.Qwen2_5OmniThinkerTextModel.forward = (
+            qwen2_5_omni_text_model_forward
         )
-        modeling_qwen2_5_omni.Qwen2_5OmniThinkerTextModel.forward = qwen2_5_omni_text_model_forward
-        modeling_qwen2_5_omni.Qwen2_5OmniDecoderLayer.forward = qwen2_5_omni_decoder_layer_forward
+        modeling_qwen2_5_omni.Qwen2_5OmniDecoderLayer.forward = (
+            qwen2_5_omni_decoder_layer_forward
+        )
         modeling_qwen2_5_omni.Qwen2_5OmniAttention.forward = qwen2_5_omni_attn_forward
-        modeling_qwen2_5_omni.Qwen2_5OmniVisionEncoder.forward = qwen2_5_omni_vision_encoder_forward
-        modeling_qwen2_5_omni.Qwen2_5OmniAudioEncoder.forward = qwen2_5_omni_audio_encoder_forward
-        modeling_qwen2_5_omni.Qwen2_5OmniAudioEncoderLayer.forward = qwen2_5_omni_audio_encoder_layer_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
-        patch_vlm_for_ulysses_input_slicing(modeling_qwen2_5_omni.Qwen2_5OmniThinkerTextModel)
+        patch_vlm_for_ulysses_input_slicing(
+            modeling_qwen2_5_omni.Qwen2_5OmniThinkerTextModel
+        )
 
     if model is not None:
-        # The model instance already exists, so we need to additionally patch the
-        # instance variables that reference already-instantiated modules
         if isinstance(model, Qwen2_5OmniThinkerForConditionalGeneration):
             text_model: Qwen2_5OmniThinkerTextModel = model.model
             vision_model: Qwen2_5OmniVisionEncoder = model.visual
@@ -155,13 +146,10 @@ def apply_liger_kernel_to_qwen2_5_omni(
                 _patch_rms_norm_module(vision_block.norm1)
                 _patch_rms_norm_module(vision_block.norm2)
         if audio_model is not None and layer_norm:
-            # audio encoder uses layer norm
-            if hasattr(audio_model, 'layers'):
+            if hasattr(audio_model, "layers"):
                 for audio_layer in audio_model.layers:
-                    if hasattr(audio_layer, 'layer_norm'):
-                        _patch_layer_norm_module(audio_layer.layer_norm)
-                    if hasattr(audio_layer, 'final_layer_norm'):
-                        _patch_layer_norm_module(audio_layer.final_layer_norm)
+                    _patch_layer_norm_module(audio_layer.self_attn_layer_norm)
+                    _patch_layer_norm_module(audio_layer.final_layer_norm)
         if text_model is not None:
             if rms_norm:
                 _patch_rms_norm_module(text_model.norm)
@@ -171,4 +159,3 @@ def apply_liger_kernel_to_qwen2_5_omni(
                 if rms_norm:
                     _patch_rms_norm_module(decoder_layer.input_layernorm)
                     _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
-                    

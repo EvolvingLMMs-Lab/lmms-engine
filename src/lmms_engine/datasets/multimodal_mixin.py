@@ -31,7 +31,6 @@ except ImportError:
     Logging.info("qwen_omni_utils not installed. Skipping import.")
 
 
-
 class MultiModalDataLoadingMixin:
     """
     Mixin for loading multimodal data.
@@ -246,9 +245,7 @@ class MultiModalDataLoadingMixin:
         messages = [
             {
                 "role": "user",
-                "content": [
-                    {"type": "video", "video": f"file://{video_path}"}
-                ]
+                "content": [{"type": "video", "video": f"file://{video_path}"}],
             }
         ]
         use_audio_in_video = self.config.extra_kwargs.get("use_audio_in_video", False)
@@ -261,7 +258,9 @@ class MultiModalDataLoadingMixin:
                 video_frames = np.array(video_frames)
             if self.config.video_sampling_strategy == "frame_num":
                 if len(video_frames) > self.config.frame_num:
-                    indices = np.linspace(0, len(video_frames)-1, self.config.frame_num, dtype=int)
+                    indices = np.linspace(
+                        0, len(video_frames) - 1, self.config.frame_num, dtype=int
+                    )
                     video_frames = video_frames[indices]
                 sample_fps = fps
             else:
