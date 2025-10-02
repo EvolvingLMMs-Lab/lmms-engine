@@ -1,0 +1,59 @@
+- type: trainer
+  config:
+    trainer_type: fsdp2_trainer
+
+    dataset_config:
+      dataset_type: vision_audio
+      dataset_format: json
+      dataset_path: 
+
+      processor_config:
+        processor_name: "Qwen/Qwen2.5-Omni-7B"
+        processor_type: "Qwen2_5OmniProcessor"
+        extra_kwargs:
+          audio_max_length: 60
+          use_audio_in_video: true
+          video_max_pixels: 602112
+          video_min_pixels: 28800
+          image_max_pixels: 602112
+          image_min_pixels: 28800
+
+      video_backend: "qwen_omni_utils"
+      video_sampling_strategy: "fps"
+      fps: 1
+      video_max_frames: 60
+
+    model_config:
+      load_from_pretrained_path: "Qwen/Qwen2.5-Omni-7B"
+      attn_implementation: "flash_attention_2"
+      model_type: "qwen2_5_omni"
+      torch_dtype: "bfloat16"
+
+    per_device_train_batch_size: 1
+    learning_rate: 1.0e-05
+    weight_decay: 0.0
+    gradient_accumulation_steps: 1
+    gradient_checkpointing: true
+    num_train_epochs: 1
+    save_steps: 10
+    save_total_limit: 1
+    report_to: "wandb"
+    output_dir: ""
+    warmup_ratio: 0.0
+    run_name: "qwen2_5_omni_final"
+    eval_strategy: "steps"
+    logging_steps: 2
+    group_by_length: false
+    dataloader_num_workers: 0
+    bf16: true
+    lr_scheduler_type: "constant"
+    max_steps: 10
+    torch_empty_cache_steps: 10
+    use_liger_kernel: true
+    use_rmpad: true
+
+    fsdp2: true
+    fsdp_config:
+      transformer_layer_cls_to_wrap: ["Qwen2_5OmniDecoderLayer", "Qwen2_5OmniAudioEncoderLayer", "Qwen2_5OmniVisionBlock"]
+      reshard_after_forward: false
+      sharding_strategy: "FULL_SHARD"

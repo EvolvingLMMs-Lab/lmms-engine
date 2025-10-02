@@ -72,7 +72,6 @@ class Qwen2_5OmniModelOutputWithPast(HFQwen2_5OmniModelOutputWithPast):
     word_idx: Optional[torch.IntTensor] = None
 
 
-# text model forward
 def text_model_forward(
     self: Qwen2_5OmniThinkerTextModel,
     input_ids: torch.LongTensor = None,

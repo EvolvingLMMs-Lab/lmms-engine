@@ -45,9 +45,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
         return processor
 
     def build(self):
-        # Override build to handle Qwen2.5-Omni specifics
         self.processor = self._build_processor()
-        # Don't override chat_template for Qwen2.5-Omni as it has its own
 
     @property
     def audio_processor(self):

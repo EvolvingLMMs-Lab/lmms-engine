@@ -46,10 +46,9 @@ TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 wi
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
 from lmms_engine.utils.logging_utils import Logging
 
-MONKEY_PATCHER.register("qwen2_5_omni", "liger")
-MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
 
-
+@MONKEY_PATCHER.register("qwen2_5_omni", "liger")
+@MONKEY_PATCHER.register("qwen2_5_omni_thinker", "liger")
 def apply_liger_kernel_to_qwen2_5_omni(
     rope: bool = False,
     cross_entropy: bool = False,
