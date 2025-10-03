@@ -17,6 +17,9 @@
           video_min_pixels: 28800
           image_max_pixels: 602112
           image_min_pixels: 28800
+      
+      extra_kwargs:
+        use_audio_in_video: true
 
       video_backend: "qwen_omni_utils"
       video_sampling_strategy: "fps"

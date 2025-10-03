@@ -24,6 +24,28 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
     def _build_processor(self):
         raise NotImplementedError("This method should be implemented in subclasses.")
 
+    @property
+    def audio_processor(self):
+        if hasattr(self.processor, "audio_processor"):
+            return self.processor.audio_processor
+        elif hasattr(self.processor, "feature_extractor"):
+            return self.processor.feature_extractor
+        else:
+            raise AttributeError(
+                "Processor does not have audio_processor or feature_extractor"
+            )
+
+    @property
+    def sampling_rate(self):
+        if hasattr(self, "_audio_processor_cache"):
+            return self._audio_processor_cache.sampling_rate
+        try:
+            audio_proc = self.audio_processor
+            return audio_proc.sampling_rate
+        except AttributeError:
+            # For processors without audio support
+            return None
+
     def process(
         self,
         images: List[Image.Image],
@@ -113,7 +135,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             num_video_tokens = None
 
         if audios is not None:
-            audio_inputs = self.processor.audio_processor(
+            audio_inputs = self.audio_processor(
                 audios,
                 sampling_rate=sampling_rate,
                 return_attention_mask=True,
@@ -121,12 +143,13 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
                 return_tensors="pt",
                 **kwargs,
             )
-            audio_inputs["audio_attention_mask"] = audio_inputs.pop(
+            audio_inputs["feature_attention_mask"] = audio_inputs.pop(
                 "attention_mask"
             )  # rename attention_mask to prevent conflicts later on
-            audio_inputs["audio_values"] = audio_inputs.pop("input_features")
-            input_lengths = (audio_inputs["audio_attention_mask"].sum(-1) - 1) // 2 + 1
-            num_audio_tokens = (input_lengths - 2) // 2 + 1
+            audio_inputs["audio_feature_lengths"] = (
+                audio_inputs["feature_attention_mask"].sum(-1) - 1
+            ) // 2 + 1
+            num_audio_tokens = (audio_inputs["audio_feature_lengths"] - 2) // 2 + 1
         else:
             num_audio_tokens = None
 
@@ -143,8 +166,9 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             inputs["pixel_values"] = image_inputs["pixel_values"]
             inputs["image_grid_thw"] = image_inputs["image_sizes"]
         if audios is not None:
-            inputs["audio_values"] = audio_inputs["audio_values"]
-            inputs["audio_attention_mask"] = audio_inputs["audio_attention_mask"]
+            inputs["input_features"] = audio_inputs["input_features"]
+            inputs["feature_attention_mask"] = audio_inputs["feature_attention_mask"]
+            inputs["audio_feature_lengths"] = audio_inputs["audio_feature_lengths"]
         if videos is not None:
             for key, value in videos_inputs.items():
                 inputs[key] = value

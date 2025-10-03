@@ -80,11 +80,15 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                             max_audio_samples = (
                                 MAX_AUDIO_LENGTH * self.processor.sampling_rate
                             )
+                            # minimum audio length (2 seconds) to avoid pooling errors
+                            min_audio_samples = 2 * self.processor.sampling_rate
+
                             audio_splits = []
                             for i in range(0, len(extracted_audio), max_audio_samples):
-                                audio_splits.append(
-                                    extracted_audio[i : i + max_audio_samples]
-                                )
+                                audio_chunk = extracted_audio[i : i + max_audio_samples]
+                                if len(audio_chunk) >= min_audio_samples:
+                                    audio_splits.append(audio_chunk)
+
                             audios.extend(audio_splits)
 
                             # Add audio placeholders to content if audio was extracted for processor compatibility
