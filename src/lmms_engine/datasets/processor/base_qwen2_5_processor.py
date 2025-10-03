@@ -149,6 +149,9 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             for key, value in videos_inputs.items():
                 inputs[key] = value
 
+        if "use_audio_in_video" in kwargs:
+            inputs["use_audio_in_video"] = kwargs["use_audio_in_video"]
+
         return inputs
 
     def get_qwen_template_labels(

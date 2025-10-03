@@ -74,6 +74,8 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                         and video_path in self.video_extracted_audio
                     ):
                         extracted_audio = self.video_extracted_audio[video_path]
+                        kwargs["use_audio_in_video"] = True
+
                         if hasattr(self.processor, "sampling_rate"):
                             max_audio_samples = (
                                 MAX_AUDIO_LENGTH * self.processor.sampling_rate
@@ -102,6 +104,8 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                                 }
                             )
                         del self.video_extracted_audio[video_path]
+                    else:
+                        kwargs["use_audio_in_video"] = False
 
                     new_content.append(content)
                 else:
