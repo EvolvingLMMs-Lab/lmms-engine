@@ -6,8 +6,6 @@ import numpy as np
 import torch
 from transformers import DataCollatorForLanguageModeling
 
-from ...utils import Logging
-
 
 def pad_without_fast_tokenizer_warning(tokenizer, *pad_args, **pad_kwargs):
     """

@@ -1,8 +1,7 @@
 from typing import List, Optional, Tuple, Union
 
+from loguru import logger
 from transformers.modeling_outputs import CausalLMOutputWithPast
-
-from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad
 

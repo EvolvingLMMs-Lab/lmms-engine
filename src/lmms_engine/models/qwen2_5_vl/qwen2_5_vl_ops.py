@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
+from loguru import logger
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
@@ -33,7 +34,6 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     repeat_kv,
     ulysses_pad,
 )
-from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,

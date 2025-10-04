@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import yaml
+from loguru import logger
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
@@ -23,7 +24,6 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
 )
 from lmms_engine.train.hf import Trainer
 
-from ..utils import Logging
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig
 from .registry import TRAINER_REGISTER
@@ -63,12 +63,14 @@ class TrainRunner:
     def _build_model(self):
         load_from_pretrained_path = self.model_config.load_from_pretrained_path
         load_from_config = self.model_config.load_from_config
+        model_kwargs = self.model_config.extra_kwargs
         if load_from_pretrained_path is not None:
             model_class = create_model_from_pretrained(load_from_pretrained_path)
             model = model_class.from_pretrained(
                 load_from_pretrained_path,
                 attn_implementation=self.model_config.attn_implementation,
                 torch_dtype=(torch.bfloat16 if self.config.trainer_args.bf16 else None),
+                **model_kwargs,
             )
         elif load_from_config is not None:
             model_type = load_from_config.get("model_type", None)
@@ -80,7 +82,7 @@ class TrainRunner:
                     k: v for k, v in load_from_config.items() if k != "model_type"
                 }
             model_class, m_config = create_model_from_config(model_type, init_config)
-            model = model_class.from_config(m_config)
+            model = model_class.from_config(m_config, **model_kwargs)
         else:
             raise ValueError(
                 "No model name or pretrained path provided. Please provide one of them."
@@ -91,28 +93,30 @@ class TrainRunner:
                 setattr(model.config, key, value)
                 if getattr(model, key, None) is not None:
                     setattr(model, key, value)
-                Logging.info(f"Overwrite {key} to {value}")
+                logger.info(f"Overwrite {key} to {value}")
 
         setup_flops_counter(model.config)
-        Logging.info(f"Model Structure: {model}")
-        Logging.info(
-            f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B"
-        )
+        logger.info(f"Model Structure: {model}")
+        logger.info(f"Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B")
         return model
 
     def _apply_monkey_patch(self):
-        kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad}
+        kwargs = {"use_rmpad": self.config.trainer_args.use_rmpad, "patch_type": []}
         if self.config.trainer_args.use_liger_kernel:
-            kwargs["patch_type"] = "liger"
+            kwargs["patch_type"].append("liger")
             # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
             self.config.trainer_args.use_liger_kernel = False
 
         if self.model_config.monkey_patch_kwargs:
+            patch_type = getattr(
+                self.model_config.monkey_patch_kwargs, "patch_type", []
+            )
+            kwargs["patch_type"].extend(patch_type)
             kwargs.update(self.model_config.monkey_patch_kwargs)
         try:
             MONKEY_PATCHER.apply_monkey_patch_to_instance(self.model, **kwargs)
         except Exception as e:
-            Logging.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
+            logger.error(f"Error applying monkey patch: {e}. Skip monkey patch.")
 
     def _build_train_dataset(self):
         dataset_cls = DATASET_MAPPING[self.train_dataset_config.dataset_type]
@@ -150,7 +154,7 @@ class TrainRunner:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         np.random.seed(random_seed)
-        Logging.info(f"Set random seed to {random_seed}")
+        logger.info(f"Set random seed to {random_seed}")
         return random_seed
 
     def create_sp_dis_group(self):
@@ -203,7 +207,7 @@ class TrainRunner:
         trainer.accelerator.wait_for_everyone()
         torch.cuda.synchronize()
         check_only_save_mm_adapter = self.config.trainer_args.only_save_mm_adapter
-        Logging.info(f"Only save projectors: {check_only_save_mm_adapter}")
+        logger.info(f"Only save projectors: {check_only_save_mm_adapter}")
 
         if check_only_save_mm_adapter:
             # Only save Adapter

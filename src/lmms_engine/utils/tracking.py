@@ -25,8 +25,6 @@ from typing import Any, List, Union
 
 import wandb
 
-from .logging_utils import Logging
-
 
 class Tracking:
     """A unified tracking interface for logging experiment data to multiple backends.

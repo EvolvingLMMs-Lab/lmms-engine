@@ -1,7 +1,10 @@
+from typing import Iterable
+
 import torch
+from loguru import logger
 from transformers import PretrainedConfig
 
-from lmms_engine.utils import Logging, TrainUtilities
+from lmms_engine.utils import TrainUtilities
 
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
@@ -46,7 +49,7 @@ class FlopsCounter:
 
     def __init__(self, config: PretrainedConfig):
         if config.model_type not in VALID_CONFIG_TYPE:
-            Logging.warning(
+            logger.warning(
                 f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be "
                 f"zero."
             )
@@ -65,6 +68,7 @@ class FlopsCounter:
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
+            "bagel": self._estimate_qwen2_flops,
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
@@ -72,6 +76,8 @@ class FlopsCounter:
             self.config = (
                 config.text_config if hasattr(config, "text_config") else config
             )
+        elif config.model_type == "bagel":
+            self.config = config.llm_config
         else:
             self.config = config
 

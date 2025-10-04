@@ -4,9 +4,8 @@
 import collections
 import inspect
 
+from loguru import logger
 from transformers import PreTrainedModel
-
-from ..utils.logging_utils import Logging
 
 
 class MonkeyPatcher:
@@ -20,7 +19,7 @@ class MonkeyPatcher:
             if not callable(func):
                 raise TypeError(f"Error: {func} must be callable!")
             if patch_type in self._dict[model_type]:
-                Logging.warning(
+                logger.warning(
                     f"Monkey patch for model_type='{model_type}', patch_type='{patch_type}' already exists and will be overwritten by {getattr(func, '__name__', repr(func))}."
                 )
             self._dict[model_type][patch_type] = func
@@ -29,33 +28,20 @@ class MonkeyPatcher:
         return decorator
 
     def apply_monkey_patch(self, model_type, patch_type, **kwargs):
-        if patch_type == "liger":
-            self._apply_liger_kernel(model_type, **kwargs)
-        else:
-            raise ValueError(f"Invalid patch type: {patch_type}")
-
-    def apply_monkey_patch_to_instance(
-        self, model: PreTrainedModel, patch_type, **kwargs
-    ):
-        if patch_type == "liger":
-            self._apply_liger_kernel_to_instance(model, **kwargs)
-        else:
-            raise ValueError(f"Invalid patch type: {patch_type}")
-
-    def _apply_liger_kernel(self, model_type, **kwargs):
+        if isinstance(patch_type, list):
+            for patch in patch_type:
+                self.apply_monkey_patch(model_type, patch, **kwargs)
+            return
         if not model_type:
-            Logging.info(
-                "Model type was not provided. No Liger kernels will be applied."
-            )
+            logger.info("Model type was not provided. No patches will be applied.")
             return
-
         if model_type not in self._dict.keys():
-            Logging.info(
-                f"There are currently no Liger kernels supported for model type: {model_type}. Available model types: {self._dict.keys()}"
+            logger.info(
+                f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
 
-        apply_fn = self._dict[model_type]["liger"]
+        apply_fn = self._dict[model_type][patch_type]
         apply_fn_signature = inspect.signature(apply_fn)
 
         # Filter out the keyword arguments that are not supported by the apply function
@@ -65,28 +51,35 @@ class MonkeyPatcher:
             if key in apply_fn_signature.parameters
         }
 
-        Logging.info(
-            f"Applying Liger kernels for model type: {model_type} with kwargs: {applicable_kwargs}"
+        logger.info(
+            f"Applying patches for model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 
         apply_fn(**applicable_kwargs)
 
-    def _apply_liger_kernel_to_instance(self, model: PreTrainedModel, **kwargs):
+    def apply_monkey_patch_to_instance(
+        self, model: PreTrainedModel, patch_type, **kwargs
+    ):
+        if isinstance(patch_type, list):
+            for patch in patch_type:
+                self.apply_monkey_patch_to_instance(model, patch, **kwargs)
+            return
+
         model_type = getattr(model, "config", None) and getattr(
             model.config, "model_type", None
         )
         if not model_type:
-            Logging.info(
-                "Model type could not be determined from model config. No Liger kernels will be applied."
+            logger.info(
+                "Model type could not be determined from model config. No patches will be applied."
             )
             return
         if model_type not in self._dict.keys():
-            Logging.info(
-                f"There are currently no Liger kernels supported for model type: {model_type}. Available model types: {self._dict.keys()}"
+            logger.info(
+                f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
 
-        apply_fn = self._dict[model_type]["liger"]
+        apply_fn = self._dict[model_type][patch_type]
 
         apply_fn_signature = inspect.signature(apply_fn)
 
@@ -96,8 +89,8 @@ class MonkeyPatcher:
             for key, value in kwargs.items()
             if key in apply_fn_signature.parameters
         }
-        Logging.info(
-            f"Applying Liger kernels to model instance with model type: {model_type} with kwargs: {applicable_kwargs}"
+        logger.info(
+            f"Applying patches to model instance with model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
         )
 
         apply_fn(model=model, **applicable_kwargs)

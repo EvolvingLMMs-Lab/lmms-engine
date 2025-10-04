@@ -11,6 +11,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from accelerate.utils import send_to_device
+from loguru import logger
 from torch.distributed.fsdp import MixedPrecisionPolicy
 from torch.utils.data import Dataset, DistributedSampler, IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -22,7 +23,7 @@ import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
-from lmms_engine.utils import Logging, TrainUtilities
+from lmms_engine.utils import TrainUtilities
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
@@ -139,11 +140,11 @@ class FSDP2SFTTrainer:
             "transformer_layer_cls_to_wrap", None
         )
         full_state = self.model.state_dict()
-        Logging.info(f"Applying FSDP2 to model")
+        logger.info(f"Applying FSDP2 to model")
         apply_fsdp2(self.model, fsdp_kwargs, transformer_cls_names_to_wrap)
-        Logging.info(f"Loading full state dict to model")
+        logger.info(f"Loading full state dict to model")
         fsdp2_load_full_state_dict(self.model, full_state)
-        Logging.info(f"FSDP2 applied to model")
+        logger.info(f"FSDP2 applied to model")
         self.fsdp2_model = self.model
 
     def prepare_optimizer(self):
@@ -281,7 +282,7 @@ class FSDP2SFTTrainer:
             self.global_step = 0
             need_update_pbar = False
 
-        Logging.info(
+        logger.info(
             f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps"
         )
         self.step_profiler.start()
@@ -419,7 +420,7 @@ class FSDP2SFTTrainer:
         checkpoints.sort(key=lambda x: int(x.split("-")[1]))
         if len(checkpoints) > total_limit:
             for checkpoint in checkpoints[:-total_limit]:
-                Logging.info(f"Removing checkpoint {checkpoint}")
+                logger.info(f"Removing checkpoint {checkpoint}")
                 shutil.rmtree(os.path.join(output_path, checkpoint))
 
     def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
@@ -468,7 +469,7 @@ class FSDP2SFTTrainer:
         }
         torch.save(extra_state, extra_state_path)
         torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
-        Logging.info(f"Saved checkpoint to {output_path} at step {step}")
+        logger.info(f"Saved checkpoint to {output_path} at step {step}")
 
         if rank == 0:
             self.processing_class.save_pretrained(output_path)
@@ -517,7 +518,7 @@ class FSDP2SFTTrainer:
         self.train_dataloader.load_state_dict(
             torch.load(dataloader_state_path, weights_only=False)
         )
-        Logging.info(f"Loaded checkpoint from {output_path} at step {step}")
+        logger.info(f"Loaded checkpoint from {output_path} at step {step}")
 
     def get_rng_state(self):
         return {
@@ -535,7 +536,7 @@ class FSDP2SFTTrainer:
         if is_iterable_dataset:
             assert self.args.max_steps > 0, "max_steps must be set for IterableDataset"
             if self.args.num_train_epochs > 1:
-                Logging.warning("num_train_epochs will be ignored for IterableDataset")
+                logger.warning("num_train_epochs will be ignored for IterableDataset")
                 self.args.num_train_epochs = 1
             self.steps_per_epoch = self.args.max_steps
             self.total_steps = self.args.max_steps

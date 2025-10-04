@@ -5,6 +5,7 @@ import os
 import torch.distributed as dist
 
 from lmms_engine.parallel.process_group_manager import setup_process_group_manager
+from lmms_engine.utils.logging_utils import setup_distributed_logging
 
 from ..datasets import DatasetConfig
 from ..models import ModelConfig
@@ -63,7 +64,7 @@ def create_train_task(config):
 def main():
     args = parse_argument()
     configs = load_config(args.config)
-
+    setup_distributed_logging()
     for config in configs:
         task_type = config.pop("task_type", "trainer")
         task_config = config.pop("config", {})

@@ -1,4 +1,5 @@
 from .aero_processor import AeroDataProcessor
+from .bagel_processor import BagelDataProcessor
 from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
@@ -21,4 +22,5 @@ __all__ = [
     "PureTextDataProcessor",
     "Qwen2DataProcessor",
     "WanVideoDataProcessor",
+    "BagelDataProcessor",
 ]

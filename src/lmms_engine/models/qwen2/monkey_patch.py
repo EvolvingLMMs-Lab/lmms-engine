@@ -24,8 +24,9 @@ transformer_version = version.parse(transformers.__version__)
 SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
+from loguru import logger
+
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
-from lmms_engine.utils.logging_utils import Logging
 
 
 @MONKEY_PATCHER.register("qwen2", "liger")
@@ -56,7 +57,7 @@ def apply_liger_kernel_to_qwen2(
 
             nn.functional.cross_entropy = liger_cross_entropy
         else:
-            Logging.warning(TRANSFORMER_DEPRECATION_WARNING)
+            logger.warning(TRANSFORMER_DEPRECATION_WARNING)
             modeling_qwen2.CrossEntropyLoss = LigerCrossEntropyLoss
 
     if fused_linear_cross_entropy:

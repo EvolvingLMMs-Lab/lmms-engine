@@ -4,18 +4,18 @@ from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
+from loguru import logger
 from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
 
 from lmms_engine.models.wanvideo.wan_video_scheduler import FlowMatchScheduler
 from lmms_engine.train.registry import TRAINER_REGISTER
-from lmms_engine.utils import Logging
 
 
 class WanVideoCallback(TrainerCallback):
     def on_train_begin(self, args, state, control, model=None, logs=None, **kwargs):
         model.freeze_except()
-        Logging.info(
+        logger.info(
             f"Trainable_modules: {model.trainable_modules}. Freezing other modules."
         )
 
@@ -27,7 +27,7 @@ class WanVideoTrainer(HFTrainer):
         super().__init__(*args, **kwargs)
         self.scheduler = FlowMatchScheduler(shift=5, sigma_min=0.0, extra_one_step=True)
         self.scheduler.set_timesteps(1000, training=True)
-        Logging.info(
+        logger.info(
             f"Setting timesteps for diffusion training: {len(self.scheduler.timesteps)} steps"
         )
 
