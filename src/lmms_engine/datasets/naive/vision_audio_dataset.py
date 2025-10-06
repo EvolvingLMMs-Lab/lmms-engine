@@ -32,8 +32,13 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                     )
                     new_content.append(content)
                 elif content["type"] == "audio_url":
+                    audio_url = content["audio_url"]["url"]
+                    # Skip placeholders from video extraction - they're handled by video processing
+                    if audio_url == "from_video":
+                        continue
+
                     loaded_audios = self.load_audio(
-                        content["audio_url"]["url"],
+                        audio_url,
                         sr=self.processor.sampling_rate,
                         data_folder=data_folder,
                     )
