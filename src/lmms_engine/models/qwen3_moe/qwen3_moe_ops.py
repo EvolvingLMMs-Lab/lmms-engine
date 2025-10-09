@@ -301,9 +301,10 @@ def moe_sparse_layer_forward(
             dim=0,
         )
 
+    num_experts = len(self.experts)
     out_experts_split = []
     for expert_idx, x_expert in enumerate(routed_input):
-        expert_layer = self.experts[expert_idx % self.num_experts]
+        expert_layer = self.experts[expert_idx % num_experts]
         out_experts_split.append(expert_layer(x_expert))
 
     out_experts_split = torch.cat(out_experts_split, dim=0)
