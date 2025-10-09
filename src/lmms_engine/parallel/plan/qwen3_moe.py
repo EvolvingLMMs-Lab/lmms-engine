@@ -49,25 +49,25 @@ def apply_qwen3_moe_parallel(
                 device_mesh=ep_mesh,
                 parallelize_plan=parallel_style,
             )
-        if isinstance(module, Qwen3MoeAttention):
-            attention_parallel_style = PrepareModuleInputOutput(
-                input_kwarg_layouts={
-                    "hidden_states": Replicate(),
-                    "position_embeddings": Replicate(),
-                },
-                desired_input_kwarg_layouts={
-                    "hidden_states": Replicate(),
-                    "position_embeddings": Replicate(),
-                },
-                output_layouts=(Replicate(), None),
-                desired_output_layouts=(Replicate(), None),
-                use_local_output=True,
-            )
-            parallelize_module(
-                module,
-                device_mesh=ep_mesh,
-                parallelize_plan=attention_parallel_style,
-            )
+        # if isinstance(module, Qwen3MoeAttention):
+        #     attention_parallel_style = PrepareModuleInputOutput(
+        #         input_kwarg_layouts={
+        #             "hidden_states": Replicate(),
+        #             "position_embeddings": Replicate(),
+        #         },
+        #         desired_input_kwarg_layouts={
+        #             "hidden_states": Replicate(),
+        #             "position_embeddings": Replicate(),
+        #         },
+        #         output_layouts=(Replicate(), None),
+        #         desired_output_layouts=(Replicate(), None),
+        #         use_local_output=True,
+        #     )
+        #     parallelize_module(
+        #         module,
+        #         device_mesh=ep_mesh,
+        #         parallelize_plan=attention_parallel_style,
+        #     )
         # No need to prepare input for the norm layer in model
         if (
             isinstance(module, nn.Linear)
