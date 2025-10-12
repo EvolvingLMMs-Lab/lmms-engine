@@ -72,10 +72,8 @@ class FlopsCounter:
         }
         if config.model_type == "llava_onevision":
             self.config = config.text_config
-        elif config.model_type == "qwen2_5_omni":
-            self.config = (
-                config.text_config if hasattr(config, "text_config") else config
-            )
+        elif config.model_type in ("qwen2_5_omni", "qwen2_5_omni_thinker"):
+                self.config = config.text_config
         elif config.model_type == "bagel":
             self.config = config.llm_config
         else:
@@ -85,12 +83,7 @@ class FlopsCounter:
         return 0
 
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
-        # for qwen 2.5 omni
-        if hasattr(self.config, "text_config"):
-            config = self.config.text_config
-        else:
-            config = self.config
-
+        config = self.config
         hidden_size = config.hidden_size
         vocab_size = config.vocab_size
         num_hidden_layers = config.num_hidden_layers

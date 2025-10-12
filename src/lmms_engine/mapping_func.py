@@ -61,7 +61,8 @@ def register_model(
         "causal_lm", "masked_lm", "image_text_to_text", "general"
     ] = "causal_lm",
 ):
-    AutoConfig.register(model_type, model_config)
+    # Use exist_ok=True to avoid conflicts with models already registered in transformers
+    AutoConfig.register(model_type, model_config, exist_ok=True)
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
 
@@ -69,26 +70,27 @@ def create_model_from_pretrained(load_from_pretrained_path):
     # Handle both config object and model name/path
     config = AutoConfig.from_pretrained(load_from_pretrained_path)
 
-    # for Qwen2.5-Omni, use ThinkerForConditionalGeneration
-    if config.model_type == "qwen2_5_omni":
-        from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-            Qwen2_5OmniThinkerForConditionalGeneration,
-        )
-
-        class Qwen2_5OmniThinkerForConditionalGenerationWithDtype(
-            Qwen2_5OmniThinkerForConditionalGeneration
-        ):
-            @classmethod
-            def from_pretrained(cls, *args, **kwargs):
-                if "torch_dtype" not in kwargs:
-                    kwargs["torch_dtype"] = "auto"
-                model = super().from_pretrained(*args, **kwargs)
-                import torch
-
-                model = model.to(dtype=torch.bfloat16)
-                return model
-
-        return Qwen2_5OmniThinkerForConditionalGenerationWithDtype
+    # for Qwen2.5-Omni, load only the thinker model (not full model with talker), hence need handle differently otherwise it will load the full model
+    if hasattr(config, 'model_type') and config.model_type == "qwen2_5_omni":
+        class Qwen2_5OmniThinkerLoader:
+            @staticmethod
+            def from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
+                # Load the full model first
+                full_model = AutoModelForCausalLM.from_pretrained(
+                    pretrained_model_name_or_path,
+                    *args,
+                    **kwargs
+                )
+                # Extract and return only the thinker
+                thinker_model = full_model.thinker
+                # Clean up full model to save memory
+                if hasattr(full_model, 'talker'):
+                    del full_model.talker
+                if hasattr(full_model, 'token2wav'):
+                    del full_model.token2wav
+                del full_model
+                return thinker_model
+        return Qwen2_5OmniThinkerLoader
 
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM

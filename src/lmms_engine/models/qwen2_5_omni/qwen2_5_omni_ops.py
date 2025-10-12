@@ -25,7 +25,7 @@ from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     apply_multimodal_rotary_pos_emb,
     rotate_half,
 )
-from transformers.utils import is_flash_attn_2_available, logging
+from transformers.utils import is_flash_attn_2_available
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     gather_heads_scatter_seq,
@@ -43,8 +43,6 @@ from ..sequence_packing_utils import (
     _get_unpad_data,
     _unpad_input,
 )
-
-logger = logging.get_logger(__name__)
 
 
 if is_flash_attn_2_available():
@@ -84,8 +82,8 @@ def text_model_forward(
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    cu_seq_lens: Optional[torch.IntTensor] = None,
-    indices: Optional[torch.IntTensor] = None,
+    cu_seq_lens: Optional[torch.IntTensor] = None, 
+    indices: Optional[torch.IntTensor] = None,  
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
     output_attentions = (
@@ -105,75 +103,85 @@ def text_model_forward(
 
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
-
     if self.gradient_checkpointing and self.training:
         if use_cache:
-            logger.warning_once(
+            Logging.warning(
                 "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
             )
             use_cache = False
 
     if use_cache and past_key_values is None:
         past_key_values = DynamicCache(config=self.config)
-
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
         past_seen_tokens = (
             past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        )       
         if cu_seq_lens is not None and indices is not None:
-            seq_len_for_cache = inputs_embeds.shape[0]
+            seq_len_for_cache = inputs_embeds.shape[0]  # 1D case, total unpadded tokens
         else:
-            seq_len_for_cache = inputs_embeds.shape[1]
-
+            seq_len_for_cache = inputs_embeds.shape[1]  # 2D case, sequence length dimension
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seq_len_for_cache,
             device=inputs_embeds.device,
         )
 
-    # the hard coded `3` is for temporal, height and width dimensions
+    # the hard coded `3` is for temporal, height and width.
     if position_ids is None:
         if cu_seq_lens is not None and indices is not None:
+            # if use rmpad, position ids is [3, 1, total_non_pad_tokens]
+            # but lce_forward already provides position_ids
             position_ids = cache_position.view(1, 1, -1).expand(3, 1, -1)
         else:
             position_ids = cache_position.view(1, 1, -1).expand(
                 3, inputs_embeds.shape[0], -1
             )
     elif position_ids.dim() == 2:
+        # if position_ids is provided but only 2D [batch, seq_len], expand to 3D [3, batch, seq_len]
+        # by adding the TMRoPE dimension at the front
         position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
     hidden_states = inputs_embeds
     position_embeddings = self.rotary_emb(hidden_states, position_ids)
-
     all_hidden_states = () if output_hidden_states else None
     all_attentions = () if output_attentions else None
 
     for decoder_layer in self.layers:
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
-
-        layer_outputs = decoder_layer(
-            hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            use_cache=use_cache,
-            cu_seq_lens=cu_seq_lens,
-            indices=indices,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
-            output_attentions=output_attentions,
-            **kwargs,
-        )
+            
+        if self.gradient_checkpointing and self.training:
+            layer_outputs = torch.utils.checkpoint.checkpoint(
+                decoder_layer.__call__,
+                hidden_states,
+                attention_mask,
+                position_ids,
+                past_key_values,
+                output_attentions,
+                use_cache,
+                cu_seq_lens,
+                indices,
+                position_embeddings,
+                use_reentrant=False,
+            )
+        else:
+            layer_outputs = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+                cu_seq_lens=cu_seq_lens,
+                indices=indices,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                output_attentions=output_attentions,
+                **kwargs,
+            )
 
         hidden_states = layer_outputs[0]
-
-        if use_cache:
-            cache_idx = 2 if output_attentions else 1
-            if len(layer_outputs) > cache_idx:
-                past_key_values = layer_outputs[cache_idx]
 
         if output_attentions:
             all_attentions += (layer_outputs[1],)
@@ -202,15 +210,15 @@ def text_model_forward(
 
 def decoder_layer_forward(
     self: Qwen2_5OmniDecoderLayer,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: Optional[bool] = False,
-    use_cache: Optional[bool] = False,
-    cu_seq_lens: Optional[torch.IntTensor] = None,
-    indices: Optional[torch.IntTensor] = None,
-    position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,
+    hidden_states: torch.Tensor, # should be 2D with rmpad
+    attention_mask: Optional[torch.Tensor] = None,  
+    position_ids: Optional[torch.LongTensor] = None,  
+    past_key_values: Optional[Tuple[torch.Tensor]] = None,  
+    output_attentions: Optional[bool] = False,  
+    use_cache: Optional[bool] = False,  
+    cu_seq_lens: Optional[torch.IntTensor] = None,  
+    indices: Optional[torch.IntTensor] = None,  
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,  
     **kwargs,
 ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
     residual = hidden_states
@@ -228,13 +236,14 @@ def decoder_layer_forward(
         indices=indices,
         position_embeddings=position_embeddings,
     )
+
     hidden_states = residual + hidden_states
 
     residual = hidden_states
     hidden_states = self.post_attention_layernorm(hidden_states)
     hidden_states = self.mlp(hidden_states)
     hidden_states = residual + hidden_states
-
+    
     outputs = (hidden_states,)
 
     if output_attentions:
@@ -248,25 +257,24 @@ def decoder_layer_forward(
 
 def attn_forward(
     self: Qwen2_5OmniAttention,
-    hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_value: Optional[Cache] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
-    cu_seq_lens: Optional[torch.IntTensor] = None,
-    indices: Optional[torch.IntTensor] = None,
-    position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,
+    hidden_states: torch.Tensor,  # should be 2D with rmpad
+    attention_mask: Optional[torch.Tensor] = None,  
+    position_ids: Optional[torch.LongTensor] = None,  
+    past_key_value: Optional[Cache] = None,  
+    output_attentions: bool = False,  
+    use_cache: bool = False,  
+    cu_seq_lens: Optional[torch.IntTensor] = None, 
+    indices: Optional[torch.IntTensor] = None,  
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,  
     **kwargs,
 ):
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     bsz = hidden_states.shape[0]
-    q_len = (
-        torch.max(position_ids).item() + 1
-        if position_ids is not None
-        else hidden_states.shape[0]
-    )
-    kv_seq_len = q_len
+    if cu_seq_lens is not None:
+        q_len = (cu_seq_lens[1:] - cu_seq_lens[:-1]).max().item()
+    else:
+        q_len = hidden_states.shape[0] if hidden_states.ndim == 2 else hidden_states.shape[1]
+    kv_seq_len = q_len  
     query_states = self.q_proj(hidden_states).view(-1, self.num_heads, self.head_dim)
     key_states = self.k_proj(hidden_states).view(
         -1, self.num_key_value_heads, self.head_dim
@@ -274,38 +282,25 @@ def attn_forward(
     value_states = self.v_proj(hidden_states).view(
         -1, self.num_key_value_heads, self.head_dim
     )
-
-    cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
         assert (
             position_ids is not None
         ), "position_ids is required for Ulysses sequence parallelism"
-
-        # Repeat kv heads to be divided by sequence parallel
         repeats = max(ulysses_sp_size // key_states.size(1), 1)
         key_states = repeat_kv(key_states, repeats)
         value_states = repeat_kv(value_states, repeats)
-
-        # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
+        # Testing
+        # before all to all Q: torch.Size([22541, 28, 128]), K: torch.Size([22541, 4, 128]), V: torch.Size([22541, 4, 128])                                                                                                           
+        # after all to all Q: torch.Size([45082, 14, 128]), K: torch.Size([45082, 2, 128]), V: torch.Size([45082, 2, 128])    
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-        # Cat the cu_seq_lens to the max seq len if padding is used
-        if cu_seq_lens is not None and cu_seq_lens.max().item() < query_states.shape[0]:
-            cu_seq_lens = torch.cat(
-                [
-                    cu_seq_lens,
-                    torch.tensor(
-                        [query_states.shape[0]],
-                        device=cu_seq_lens.device,
-                        dtype=cu_seq_lens.dtype,
-                    ),
-                ]
-            )
 
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
+    
+    cos, sin = position_embeddings
     query_states, key_states = apply_multimodal_rotary_pos_emb(
         query_states,
         key_states,
@@ -314,14 +309,13 @@ def attn_forward(
         self.rope_scaling["mrope_section"],
     )
 
-    # Reshape to the expected shape for Flash Attention
     max_seqlen = (
         torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     )
-
+    
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
-
+    
     window_size = (-1, -1)
 
     attn_output = flash_attn_varlen_func(
@@ -338,8 +332,8 @@ def attn_forward(
         dropout_p=0.0,
     )
 
-    ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
+        # [45082, 14, 128] -> [22541, 28, 128]
         attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
     attn_output = attn_output.reshape(-1, self.hidden_size).contiguous()
