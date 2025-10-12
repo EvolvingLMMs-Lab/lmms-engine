@@ -168,7 +168,12 @@ class TrainRunner:
             world_size % total_group_size == 0
         ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
 
-        set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
+        # Only set Ulysses group if sp_ulysses_degree > 1
+        if sp_ulysses_degree > 1:
+            set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
+        else:
+            # Explicitly set to None to disable Ulysses
+            set_ulysses_sequence_parallel_group(None)
 
     def _build_trainer(self):
         trainer_cls = TRAINER_REGISTER[self.config.trainer_type]

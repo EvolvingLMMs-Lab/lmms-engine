@@ -73,7 +73,7 @@ class FlopsCounter:
         if config.model_type == "llava_onevision":
             self.config = config.text_config
         elif config.model_type in ("qwen2_5_omni", "qwen2_5_omni_thinker"):
-                self.config = config.text_config
+            self.config = config.text_config
         elif config.model_type == "bagel":
             self.config = config.llm_config
         else:

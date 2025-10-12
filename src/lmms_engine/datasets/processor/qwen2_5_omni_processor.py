@@ -167,9 +167,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
                 return_tensors="pt",
                 **kwargs,
             )
-            audio_inputs["feature_attention_mask"] = audio_inputs.pop(
-                "attention_mask"
-            ) 
+            audio_inputs["feature_attention_mask"] = audio_inputs.pop("attention_mask")
             audio_inputs["audio_feature_lengths"] = (
                 audio_inputs["feature_attention_mask"].sum(-1) - 1
             ) // 2 + 1

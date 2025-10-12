@@ -44,7 +44,9 @@ from .configuration_aero import AeroConfig
 
 logger = logging.get_logger(__name__)
 
-AutoConfig.register("qwen2_5_omni_audio_encoder", Qwen2_5OmniAudioEncoderConfig, exist_ok=True)
+AutoConfig.register(
+    "qwen2_5_omni_audio_encoder", Qwen2_5OmniAudioEncoderConfig, exist_ok=True
+)
 AutoModel.register(Qwen2_5OmniAudioEncoderConfig, Qwen2_5OmniAudioEncoder)
 
 

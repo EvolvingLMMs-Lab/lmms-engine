@@ -3,11 +3,10 @@ from typing import Dict
 
 import torch
 
+from lmms_engine.mapping_func import register_dataset
 from lmms_engine.utils.train_utils import TrainUtilities
 
-from .vision_audio_dataset import VisionAudioSFTDataset, MAX_AUDIO_LENGTH
-
-from lmms_engine.mapping_func import register_dataset
+from .vision_audio_dataset import MAX_AUDIO_LENGTH, VisionAudioSFTDataset
 
 
 @register_dataset("qwen_omni")
@@ -135,4 +134,3 @@ class QwenOmniSFTDataset(VisionAudioSFTDataset):
             **kwargs,
         )
         return inputs
-

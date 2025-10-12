@@ -6,6 +6,7 @@ from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniThinkerCausalLMOutputWithPast,
     Qwen2_5OmniThinkerForConditionalGeneration,
 )
+from transformers.utils import is_flash_attn_2_available
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,
@@ -13,16 +14,14 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     slice_input_tensor,
     ulysses_pad,
 )
+from lmms_engine.utils import Logging
 
 from ..sequence_packing_utils import _unpad_input
 
-from transformers.utils import is_flash_attn_2_available
-from lmms_engine.utils import Logging
-
 if is_flash_attn_2_available():
     try:
-        from flash_attn.bert_padding import index_first_axis
         from einops import rearrange
+        from flash_attn.bert_padding import index_first_axis
     except:
         raise ModuleNotFoundError(
             "flash_attn is not available. Please install it via `pip install flash_attn`."
@@ -142,9 +141,13 @@ def lce_forward(
             else:
                 batch_size, seq_length = original_input_ids.shape
                 delta = (
-                    cache_position[0] + self.rope_deltas if cache_position is not None else 0
+                    cache_position[0] + self.rope_deltas
+                    if cache_position is not None
+                    else 0
                 )
-                position_ids = torch.arange(seq_length, device=original_input_ids.device)
+                position_ids = torch.arange(
+                    seq_length, device=original_input_ids.device
+                )
                 position_ids = position_ids.view(1, -1).expand(batch_size, -1)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
@@ -160,9 +163,9 @@ def lce_forward(
         if get_ulysses_sequence_parallel_world_size() > 1:
             sp_size = get_ulysses_sequence_parallel_world_size()
             input_ids, position_ids, pad_size = ulysses_pad(
-                input_ids.unsqueeze(0), 
-                position_ids,          
-                sp_size=sp_size,         
+                input_ids.unsqueeze(0),
+                position_ids,
+                sp_size=sp_size,
             )
             input_ids = input_ids.squeeze(0)
             actual_tokens = input_ids.shape[0]
@@ -171,7 +174,7 @@ def lce_forward(
                 cu_seq_lens = torch.tensor(
                     [0] + [actual_tokens] * (len(cu_seq_lens) - 1),
                     dtype=cu_seq_lens.dtype,
-                    device=cu_seq_lens.device
+                    device=cu_seq_lens.device,
                 )
     if inputs_embeds is None and input_ids is not None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
@@ -183,7 +186,7 @@ def lce_forward(
         )
         audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
         n_audio_tokens_check = (input_ids == self.config.audio_token_id).sum().item()
-        n_audio_features = audio_features.shape[0] 
+        n_audio_features = audio_features.shape[0]
         if n_audio_tokens_check != n_audio_features:
             raise ValueError(
                 f"Audio features and audio tokens do not match: "
@@ -235,9 +238,9 @@ def lce_forward(
         )
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
     outputs = self.model(
-        input_ids=None,  
+        input_ids=None,
         inputs_embeds=inputs_embeds,
-        position_ids=position_ids,  
+        position_ids=position_ids,
         attention_mask=attention_mask,
         past_key_values=past_key_values,
         use_cache=use_cache,
@@ -248,13 +251,13 @@ def lce_forward(
         rope_deltas=rope_deltas,
         use_audio_in_video=use_audio_in_video,
         video_second_per_grid=video_second_per_grid,
-        cu_seq_lens=cu_seq_lens, 
-        indices=indices, 
+        cu_seq_lens=cu_seq_lens,
+        indices=indices,
     )
 
-    seq_lens = outputs.get("seq_lens", None)  
-    word_idx = outputs.get("word_idx", None)  
-    hidden_states = outputs[0]  
+    seq_lens = outputs.get("seq_lens", None)
+    word_idx = outputs.get("word_idx", None)
+    hidden_states = outputs[0]
     loss = None
     logits = None
     labels_unpad = labels.view(-1)[word_idx.long()]
@@ -282,7 +285,7 @@ def lce_forward(
         else:
             shift_hidden_states = hidden_states[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            
+
         hidden_size = (
             self.config.text_config.hidden_size
             if hasattr(self.config, "text_config")
@@ -290,7 +293,7 @@ def lce_forward(
         )
         shift_hidden_states = shift_hidden_states.view(-1, hidden_size)
         shift_labels = shift_labels.view(-1)
-        
+
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
         lce = LigerFusedLinearCrossEntropyLoss(reduction=reduction)
         loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)

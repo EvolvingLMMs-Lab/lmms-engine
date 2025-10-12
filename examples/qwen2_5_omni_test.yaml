@@ -3,7 +3,7 @@
     trainer_type: hf_trainer
 
     dataset_config:
-      dataset_type: vision_audio
+      dataset_type: qwen_omni
       dataset_format: json
       dataset_path: 
       eval_dataset_path: 
@@ -24,7 +24,7 @@
       video_backend: "qwen_omni_utils"
       video_sampling_strategy: "fps"
       fps: 1
-      video_max_frames: 60
+
 
     model_config:
       load_from_pretrained_path: "Qwen/Qwen2.5-Omni-7B"
