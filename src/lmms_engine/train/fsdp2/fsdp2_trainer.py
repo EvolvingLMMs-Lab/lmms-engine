@@ -332,46 +332,19 @@ class FSDP2SFTTrainer:
                 flops_tensor = torch.tensor(flops, device=device)
                 sp_size = pgm.process_group_manager.cp_world_size
 
-                # Calculate mfu per rank
-                mfu = flops_tensor.item() / sp_size / promised_flops
-                mfu = torch.tensor(mfu, device=device)
-                torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
-                mfu = mfu.item()
-
-                # Calculating token stats
-                seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
-                total_seq_len = seq_len.sum()
-                torch.distributed.all_reduce(
-                    total_seq_len, op=torch.distributed.ReduceOp.SUM
+                # Calculate training metrics (MFU, token stats, throughput)
+                perf_metrics, self.total_tokens = self.calculate_training_metrics(
+                    flops_tensor=flops_tensor,
+                    sp_size=sp_size,
+                    promised_flops=promised_flops,
+                    device=device,
+                    seq_len=seq_len,
+                    total_tokens=self.total_tokens,
+                    delta_time=delta_time,
+                    world_size=world_size,
                 )
-                global_seq_len_avg = seq_len.sum()
-                torch.distributed.all_reduce(
-                    global_seq_len_avg, op=torch.distributed.ReduceOp.AVG
-                )
-                train_metrics["perf/global_seq_len_avg"] = global_seq_len_avg.item()
-                global_seq_len_min = seq_len.sum()
-                torch.distributed.all_reduce(
-                    global_seq_len_min, op=torch.distributed.ReduceOp.MIN
-                )
-                train_metrics["perf/global_seq_len_min"] = global_seq_len_min.item()
-                global_seq_len_max = seq_len.sum()
-                torch.distributed.all_reduce(
-                    global_seq_len_max, op=torch.distributed.ReduceOp.MAX
-                )
-                train_metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
-
-                train_metrics["train/mfu"] = round(mfu, 2)
-                self.total_tokens += total_seq_len.item()
-
-                tokens_per_second = total_seq_len.item() / delta_time
-                tokens_per_gpu = tokens_per_second / sp_size / world_size
-
-                # Log total tokens and total tokens per second
-                train_metrics["train/total_tokens"] = TrainUtilities.format_tokens(
-                    self.total_tokens
-                )
-                train_metrics["train/tokens_per_second"] = round(tokens_per_second)
-                train_metrics["train/tokens_per_gpu"] = round(tokens_per_gpu)
+                train_metrics.update(perf_metrics)
+                self.print_batch_input(batch)
 
                 if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
                     epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
@@ -561,3 +534,86 @@ class FSDP2SFTTrainer:
     def empty_cache(self):
         gc.collect()
         torch.cuda.empty_cache()
+
+    def print_batch_input(self, batch):
+        if (
+            self.args.print_batch_input_steps > 0
+            and self.global_step % self.args.print_batch_input_steps == 0
+        ):
+            try:
+                input_ids = batch.get("input_ids", torch.tensor(0))
+                logger.info(
+                    self.processing_class.processor.batch_decode(
+                        input_ids, skip_special_tokens=True
+                    )[0]
+                )
+            except Exception as e:
+                logger.error(f"Error printing batch input: {e}")
+
+    @staticmethod
+    def calculate_training_metrics(
+        flops_tensor: torch.Tensor,
+        sp_size: int,
+        promised_flops: float,
+        device: torch.device,
+        seq_len: list,
+        total_tokens: int,
+        delta_time: float,
+        world_size: int,
+    ) -> tuple[dict, int]:
+        """
+        Calculate training performance metrics including MFU, token statistics, and throughput.
+
+        Args:
+            flops_tensor: Tensor containing FLOPs count
+            sp_size: Sequence parallel size
+            promised_flops: Promised FLOPs capacity
+            device: Device to perform computations on
+            seq_len: List of sequence lengths per batch
+            total_tokens: Current total token count
+            delta_time: Time taken for the training step
+            world_size: Distributed training world size
+
+        Returns:
+            tuple: (metrics_dict, updated_total_tokens)
+        """
+        metrics = {}
+
+        # Calculate mfu per rank
+        mfu = flops_tensor.item() / sp_size / promised_flops
+        mfu = torch.tensor(mfu, device=device)
+        torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
+        mfu = mfu.item()
+
+        # Calculating token stats
+        seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
+        total_seq_len = seq_len.sum()
+        torch.distributed.all_reduce(total_seq_len, op=torch.distributed.ReduceOp.SUM)
+        global_seq_len_avg = seq_len.sum()
+        torch.distributed.all_reduce(
+            global_seq_len_avg, op=torch.distributed.ReduceOp.AVG
+        )
+        metrics["perf/global_seq_len_avg"] = global_seq_len_avg.item()
+        global_seq_len_min = seq_len.sum()
+        torch.distributed.all_reduce(
+            global_seq_len_min, op=torch.distributed.ReduceOp.MIN
+        )
+        metrics["perf/global_seq_len_min"] = global_seq_len_min.item()
+        global_seq_len_max = seq_len.sum()
+        torch.distributed.all_reduce(
+            global_seq_len_max, op=torch.distributed.ReduceOp.MAX
+        )
+        metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
+
+        metrics["train/mfu"] = round(mfu, 2)
+        total_tokens += total_seq_len.item()
+
+        tokens_per_second = total_seq_len.item() / delta_time
+        tokens_per_gpu = tokens_per_second / sp_size / world_size
+
+        # Log total tokens and total tokens per second
+        metrics["train/total_tokens"] = TrainUtilities.format_tokens(total_tokens)
+        metrics["train/tokens_per_second"] = round(tokens_per_second)
+        metrics["train/tokens_per_gpu"] = round(tokens_per_gpu)
+
+        return metrics, total_tokens
