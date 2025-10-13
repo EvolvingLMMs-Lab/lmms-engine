@@ -7,9 +7,10 @@ import torch
 import torch.distributed.checkpoint as dist_cp
 from accelerate import init_empty_weights
 from tqdm import tqdm
-from transformers import AutoProcessor
+from transformers import AutoConfig, AutoModel, AutoProcessor
 
 from lmms_engine.mapping_func import create_model_from_pretrained
+from lmms_engine.models import *
 
 
 def parse_args():
@@ -112,7 +113,6 @@ def prepare_full_sd(model_state_dict_list):
 
 
 def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False):
-    model_cls = create_model_from_pretrained(model_path)
     checkpoint_folder = list(input_dir.glob("checkpoint-*"))
     # Find the latest checkpoint with the highest index
     if not checkpoint_folder:
@@ -127,7 +127,9 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
         output_dir = args.output_dir
     else:
         output_dir = str(input_dir)
+    model_cls = create_model_from_pretrained(checkpoint_folder[-1])
     processor = AutoProcessor.from_pretrained(checkpoint_folder[-1])
+    config = AutoConfig.from_pretrained(checkpoint_folder[-1])
     processor.save_pretrained(output_dir)
     if not merge:
         latest_checkpoint = checkpoint_folder[-1]
@@ -153,12 +155,12 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
 
     del full_state_dict_lst
 
-    model = model_cls.from_pretrained(
-        model_path,
-        attn_implementation="sdpa",
-        torch_dtype=torch.bfloat16,
-    )
-    model.load_state_dict(state_dict)
+    with init_empty_weights():
+        if model_cls == AutoModel:
+            model = model_cls.from_config(config)
+        else:
+            model = model_cls(config=config)
+    model.load_state_dict(state_dict, assign=True)
     model.save_pretrained(output_dir)
     return model
 
