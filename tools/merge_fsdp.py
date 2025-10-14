@@ -156,10 +156,7 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
     del full_state_dict_lst
 
     with init_empty_weights():
-        if model_cls == AutoModel:
-            model = model_cls.from_config(config)
-        else:
-            model = model_cls(config=config)
+        model = model_cls.from_config(config)
     model.load_state_dict(state_dict, assign=True)
     model.save_pretrained(output_dir)
     return model
