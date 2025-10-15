@@ -47,6 +47,8 @@ dependencies = [
     "einops",
     "pandas",
     "rich>=14.1.0",
+    "hydra-core",
+    "omegaconf",
 ]
 
 [project.optional-dependencies]
@@ -63,6 +65,12 @@ storage = [
 
 bagel = [
     "opencv_python",
+]
+
+sit = [
+    "timm",
+    "diffusers",
+    "torchdiffeq",
 ]
 
 all = [
