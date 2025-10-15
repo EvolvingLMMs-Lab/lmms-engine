@@ -319,7 +319,7 @@ class FSDP2SFTTrainer:
 
                 # Calculate flops per rank
                 seq_len = (
-                    batch.get("attention_mask", torch.tensor(0))
+                    batch.get("attention_mask", torch.zeros((1, 1)))
                     .sum(dim=1)
                     .detach()
                     .cpu()
