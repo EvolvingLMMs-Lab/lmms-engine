@@ -7,6 +7,8 @@ from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_vl import apply_liger_kernel_to_qwen2_5_vl
 from .qwen2_audio import apply_liger_kernel_to_qwen2_audio
 from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
+from .rae_siglip import RaeSiglipConfig, RaeSiglipModel
+from .sit import SiT, SiTConfig, SiTModel
 from .wanvideo import (
     WanVideoConfig,
     WanVideoForConditionalGeneration,
@@ -30,4 +32,9 @@ __all__ = [
     "Qwen3DLLMConfig",
     "Qwen3DLLMForMaskedLM",
     "MONKEY_PATCHER",
+    "RaeSiglipConfig",
+    "RaeSiglipModel",
+    "SiTModel",
+    "SiTConfig",
+    "SiT",
 ]

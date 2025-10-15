@@ -238,6 +238,15 @@ class FlopsCounter:
             estimated_flops (float): The estimated FLOPS based on the input tokens and time.
             promised_flops (float): The expected FLOPS of the current device.
         """
+        # Flatten batch_seqlens if it contains nested lists (common for vision models)
+        if isinstance(batch_seqlens, (list, tuple)):
+            flat_seqlens = []
+            for item in batch_seqlens:
+                if isinstance(item, (list, tuple)):
+                    flat_seqlens.extend(item)
+                else:
+                    flat_seqlens.append(item)
+            batch_seqlens = flat_seqlens
         tokens_sum = sum(batch_seqlens)
         func = self.estimate_func.get(
             self.config.model_type, self._estimate_unknown_flops
