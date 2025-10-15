@@ -59,3 +59,27 @@ def _token_combine(routed_output, input_splits, output_splits):
         ep_group,
     )
     return routed_output
+
+def sync_gradients(model):
+    shared_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad and 'expert' in name:
+            shared_params.append(param)
+    world_size = dist.get_world_size()
+    buffer_size = sum(p.numel() for p in shared_params)
+    buffer = torch.zeros(buffer_size, device=shared_params[0].device)
+    with torch.no_grad():
+        offset = 0
+        for param in shared_params:
+            if param.grad is not None:
+                numel = param.grad.numel()
+                buffer[offset : offset + numel].copy_(param.grad.view(-1))
+                offset += numel
+        dist.all_reduce(buffer, op=dist.ReduceOp.SUM)
+        buffer /= world_size
+        offset = 0
+        for param in shared_params:
+            if param.grad is not None:
+                numel = param.grad.numel()
+                param.grad.copy_(buffer[offset : offset + numel].view_as(param))
+                offset += numel
