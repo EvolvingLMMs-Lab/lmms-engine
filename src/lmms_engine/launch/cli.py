@@ -2,7 +2,11 @@ import argparse
 import datetime
 import os
 
+import hydra
 import torch.distributed as dist
+import yaml
+from loguru import logger
+from omegaconf import DictConfig, OmegaConf
 
 from lmms_engine.parallel.process_group_manager import setup_process_group_manager
 from lmms_engine.utils.logging_utils import setup_distributed_logging
@@ -10,13 +14,6 @@ from lmms_engine.utils.logging_utils import setup_distributed_logging
 from ..datasets import DatasetConfig
 from ..models import ModelConfig
 from ..train import TrainerConfig, TrainingArguments, TrainRunner
-from ..utils.config_loader import load_config
-
-
-def parse_argument():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, help="Path to your launch config")
-    return parser.parse_args()
 
 
 def create_train_task(config):
@@ -50,7 +47,8 @@ def create_train_task(config):
         tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
     )
 
-    trainer_args = TrainingArguments(**config)
+    trainer_args = config.pop("trainer_args")
+    trainer_args = TrainingArguments(**trainer_args)
 
     train_config = TrainerConfig(
         dataset_config=dataset_config,
@@ -61,19 +59,23 @@ def create_train_task(config):
     return TrainRunner(config=train_config)
 
 
-def main():
-    args = parse_argument()
-    configs = load_config(args.config)
+@hydra.main(version_base=None, config_path="config", config_name="default_config")
+def main(config: DictConfig):
     setup_distributed_logging()
-    for config in configs:
-        task_type = config.pop("task_type", "trainer")
-        task_config = config.pop("config", {})
-        if task_type == "trainer":
-            task = create_train_task(task_config)
-            task.build()
-        else:
-            raise ValueError(f"Unknown task type: {task_type}")
-        task.run()
+    config = OmegaConf.to_yaml(config)
+    config = yaml.safe_load(config)
+
+    # If you have a predefined config yaml
+    config_yaml = config.pop("config_yaml")
+    if config_yaml:
+        logger.info(
+            f"Detected config yaml, merging with the default config. Will use the args in {config_yaml} to override current config."
+        )
+        config_yaml = yaml.safe_load(config_yaml)
+        config.update(config_yaml)
+    task = create_train_task(config)
+    task.build()
+    task.run()
     dist.destroy_process_group()
 
 

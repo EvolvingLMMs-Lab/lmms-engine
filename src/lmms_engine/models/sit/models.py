@@ -11,7 +11,14 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from timm.models.vision_transformer import Attention, Mlp, PatchEmbed
+from loguru import logger
+
+try:
+    from timm.models.vision_transformer import Attention, Mlp, PatchEmbed
+except ImportError:
+    logger.warning(
+        "timm not installed, please install it with `pip install timm` if you want to use SiT"
+    )
 
 
 def modulate(x, shift, scale):
