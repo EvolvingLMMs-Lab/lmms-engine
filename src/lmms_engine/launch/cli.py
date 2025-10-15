@@ -1,6 +1,8 @@
 import argparse
 import datetime
 import os
+import shutil
+from copy import deepcopy
 
 import hydra
 import torch.distributed as dist
@@ -59,6 +61,26 @@ def create_train_task(config):
     return TrainRunner(config=train_config)
 
 
+def save_config(config):
+    if dist.is_initialized():
+        rank = dist.get_rank()
+    else:
+        rank = 0
+    if rank == 0:
+        data_config = config.get("dataset_config")
+        trainer_args = config.get("trainer_args")
+        output_dir = trainer_args.get("output_dir")
+        data_type = data_config.get("dataset_type")
+        os.makedirs(output_dir, exist_ok=True)
+        if data_type == "yaml":
+            dataset_path = data_config.get("dataset_path")
+            shutil.copy(dataset_path, os.path.join(output_dir, "dataset.yaml"))
+
+        with open(os.path.join(output_dir, "config.yaml"), "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    dist.barrier()
+
+
 @hydra.main(version_base=None, config_path="config", config_name="default_config")
 def main(config: DictConfig):
     setup_distributed_logging()
@@ -73,7 +95,9 @@ def main(config: DictConfig):
         )
         config_yaml = yaml.safe_load(config_yaml)
         config.update(config_yaml)
+    original_config = deepcopy(config)
     task = create_train_task(config)
+    save_config(original_config)
     task.build()
     task.run()
     dist.destroy_process_group()
