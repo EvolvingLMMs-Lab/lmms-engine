@@ -24,10 +24,6 @@ CKPT_MAP = {
     "vgg_lpips": "vgg.pth",
 }
 
-MD5_MAP = {
-    "vgg_lpips": "d507d7349b931f0638a25a48a722f98a",
-}
-
 
 def _download(url: str, local_path: str, chunk_size: int = 1024) -> None:
     requests, tqdm = _lazy_imports()
@@ -42,21 +38,14 @@ def _download(url: str, local_path: str, chunk_size: int = 1024) -> None:
                         pbar.update(len(data))
 
 
-def _md5_hash(path: str) -> str:
-    with open(path, "rb") as file_obj:
-        content = file_obj.read()
-    return hashlib.md5(content).hexdigest()
-
-
 def get_ckpt_path(name: str, root: Optional[str] = None, check: bool = False) -> str:
     assert name in URL_MAP, f"Unknown LPIPS checkpoint '{name}'"
     if root is None:
-        root = pathlib.Path(__file__).parent / ".caches"
+        torch_home = os.environ.get("TORCH_HOME", "~/.cache/torch")
+        root = pathlib.Path(torch_home) / "checkpoints"
         root = os.path.abspath(root)
     path = os.path.join(root, CKPT_MAP[name])
-    if not os.path.exists(path) or (check and _md5_hash(path) != MD5_MAP[name]):
+    if not os.path.exists(path):
         print(f"Downloading {name} LPIPS weights to {path}")
         _download(URL_MAP[name], path)
-        md5 = _md5_hash(path)
-        assert md5 == MD5_MAP[name], md5
     return path

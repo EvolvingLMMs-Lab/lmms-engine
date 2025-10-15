@@ -1,9 +1,11 @@
 import math
 from dataclasses import dataclass
+from math import sqrt
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
+from transformers import AutoImageProcessor, AutoProcessor
 from transformers.models.siglip.modeling_siglip import (
     SiglipPreTrainedModel,
     SiglipVisionModel,
@@ -34,51 +36,41 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
 
         self.encoder_config = config.encoder_config
         self.decoder_config = config.decoder_config
-        self.encoder_input_size = getattr(
-            config, "encoder_input_size", self.decoder_config.image_size
+        self.proc = AutoImageProcessor.from_pretrained(config.encoder_processor_path)
+        self.encoder_mean = torch.tensor(self.proc.image_mean).view(1, 3, 1, 1)
+        self.encoder_std = torch.tensor(self.proc.image_std).view(1, 3, 1, 1)
+        # see if the encoder has patch size attribute
+        self.encoder_input_size = self.encoder_config.image_size
+        self.encoder_patch_size = self.encoder_config.patch_size
+        self.latent_dim = self.encoder_config.hidden_size
+        assert (
+            self.encoder_input_size % self.encoder_patch_size == 0
+        ), f"encoder_input_size {self.encoder_input_size} must be divisible by encoder_patch_size {self.encoder_patch_size}"
+        self.base_patches = (
+            self.encoder_input_size // self.encoder_patch_size
+        ) ** 2  # number of patches of the latent
+
+        # decoder
+        decoder_config = self.decoder_config
+        decoder_config.hidden_size = (
+            self.latent_dim
+        )  # set the hidden size of the decoder to be the same as the encoder's output
+        decoder_config.patch_size = self.encoder_patch_size
+        decoder_config.image_size = int(
+            self.encoder_patch_size * sqrt(self.base_patches)
         )
-        self.reshape_to_2d = bool(getattr(config, "reshape_to_2d", True))
-        self.eps = float(getattr(config, "eps", 1e-5))
-
-        self.encoder_patch_size = getattr(
-            self.encoder_config, "patch_size", self.decoder_config.patch_size
-        )
-        self.patch_size = self.decoder_config.patch_size
-        self.num_channels = self.decoder_config.num_channels
-        self.image_size = self.decoder_config.image_size
-        latent_grid = int(round(self.encoder_input_size // self.encoder_patch_size))
-        num_patches = latent_grid**2
-        self.noise_tau = getattr(config, "noise_tau", 0.0)
-        self.latent_grid = latent_grid
-
-        mean = getattr(self.encoder_config, "image_mean", [0.5] * self.num_channels)
-        std = getattr(self.encoder_config, "image_std", [0.5] * self.num_channels)
-        mean_tensor = torch.tensor(mean).view(1, self.num_channels, 1, 1)
-        std_tensor = torch.tensor(std).view(1, self.num_channels, 1, 1)
-        self.register_buffer("encoder_mean", mean_tensor, persistent=False)
-        self.register_buffer("encoder_std", std_tensor, persistent=False)
-
-        latent_mean = getattr(config, "latent_mean", None)
-        latent_var = getattr(config, "latent_var", None)
-        self.use_latent_stats = latent_mean is not None and latent_var is not None
-        if self.use_latent_stats:
-            latent_shape = (
-                1,
-                self.decoder_config.hidden_size,
-                latent_grid,
-                latent_grid,
-            )
-            latent_mean_tensor = torch.tensor(latent_mean, dtype=torch.float32).view(
-                latent_shape
-            )
-            latent_var_tensor = torch.tensor(latent_var, dtype=torch.float32).view(
-                latent_shape
-            )
-            self.register_buffer("latent_mean", latent_mean_tensor, persistent=False)
-            self.register_buffer("latent_var", latent_var_tensor, persistent=False)
+        self.decoder = GeneralDecoder(decoder_config, num_patches=self.base_patches)
+        self.noise_tau = config.noise_tau
+        self.reshape_to_2d = config.reshape_to_2d
+        if config.latent_mean is not None and config.latent_var is not None:
+            self.latent_mean = config.latent_mean
+            self.latent_var = config.latent_var
+            self.do_normalization = True
+            self.eps = config.eps
         else:
-            self.register_buffer("latent_mean", torch.zeros(0), persistent=False)
-            self.register_buffer("latent_var", torch.ones(0), persistent=False)
+            self.latent_mean = None
+            self.latent_var = None
+            self.do_normalization = False
 
         encoder = SiglipVisionModel._from_config(self.encoder_config).vision_model
         encoder.post_layernorm.elementwise_affine = False
@@ -87,7 +79,9 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         encoder.requires_grad_(False)
         self.encoder = encoder
 
-        self.decoder = GeneralDecoder(self.decoder_config, num_patches=num_patches)
+        self.decoder = GeneralDecoder(
+            self.decoder_config, num_patches=self.base_patches
+        )
 
         self.post_init()
 
@@ -135,9 +129,17 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
             hidden_states = hidden_states.transpose(1, 2).reshape(
                 batch_size, hidden, side, side
             )
-        if self.use_latent_stats:
-            latent_mean = self.latent_mean.to(hidden_states.device, hidden_states.dtype)
-            latent_var = self.latent_var.to(hidden_states.device, hidden_states.dtype)
+        if self.do_normalization:
+            latent_mean = (
+                self.latent_mean.to(hidden_states.device)
+                if self.latent_mean is not None
+                else 0
+            )
+            latent_var = (
+                self.latent_var.to(hidden_states.device)
+                if self.latent_var is not None
+                else 1
+            )
             hidden_states = (hidden_states - latent_mean) / torch.sqrt(
                 latent_var + self.eps
             )
@@ -168,7 +170,7 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
                 "decoder expects latent states as (batch, seq_len, dim) or (batch, dim, h, w)."
             )
 
-        if self.use_latent_stats:
+        if self.do_normalization:
             latent_mean = self.latent_mean.to(latent.device, latent.dtype)
             latent_var = self.latent_var.to(latent.device, latent.dtype)
             latent = latent * torch.sqrt(latent_var + self.eps) + latent_mean

@@ -105,6 +105,7 @@ class RaeTrainer(FSDP2SFTTrainer):
         self.discriminator.build(device)
         self.lpips.to(device)
         self.discriminator.train()
+        self.discriminator.to(device=device, dtype=self.fsdp2_model.dtype)
 
         # Fix: Store the decoder_pred module instead of the weight parameter directly
         # This is necessary for FSDP2 compatibility

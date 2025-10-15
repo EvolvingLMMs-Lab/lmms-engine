@@ -14,6 +14,7 @@ class RaeSiglipConfig(PretrainedConfig):
         self,
         decoder_config=None,
         encoder_config=None,
+        encoder_processor_path="google/siglip2-base-patch16-256",
         noise_tau: float = 0.0,
         encoder_input_size: Optional[int] = None,
         reshape_to_2d: bool = True,
@@ -34,6 +35,7 @@ class RaeSiglipConfig(PretrainedConfig):
 
         self.decoder_config = decoder_config
         self.encoder_config = encoder_config
+        self.encoder_processor_path = encoder_processor_path
         self.noise_tau = noise_tau
         self.encoder_input_size = (
             int(encoder_input_size)
