@@ -3,9 +3,9 @@ import os
 from collections import OrderedDict
 
 import torch
+import wandb
 from torch.distributed.tensor import DTensor
 
-import wandb
 from lmms_engine.train.fsdp2.fsdp2_trainer import FSDP2SFTTrainer
 from lmms_engine.train.registry import TRAINER_REGISTER
 

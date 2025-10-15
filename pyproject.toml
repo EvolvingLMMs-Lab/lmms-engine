@@ -98,3 +98,6 @@ lmms_launch="lmms_engine.launch.cli:main"
 [project.urls]
 Homepage = "https://lmms-lab.com/"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms_engine"
+
+[tool.isort]
+known_third_party = ["wandb"]
