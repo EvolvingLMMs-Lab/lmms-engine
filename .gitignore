@@ -170,3 +170,4 @@ output/
 outputs/
 checkpoints/
 .vscode
+*.pth
