@@ -78,7 +78,8 @@ def save_config(config):
 
         with open(os.path.join(output_dir, "config.yaml"), "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-    dist.barrier()
+    if dist.is_initialized():
+        dist.barrier(device_ids=[rank])
 
 
 @hydra.main(version_base=None, config_path="config", config_name="default_config")

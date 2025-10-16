@@ -28,6 +28,7 @@ VALID_CONFIG_TYPE = {
     "qwen2_5_vl",
     "qwen3",
     "qwen3_moe",
+    "qwen3_vl",
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
@@ -60,14 +61,16 @@ class FlopsCounter:
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen2_moe_flops,
+            "qwen3_vl": self._estimate_qwen2_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
             "bagel": self._estimate_qwen2_flops,
         }
-        if config.model_type == "llava_onevision":
+        if config.model_type in ["llava_onevision", "qwen3_vl"]:
             self.config = config.text_config
+            self.config.model_type = config.model_type
         elif config.model_type == "bagel":
             self.config = config.llm_config
         else:

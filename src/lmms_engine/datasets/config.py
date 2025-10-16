@@ -34,6 +34,7 @@ class DatasetConfig(Args):
     video_sampling_strategy: Optional[Literal["fps", "frame_num"]] = "fps"
     video_max_pixels: Optional[int] = 768 * 28 * 28
     video_max_frames: Optional[int] = 768
+    video_min_pixels: Optional[int] = 3136
     frame_num: Optional[int] = 64
     fps: Optional[int] = 1
     video_backend: Optional[Literal["decord", "qwen_vl_utils"]] = "qwen_vl_utils"

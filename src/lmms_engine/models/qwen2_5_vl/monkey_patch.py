@@ -6,19 +6,12 @@ from packaging import version
 
 try:
     from liger_kernel.transformers.cross_entropy import LigerCrossEntropyLoss
-    from liger_kernel.transformers.functional import liger_cross_entropy
-    from liger_kernel.transformers.geglu import LigerGEGLUMLP
-    from liger_kernel.transformers.layer_norm import LigerLayerNorm
-    from liger_kernel.transformers.model.qwen2 import (
-        lce_forward_deprecated as qwen2_lce_forward_deprecated,
-    )
     from liger_kernel.transformers.monkey_patch import (
         _patch_rms_norm_module,
         _patch_swiglu_module,
     )
     from liger_kernel.transformers.qwen2vl_mrope import liger_multimodal_rotary_pos_emb
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
-    from liger_kernel.transformers.rope import liger_rotary_pos_emb
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
     print(
