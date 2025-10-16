@@ -151,7 +151,6 @@ trainer_args:
   fp16_backend: auto
   push_to_hub_model_id: null
   push_to_hub_organization: null
-  push_to_hub_token: <PUSH_TO_HUB_TOKEN>
   mp_parameters: ''
   auto_find_batch_size: false
   full_determinism: false

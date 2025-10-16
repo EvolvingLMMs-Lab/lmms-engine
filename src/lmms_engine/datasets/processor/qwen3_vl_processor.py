@@ -79,7 +79,7 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
         if image_grid_thw is not None:
             merge_length = self.processor.image_processor.merge_size**2
             num_image_tokens = [
-                grid_thw.prod() // (merge_length**2) for grid_thw in image_grid_thw
+                grid_thw.prod() // merge_length for grid_thw in image_grid_thw
             ]
         else:
             num_image_tokens = None
@@ -103,6 +103,13 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
             add_system_prompt,
             add_generation_prompt,
         )
+
+        if images is not None:
+            for key, value in image_inputs.items():
+                inputs[key] = value
+        if videos is not None:
+            for key, value in videos_inputs.items():
+                inputs[key] = value
 
         return inputs
 
@@ -210,7 +217,7 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
             for frame_idx in range(video_grid_thw[idx + start_from][0]):
                 curr_time = curr_timestamp[frame_idx]
                 timestamp_token = f"<{curr_time:.1f} seconds>"
-                timestamp_token_id = self.processor.encode(timestamp_token)
+                timestamp_token_id = self.processor.tokenizer.encode(timestamp_token)
                 visual_tokens = [self.video_token_id] * frame_seq_len
                 # Three cases
                 # If first frame, the start token in being added to the expanded encode id already, no need to include
@@ -220,20 +227,20 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
                     curr_expand_video_ids = (
                         timestamp_token_id
                         + visual_tokens
-                        + [self.processor.vision_end_token]
+                        + [self.processor.vision_end_token_id]
                     )
                 elif frame_idx == video_grid_thw[idx + start_from][0] - 1:
                     curr_expand_video_ids = (
-                        [self.processor.vision_start_token]
+                        [self.processor.vision_start_token_id]
                         + timestamp_token_id
                         + visual_tokens
                     )
                 else:
                     curr_expand_video_ids = (
-                        [self.processor.vision_start_token]
+                        [self.processor.vision_start_token_id]
                         + timestamp_token_id
                         + visual_tokens
-                        + [self.processor.vision_end_token]
+                        + [self.processor.vision_end_token_id]
                     )
                 expanded_encode_id.extend(curr_expand_video_ids)
             prev = pos + 1

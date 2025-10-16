@@ -1,6 +1,7 @@
 import math
 import os
 import random
+import traceback
 from copy import deepcopy
 
 import torch.distributed as dist
@@ -187,6 +188,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                         self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
                     )
                 except Exception as e:
+                    traceback.print_exc()
                     logger.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
                     continue
@@ -225,6 +227,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                         self.cur_idx, curr_data_folder[self.cur_idx], curr_data_list
                     )
                 except Exception as e:
+                    traceback.print_exc()
                     logger.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
                     continue
