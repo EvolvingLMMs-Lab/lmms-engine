@@ -194,6 +194,7 @@ class MultiModalDataLoadingMixin:
             "min_frames": 1,
             "max_pixels": self.config.video_max_pixels,
             "max_frames": self.config.video_max_frames,
+            "min_pixels": self.config.video_min_pixels,
         }
 
         if self.config.video_sampling_strategy == "frame_num":

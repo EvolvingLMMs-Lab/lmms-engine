@@ -7,6 +7,7 @@ from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_vl import apply_liger_kernel_to_qwen2_5_vl
 from .qwen2_audio import apply_liger_kernel_to_qwen2_audio
 from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
+from .qwen3_vl import apply_liger_kernel_to_qwen3_vl
 from .rae_siglip import RaeSiglipConfig, RaeSiglipModel
 from .sit import SiT, SiTConfig, SiTModel
 from .wanvideo import (
@@ -26,6 +27,7 @@ __all__ = [
     "apply_liger_kernel_to_qwen2",
     "apply_liger_kernel_to_qwen2_5_vl",
     "apply_liger_kernel_to_qwen2_audio",
+    "apply_liger_kernel_to_qwen3_vl",
     "WanVideoConfig",
     "WanVideoForConditionalGeneration",
     "WanVideoProcessor",
