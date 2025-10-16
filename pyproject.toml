@@ -49,6 +49,8 @@ dependencies = [
     "rich>=14.1.0",
     "hydra-core",
     "omegaconf",
+    "requests",
+    "tqdm",    
 ]
 
 [project.optional-dependencies]
@@ -65,11 +67,6 @@ storage = [
 
 bagel = [
     "opencv_python",
-]
-
-rae = [
-    "requests",
-    "tqdm",
 ]
 
 sit = [
