@@ -48,10 +48,10 @@ trainer_args:
   adam_epsilon: 1.0e-08
   max_grad_norm: 1.0
   num_train_epochs: 1
-  max_steps: 10
+  max_steps: -1
   lr_scheduler_type: constant
   lr_scheduler_kwargs: {}
-  warmup_ratio: 0.1
+  warmup_ratio: 0.0
   warmup_steps: 0
   log_level: passive
   log_level_replica: warning
