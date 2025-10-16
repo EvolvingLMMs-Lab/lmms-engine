@@ -15,7 +15,7 @@ class RaeSiglipConfig(PretrainedConfig):
         decoder_config=None,
         encoder_config=None,
         encoder_processor_path="google/siglip2-base-patch16-256",
-        noise_tau: float = 0.0,
+        noise_tau: float = 0.8,
         encoder_input_size: Optional[int] = None,
         reshape_to_2d: bool = True,
         latent_mean: Optional[List[float]] = None,

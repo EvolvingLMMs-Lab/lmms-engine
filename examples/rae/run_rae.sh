@@ -11,7 +11,7 @@ GRADIENT_ACCUMULATION_STEPS=1
 GRADIENT_CHECKPOINTING=true
 NUM_TRAIN_EPOCHS=16
 RUN_NAME="rae_siglip"
-OUTPUT_DIR="./output/rae_siglip"
+OUTPUT_DIR="./output/rae_siglip_v2"  # New directory to start fresh training
 MAX_STEPS=-1  # Use epochs instead of max_steps
 # Optimizer betas matching original RAE config
 ADAM_BETA1=0.5
@@ -19,8 +19,8 @@ ADAM_BETA2=0.9
 # Learning rate schedule matching original RAE config
 LR_SCHEDULER_TYPE=cosine
 WARMUP_RATIO=0.0625  # 1 epoch out of 16
-# No gradient clipping for generator (matching original)
-MAX_GRAD_NORM=0.0
+# Gradient clipping - original RAE uses 0.0 (disabled)
+MAX_GRAD_NORM=10.0
 # Note: EMA decay (0.9978) is hardcoded in rae_trainer.py to match original RAE config
 
 torchrun --nproc_per_node="8" \

@@ -14,7 +14,7 @@ from transformers.utils import ModelOutput
 
 from .configuration_rae_siglip import RaeSiglipConfig
 from .general_decoder import GeneralDecoder
-
+from loguru import logger
 
 class RaeSiglipPreTrainedModel(SiglipPreTrainedModel):
     config_class = RaeSiglipConfig
@@ -61,6 +61,7 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         )
         self.decoder = GeneralDecoder(decoder_config, num_patches=self.base_patches)
         self.noise_tau = config.noise_tau
+        logger.info(f"[RAE SigLIP] Noise tau: {self.noise_tau}")
         self.reshape_to_2d = config.reshape_to_2d
         if config.latent_mean is not None and config.latent_var is not None:
             # Convert lists back to tensors if needed
