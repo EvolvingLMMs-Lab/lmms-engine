@@ -11,8 +11,8 @@ try:
         _patch_rms_norm_module,
         _patch_swiglu_module,
     )
-    from liger_kernel.transformers.qwen2vl_mrope import liger_multimodal_rotary_pos_emb
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
+    from liger_kernel.transformers.rope import liger_rotary_pos_emb
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
     print(
@@ -71,9 +71,7 @@ def apply_liger_kernel_to_qwen3_vl(
         qwen3_vl_lce_forward = wrap_forward(qwen3_vl_lce_forward)
 
     if rope:
-        modeling_qwen3_vl.apply_multimodal_rotary_pos_emb = (
-            liger_multimodal_rotary_pos_emb
-        )
+        modeling_qwen3_vl.apply_rotary_pos_emb = liger_rotary_pos_emb
     if rms_norm:
         modeling_qwen3_vl.Qwen3VLTextRMSNorm = LigerRMSNorm
     if cross_entropy:
@@ -88,8 +86,10 @@ def apply_liger_kernel_to_qwen3_vl(
         from .qwen3_vl_ops import (
             decoder_layer_forward as qwen3_ops_decoder_layer_forward,
         )
+        from .qwen3_vl_ops import model_forward as qwen3_ops_model_forward
         from .qwen3_vl_ops import text_model_forward as qwen3_ops_text_model_forward
 
+        modeling_qwen3_vl.Qwen3VLModel.forward = qwen3_ops_model_forward
         modeling_qwen3_vl.Qwen3VLTextModel.forward = qwen3_ops_text_model_forward
         modeling_qwen3_vl.Qwen3VLTextDecoderLayer.forward = (
             qwen3_ops_decoder_layer_forward

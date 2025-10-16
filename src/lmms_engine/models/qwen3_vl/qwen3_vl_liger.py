@@ -14,7 +14,7 @@ except:
 
 
 def qwen3_vl_lce_forward(
-    self,
+    self: Qwen3VLForConditionalGeneration,
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
@@ -70,6 +70,8 @@ def qwen3_vl_lce_forward(
     labels_unpad = labels.view(-1)[word_idx.long()]
     labels = labels_unpad
 
+    config = getattr(self.config, "text_config", self.config)
+
     # if in training mode, don't materialize logits
     if labels is not None:
         if use_rmpad:
@@ -93,7 +95,7 @@ def qwen3_vl_lce_forward(
             shift_labels = labels[..., 1:].contiguous()
 
         # flatten tokens
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_hidden_states = shift_hidden_states.view(-1, config.hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
@@ -109,7 +111,7 @@ def qwen3_vl_lce_forward(
             loss = self.loss_function(
                 logits=logits,
                 labels=labels,
-                vocab_size=self.config.vocab_size,
+                vocab_size=config.vocab_size,
                 **kwargs,
             )
 

@@ -4,11 +4,11 @@ from typing import Optional, Union
 import torch
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.modeling_outputs import (
+from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel
+from transformers.models.qwen3_vl.modeling_qwen3_vl import (
     Qwen3VLModelOutputWithPast as HFQwen3VLModelOutputWithPast,
 )
 from transformers.models.qwen3_vl.modeling_qwen3_vl import (
-    Qwen3VLModel,
     Qwen3VLTextAttention,
     Qwen3VLTextDecoderLayer,
     Qwen3VLTextModel,
@@ -57,10 +57,18 @@ def model_forward(
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-    original_input_ids = input_ids
-    input_ids, indices, cu_seq_lens, _ = _unpad_input(
-        input_ids, attention_mask=attention_mask
-    )
+    if input_ids is not None:
+        original_input_ids = input_ids
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(
+            input_ids, attention_mask=attention_mask
+        )
+        batch_size, seq_length = original_input_ids.shape
+    elif inputs_embeds is not None:
+        original_inputs_embeds = inputs_embeds
+        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(
+            inputs_embeds, attention_mask=attention_mask
+        )
+        batch_size, seq_length, _ = original_inputs_embeds.shape
 
     if inputs_embeds is None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
@@ -159,7 +167,7 @@ def model_forward(
             self.rope_deltas = rope_deltas
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
-            batch_size, seq_length = original_input_ids.shape
+            # batch_size, seq_length = original_input_ids.shape
             delta = (
                 (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
                 if cache_position is not None
@@ -187,6 +195,8 @@ def model_forward(
         cache_position=cache_position,
         visual_pos_masks=visual_pos_masks,
         deepstack_visual_embeds=deepstack_visual_embeds,
+        indices=indices,
+        cu_seq_lens=cu_seq_lens,
         **kwargs,
     )
 
@@ -280,6 +290,8 @@ def text_model_forward(
             past_key_values=past_key_values,
             cache_position=cache_position,
             position_embeddings=position_embeddings,
+            cu_seq_lens=cu_seq_lens,
+            indices=indices,
             **kwargs,
         )
         hidden_states = layer_outputs
@@ -354,15 +366,14 @@ def attn_forward(
     input_shape = hidden_states.shape[:-1]
     hidden_shape = (*input_shape, -1, self.head_dim)
 
-    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(
-        1, 2
-    )
-    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(
-        1, 2
-    )
-    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape))
+    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
+    value_states = self.v_proj(hidden_states).view(hidden_shape)
 
     cos, sin = position_embeddings
+    # Unsqueeze the first dim to apply pos embeds
+    query_states = query_states.unsqueeze(0).transpose(1, 2)
+    key_states = key_states.unsqueeze(0).transpose(1, 2)
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
     if past_key_values is not None:
