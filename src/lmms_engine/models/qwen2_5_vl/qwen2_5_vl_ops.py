@@ -35,11 +35,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad,
 )
 
-from ..sequence_packing_utils import (
-    BaseModelOutputWithPastAndRmpad,
-    _get_unpad_data,
-    _unpad_input,
-)
+from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 logger = logging.get_logger(__name__)
 
