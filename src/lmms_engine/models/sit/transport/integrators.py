@@ -3,7 +3,6 @@ from functools import partial
 import numpy as np
 import torch as th
 import torch.nn as nn
-from torchdiffeq import odeint
 from tqdm import tqdm
 
 
@@ -104,6 +103,10 @@ class ode:
         self.sampler_type = sampler_type
 
     def sample(self, x, model, **model_kwargs):
+        from .._imports import get_torchdiffeq_odeint
+
+        odeint = get_torchdiffeq_odeint()
+
         device = x[0].device if isinstance(x, tuple) else x.device
 
         def _fn(t, x):

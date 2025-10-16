@@ -11,14 +11,6 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from loguru import logger
-
-try:
-    from timm.models.vision_transformer import Attention, Mlp, PatchEmbed
-except ImportError:
-    logger.warning(
-        "timm not installed, please install it with `pip install timm` if you want to use SiT"
-    )
 
 
 def modulate(x, shift, scale):
@@ -122,6 +114,12 @@ class SiTBlock(nn.Module):
 
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
         super().__init__()
+
+        from ._imports import get_timm_attention, get_timm_mlp
+
+        Attention = get_timm_attention()
+        Mlp = get_timm_mlp()
+
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.attn = Attention(
             hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs
@@ -198,6 +196,11 @@ class SiT(nn.Module):
         learn_sigma=True,
     ):
         super().__init__()
+
+        from ._imports import get_timm_patch_embed
+
+        PatchEmbed = get_timm_patch_embed()
+
         self.learn_sigma = learn_sigma
         self.in_channels = in_channels
         self.out_channels = in_channels * 2 if learn_sigma else in_channels

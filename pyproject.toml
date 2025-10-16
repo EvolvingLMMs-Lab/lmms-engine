@@ -67,6 +67,11 @@ bagel = [
     "opencv_python",
 ]
 
+rae = [
+    "requests",
+    "tqdm",
+]
+
 sit = [
     "timm",
     "diffusers",
