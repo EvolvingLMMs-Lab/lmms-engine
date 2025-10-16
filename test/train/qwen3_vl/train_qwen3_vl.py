@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Training script for Qwen2.5-VL model.
+Training script for Qwen3-VL model.
 This script is designed to be launched by torchrun for multi-GPU training.
 """
 
@@ -12,7 +12,7 @@ from lmms_engine.launch.cli import create_train_task
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Qwen2.5-VL model")
+    parser = argparse.ArgumentParser(description="Train Qwen3-VL model")
     parser.add_argument(
         "--output_dir", type=str, required=True, help="Output directory for training"
     )
@@ -42,14 +42,14 @@ def main():
                 }
             ],
             "processor_config": {
-                "processor_name": "Qwen/Qwen2.5-VL-3B-Instruct",
-                "processor_type": "qwen2_5_vl",
+                "processor_name": "Qwen/Qwen3-VL-3B-Instruct",
+                "processor_type": "qwen3_vl",
             },
             "packing": False,
             "video_backend": "qwen_vl_utils",
         },
         "model_config": {
-            "load_from_pretrained_path": "Qwen/Qwen2.5-VL-3B-Instruct",
+            "load_from_pretrained_path": "Qwen/Qwen3-VL-3B-Instruct",
             "attn_implementation": "flash_attention_2",
         },
         "trainer_args": {
@@ -69,10 +69,10 @@ def main():
             "fsdp2": True,
             "group_by_length": True,
             "fsdp_config": {
-                "transformer_layer_cls_to_wrap": ["Qwen2_5_VLDecoderLayer"],
+                "transformer_layer_cls_to_wrap": ["Qwen3VLTextDecoderLayer"],
                 "reshard_after_forward": False,
             },
-            "sp_ulysses_degree": 2,
+            "sp_ulysses_degree": 1,
             "print_batch_input_steps": 5,
         },
     }
