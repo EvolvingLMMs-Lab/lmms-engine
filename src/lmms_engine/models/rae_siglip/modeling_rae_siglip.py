@@ -63,13 +63,23 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         self.noise_tau = config.noise_tau
         self.reshape_to_2d = config.reshape_to_2d
         if config.latent_mean is not None and config.latent_var is not None:
-            self.latent_mean = config.latent_mean
-            self.latent_var = config.latent_var
+            # Convert lists back to tensors if needed
+            if isinstance(config.latent_mean, list):
+                latent_mean = torch.tensor(config.latent_mean, dtype=torch.float32)
+            else:
+                latent_mean = config.latent_mean
+            if isinstance(config.latent_var, list):
+                latent_var = torch.tensor(config.latent_var, dtype=torch.float32)
+            else:
+                latent_var = config.latent_var
+            # Register as buffers for proper device handling
+            self.register_buffer("latent_mean", latent_mean, persistent=False)
+            self.register_buffer("latent_var", latent_var, persistent=False)
             self.do_normalization = True
             self.eps = config.eps
         else:
-            self.latent_mean = None
-            self.latent_var = None
+            self.register_buffer("latent_mean", None, persistent=False)
+            self.register_buffer("latent_var", None, persistent=False)
             self.do_normalization = False
 
         encoder = SiglipVisionModel._from_config(self.encoder_config).vision_model
@@ -130,18 +140,9 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
                 batch_size, hidden, side, side
             )
         if self.do_normalization:
-            latent_mean = (
-                self.latent_mean.to(hidden_states.device)
-                if self.latent_mean is not None
-                else 0
-            )
-            latent_var = (
-                self.latent_var.to(hidden_states.device)
-                if self.latent_var is not None
-                else 1
-            )
-            hidden_states = (hidden_states - latent_mean) / torch.sqrt(
-                latent_var + self.eps
+            # Buffers are automatically moved to the correct device
+            hidden_states = (hidden_states - self.latent_mean) / torch.sqrt(
+                self.latent_var + self.eps
             )
 
         outputs.last_hidden_state = hidden_states
@@ -171,9 +172,8 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
             )
 
         if self.do_normalization:
-            latent_mean = self.latent_mean.to(latent.device, latent.dtype)
-            latent_var = self.latent_var.to(latent.device, latent.dtype)
-            latent = latent * torch.sqrt(latent_var + self.eps) + latent_mean
+            # Buffers are automatically moved to the correct device
+            latent = latent * torch.sqrt(self.latent_var + self.eps) + self.latent_mean
 
         if self.reshape_to_2d:
             bsz, channel, height, width = latent.shape

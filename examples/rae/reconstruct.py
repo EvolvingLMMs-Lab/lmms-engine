@@ -82,28 +82,23 @@ def load_input_image():
 
 def reconstruct_image(model, processor, image, device):
     """Reconstruct the image using the RAE model."""
-    try:
-        print("Processing image with model...")
+    print("Processing image with model...")
 
-        # Prepare inputs
-        inputs = processor(images=[image], return_tensors="pt")
+    # Prepare inputs
+    inputs = processor(images=[image], return_tensors="pt")
 
-        # Move inputs to the same device as the model
-        if hasattr(model, "device"):
-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
-        else:
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+    # Move inputs to the same device as the model
+    if hasattr(model, "device"):
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+    else:
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        # Run inference
-        with torch.no_grad():
-            outputs = model(**inputs)
+    # Run inference
+    with torch.no_grad():
+        outputs = model(**inputs)
 
-        print("Image reconstruction completed!")
-        return outputs
-
-    except Exception as e:
-        print(f"Error during image reconstruction: {e}")
-        exit(1)
+    print("Image reconstruction completed!")
+    return outputs
 
 
 def save_reconstructed_image(outputs, output_path: str):
