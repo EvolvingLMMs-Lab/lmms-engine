@@ -126,7 +126,7 @@ trainer_args:
   group_by_length: false
   length_column_name: length
   report_to: []
-  project: huggingface
+  project: lmms-engine
   trackio_space_id: trackio
   ddp_find_unused_parameters: null
   ddp_bucket_cap_mb: null
