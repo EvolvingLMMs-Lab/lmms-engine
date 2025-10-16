@@ -32,7 +32,7 @@ def main():
     cfg = {
         "trainer_type": "fsdp2_trainer",
         "dataset_config": {
-            "dataset_type": "vision",
+            "dataset_type": "qwen3_vl_iterable",
             "dataset_format": "yaml",
             "datasets": [
                 {
@@ -42,14 +42,14 @@ def main():
                 }
             ],
             "processor_config": {
-                "processor_name": "Qwen/Qwen3-VL-3B-Instruct",
+                "processor_name": "Qwen/Qwen3-VL-4B-Instruct",
                 "processor_type": "qwen3_vl",
             },
             "packing": False,
             "video_backend": "qwen_vl_utils",
         },
         "model_config": {
-            "load_from_pretrained_path": "Qwen/Qwen3-VL-3B-Instruct",
+            "load_from_pretrained_path": "Qwen/Qwen3-VL-4B-Instruct",
             "attn_implementation": "flash_attention_2",
         },
         "trainer_args": {
