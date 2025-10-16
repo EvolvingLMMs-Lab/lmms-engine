@@ -23,7 +23,10 @@ from .fsdp2_trainer import FSDP2SFTTrainer
 class RaeTrainer(FSDP2SFTTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Hardcoded EMA decay configuration to match original RAE Stage-1 training
+        self.ema_decay = 0.9978  # From original RAE config (DINOv2-B_decXL.yaml)
         # Hardcoded discriminator configuration
+        # Matches original RAE Stage-1 training config (DINOv2-B_decXL.yaml)
         self.discriminator_config = {
             "disc_weight": 0.75,
             "perceptual_weight": 1.0,
@@ -31,13 +34,17 @@ class RaeTrainer(FSDP2SFTTrainer):
             "max_d_weight": 10000.0,
             "disc_loss": "hinge",
             "gen_loss": "vanilla",
-            "discriminator_start": 0.03,
-            "discriminator_loss_start": 0.03,
-            "lpips_start": 0,
+            # Original RAE uses epoch-based schedule:
+            # disc_upd_start: 6 (discriminator updates start at epoch 6)
+            # disc_start: 8 (GAN loss starts at epoch 8)
+            # For 16 epochs: 6/16 = 0.375, 8/16 = 0.5
+            "discriminator_start": 6,  # epoch 6 - discriminator updates start
+            "discriminator_loss_start": 8,  # epoch 8 - GAN loss to generator starts
+            "lpips_start": 0,  # epoch 0 - LPIPS loss starts immediately
             "discriminator_lr": 2.0e-04,
             "discriminator_weight_decay": 0.0,
             "discriminator_lr_scheduler_type": "cosine",
-            "discriminator_warmup_ratio": 0.0625,
+            "discriminator_warmup_ratio": 0.0625,  # 1 epoch out of 16
             "dino_ckpt_path": "./data/discs/dino_vit_small_patch8_224.pth",
             "ks": 9,
             "key_depths": (2, 5, 8, 11),
@@ -92,7 +99,7 @@ class RaeTrainer(FSDP2SFTTrainer):
 
         self.lpips_start_epoch = int(self.discriminator_config.get("lpips_start", 0))
 
-        self.ema_decay = getattr(self.args, "ema_decay", None)
+        # ema_decay is now set in __init__ from extra_kwargs
         self.ema_state = None
         self.last_layer_module = None
         self.lpips_start_step = 0
@@ -237,6 +244,7 @@ class RaeTrainer(FSDP2SFTTrainer):
         discriminator_weight_decay = self.discriminator_config.get(
             "discriminator_weight_decay", self.args.weight_decay
         )
+        # Use same betas as generator (matching original RAE config: [0.5, 0.9])
         self.discriminator_optimizer = torch.optim.AdamW(
             self.discriminator.parameters(),
             lr=discriminator_lr,

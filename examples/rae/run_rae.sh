@@ -9,10 +9,19 @@ LEARNING_RATE=2.0e-04
 WEIGHT_DECAY=0.0
 GRADIENT_ACCUMULATION_STEPS=1
 GRADIENT_CHECKPOINTING=true
-NUM_TRAIN_EPOCHS=1
+NUM_TRAIN_EPOCHS=16
 RUN_NAME="rae_siglip"
 OUTPUT_DIR="./output/rae_siglip"
-MAX_STEPS=40032
+MAX_STEPS=-1  # Use epochs instead of max_steps
+# Optimizer betas matching original RAE config
+ADAM_BETA1=0.5
+ADAM_BETA2=0.9
+# Learning rate schedule matching original RAE config
+LR_SCHEDULER_TYPE=cosine
+WARMUP_RATIO=0.0625  # 1 epoch out of 16
+# No gradient clipping for generator (matching original)
+MAX_GRAD_NORM=0.0
+# Note: EMA decay (0.9978) is hardcoded in rae_trainer.py to match original RAE config
 
 torchrun --nproc_per_node="8" \
     --nnodes="1" \
@@ -33,9 +42,12 @@ torchrun --nproc_per_node="8" \
     trainer_args.per_device_train_batch_size=${PER_DEVICE_TRAIN_BATCH_SIZE} \
     trainer_args.learning_rate=${LEARNING_RATE} \
     trainer_args.weight_decay=${WEIGHT_DECAY} \
+    trainer_args.adam_beta1=${ADAM_BETA1} \
+    trainer_args.adam_beta2=${ADAM_BETA2} \
     trainer_args.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS} \
     trainer_args.gradient_checkpointing=${GRADIENT_CHECKPOINTING} \
     trainer_args.num_train_epochs=${NUM_TRAIN_EPOCHS} \
+    trainer_args.max_grad_norm=${MAX_GRAD_NORM} \
     trainer_args.run_name=${RUN_NAME} \
     trainer_args.output_dir=${OUTPUT_DIR} \
     trainer_args.fsdp2=true \
@@ -48,8 +60,8 @@ torchrun --nproc_per_node="8" \
     trainer_args.dataloader_num_workers=4 \
     trainer_args.dataloader_prefetch_factor=2 \
     trainer_args.bf16=true \
-    trainer_args.lr_scheduler_type=constant \
+    trainer_args.lr_scheduler_type=${LR_SCHEDULER_TYPE} \
+    trainer_args.warmup_ratio=${WARMUP_RATIO} \
     trainer_args.logging_steps=1 \
     trainer_args.group_by_length=false \
-    trainer_args.bf16=true \
     trainer_args.report_to=['wandb']
