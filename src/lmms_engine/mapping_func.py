@@ -61,7 +61,6 @@ def register_model(
         "causal_lm", "masked_lm", "image_text_to_text", "general"
     ] = "causal_lm",
 ):
-    # Use exist_ok=True to avoid conflicts with models already registered in transformers
     AutoConfig.register(model_type, model_config, exist_ok=True)
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
