@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import os
 from pathlib import Path
 
 import torch
@@ -42,14 +43,52 @@ def parse_args():
         help="Path where the reconstructed image will be saved",
     )
 
+    parser.add_argument(
+        "--use_ema",
+        action="store_true",
+        help="Use EMA (Exponential Moving Average) weights for inference (recommended for better quality)",
+    )
+
     return parser.parse_args()
 
 
-def load_model_and_processor(model_path: str):
+def load_ema_weights(model, ema_state_path: str):
+    """Load EMA weights into the model."""
+    try:
+        print(f"Loading EMA weights from: {ema_state_path}")
+        ema_state = torch.load(ema_state_path, map_location="cpu")
+
+        # Load EMA weights into model
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if name in ema_state:
+                    param.copy_(ema_state[name])
+                else:
+                    print(f"Warning: EMA state missing for parameter: {name}")
+
+        print("EMA weights loaded successfully!")
+        return model
+
+    except Exception as e:
+        print(f"Error loading EMA weights: {e}")
+        print("Continuing with regular model weights...")
+        return model
+
+
+def load_model_and_processor(model_path: str, use_ema: bool = False):
     """Load the RAE model and processor from the checkpoint path."""
     try:
         print(f"Loading model from: {model_path}")
         model = RaeSiglipModel.from_pretrained(model_path)
+
+        # Load EMA weights if requested
+        if use_ema:
+            ema_path = os.path.join(model_path, "ema_state.pt")
+            if os.path.exists(ema_path):
+                model = load_ema_weights(model, ema_path)
+            else:
+                print(f"Warning: EMA weights not found at {ema_path}")
+                print("Using regular model weights instead.")
 
         print("Loading processor...")
         processor = AutoProcessor.from_pretrained(model_path)
@@ -84,6 +123,9 @@ def reconstruct_image(model, processor, image, device):
     """Reconstruct the image using the RAE model."""
     print("Processing image with model...")
 
+    # Set model to evaluation mode
+    model.eval()
+
     # Prepare inputs
     inputs = processor(images=[image], return_tensors="pt")
 
@@ -109,8 +151,9 @@ def save_reconstructed_image(outputs, output_path: str):
         # Extract the reconstructed pixels
         out_pixels = outputs.out_pixels.squeeze(0)
 
-        # Convert from [-1, 1] range to [0, 1] range
-        img_tensor = ((out_pixels + 1) / 2).clamp(0, 1)
+        # The model already outputs in [0, 1] range after denormalization
+        # No need to convert from [-1, 1] - just clamp to ensure valid range
+        img_tensor = out_pixels.clamp(0, 1)
 
         # Convert to PIL image
         img = to_pil_image(img_tensor)
@@ -134,7 +177,7 @@ def main():
     args = parse_args()
 
     # Load model and processor
-    model, processor = load_model_and_processor(args.model_path)
+    model, processor = load_model_and_processor(args.model_path, use_ema=args.use_ema)
 
     # Load input image
     input_image = load_input_image()

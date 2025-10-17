@@ -470,6 +470,30 @@ class RaeTrainer(FSDP2SFTTrainer):
             return vanilla_loss
         raise ValueError(f"Unsupported discriminator loss: {loss_type}")
 
+    def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
+        """Save model checkpoint including EMA weights."""
+        super().save_checkpoints(output_path, step, total_limit)
+
+        # Save EMA state if it exists
+        if self.ema_state is not None and dist.get_rank() == 0:
+            ema_path = os.path.join(output_path, "ema_state.pt")
+            logger.info(f"[RAE Trainer] Saving EMA state to {ema_path}")
+            torch.save(self.ema_state, ema_path)
+            logger.info(f"[RAE Trainer] EMA state saved successfully")
+
+    def load_checkpoints(self, output_path: str, step: int):
+        """Load model checkpoint including EMA weights."""
+        super().load_checkpoints(output_path, step)
+
+        # Load EMA state if it exists
+        ema_path = os.path.join(output_path, "ema_state.pt")
+        if os.path.exists(ema_path):
+            logger.info(f"[RAE Trainer] Loading EMA state from {ema_path}")
+            self.ema_state = torch.load(ema_path, map_location="cpu")
+            logger.info(f"[RAE Trainer] EMA state loaded successfully")
+        else:
+            logger.warning(f"[RAE Trainer] EMA state file not found at {ema_path}")
+
     def _calculate_adaptive_weight(
         self, recon_loss: torch.Tensor, gan_loss: torch.Tensor
     ) -> torch.Tensor:
