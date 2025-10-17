@@ -5,7 +5,7 @@ from .llava_onevision import apply_liger_kernel_to_llava_onevision
 from .monkey_patch import MONKEY_PATCHER
 from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_omni import (
-    Qwen2_5OmniConfig,
+    Qwen2_5OmniThinkerConfig,
     Qwen2_5OmniThinkerForConditionalGeneration,
     apply_liger_kernel_to_qwen2_5_omni,
 )
@@ -27,7 +27,7 @@ __all__ = [
     "AeroProcessor",
     "apply_liger_kernel_to_llava_onevision",
     "apply_liger_kernel_to_qwen2",
-    "Qwen2_5OmniConfig",
+    "Qwen2_5OmniThinkerConfig",
     "Qwen2_5OmniThinkerForConditionalGeneration",
     "apply_liger_kernel_to_qwen2_5_omni",
     "apply_liger_kernel_to_qwen2_5_vl",

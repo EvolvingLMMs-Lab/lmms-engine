@@ -29,7 +29,6 @@ import transformers
 from transformers import PreTrainedModel
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniAudioEncoder,
-    Qwen2_5OmniForConditionalGeneration,
     Qwen2_5OmniThinkerForConditionalGeneration,
     Qwen2_5OmniThinkerTextModel,
     Qwen2_5OmniVisionEncoder,
@@ -81,9 +80,6 @@ def apply_liger_kernel_to_qwen2_5_omni(
 
     from transformers.models.qwen2_5_omni import modeling_qwen2_5_omni
 
-    from .qwen2_5_omni_liger import (
-        full_model_forward as qwen2_5_omni_full_model_forward,
-    )
     from .qwen2_5_omni_liger import lce_forward as qwen2_5_omni_lce_forward
 
     def wrap_forward(func):
@@ -95,7 +91,6 @@ def apply_liger_kernel_to_qwen2_5_omni(
         return wrapper
 
     qwen2_5_omni_lce_forward = wrap_forward(qwen2_5_omni_lce_forward)
-    qwen2_5_omni_full_model_forward = wrap_forward(qwen2_5_omni_full_model_forward)
     if rope:
         Logging.warning("RoPE optimization not supported for Qwen2.5-Omni, skipping")
     if rms_norm:
@@ -105,10 +100,6 @@ def apply_liger_kernel_to_qwen2_5_omni(
     if fused_linear_cross_entropy:
         modeling_qwen2_5_omni.Qwen2_5OmniThinkerForConditionalGeneration.forward = (
             qwen2_5_omni_lce_forward
-        )
-        # patch the full model forward to delegate to thinker
-        modeling_qwen2_5_omni.Qwen2_5OmniForConditionalGeneration.forward = (
-            qwen2_5_omni_full_model_forward
         )
     if swiglu:
         modeling_qwen2_5_omni.Qwen2MLP = LigerSwiGLUMLP
@@ -135,13 +126,7 @@ def apply_liger_kernel_to_qwen2_5_omni(
         )
 
     if model is not None:
-        if isinstance(model, Qwen2_5OmniForConditionalGeneration):
-            # full model with thinker + talker, extract thinker
-            thinker_model: Qwen2_5OmniThinkerForConditionalGeneration = model.thinker
-            text_model: Qwen2_5OmniThinkerTextModel = thinker_model.model
-            vision_model: Qwen2_5OmniVisionEncoder = thinker_model.visual
-            audio_model: Qwen2_5OmniAudioEncoder = thinker_model.audio_tower
-        elif isinstance(model, Qwen2_5OmniThinkerForConditionalGeneration):
+        if isinstance(model, Qwen2_5OmniThinkerForConditionalGeneration):
             text_model: Qwen2_5OmniThinkerTextModel = model.model
             vision_model: Qwen2_5OmniVisionEncoder = model.visual
             audio_model: Qwen2_5OmniAudioEncoder = model.audio_tower
@@ -151,8 +136,10 @@ def apply_liger_kernel_to_qwen2_5_omni(
             audio_model = None
         else:
             raise TypeError(
-                f"Unsupported Qwen2.5-Omni model type. `model` must be `Qwen2_5OmniForConditionalGeneration`, "
-                f"`Qwen2_5OmniThinkerForConditionalGeneration` or `Qwen2_5OmniThinkerTextModel`. Got: {type(model)}"
+                f"Unsupported Qwen2.5-Omni model type. `model` must be "
+                f"`Qwen2_5OmniThinkerForConditionalGeneration` or `Qwen2_5OmniThinkerTextModel`. "
+                f"Got: {type(model)}. "
+                f"If you have the full model, extract the thinker using scripts/extract_qwen_omni_thinker.py"
             )
 
         if vision_model is not None and rms_norm:

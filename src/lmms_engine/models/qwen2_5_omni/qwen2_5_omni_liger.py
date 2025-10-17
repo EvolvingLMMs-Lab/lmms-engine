@@ -2,7 +2,6 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
-    Qwen2_5OmniForConditionalGeneration,
     Qwen2_5OmniThinkerCausalLMOutputWithPast,
     Qwen2_5OmniThinkerForConditionalGeneration,
 )
@@ -33,14 +32,6 @@ try:
     )
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
-
-
-def full_model_forward(
-    self: Qwen2_5OmniForConditionalGeneration,
-    *args,
-    **kwargs,
-):
-    return self.thinker(*args, **kwargs)
 
 
 def lce_forward(
@@ -300,8 +291,6 @@ def lce_forward(
 
         if reduction == "sum":
             loss /= kwargs["num_items_in_batch"]
-
-        Logging.info(f"[LCE_FORWARD] Computed loss: {loss.item()}")
 
     else:
         logits = self.lm_head(hidden_states)
