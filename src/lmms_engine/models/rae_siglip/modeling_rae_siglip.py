@@ -182,6 +182,10 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         else:
             hidden_states = latent
 
+        # Ensure hidden_states dtype matches decoder parameters
+        decoder_dtype = next(self.decoder.parameters()).dtype
+        hidden_states = hidden_states.to(dtype=decoder_dtype)
+
         decoder_outputs = self.decoder(
             hidden_states=hidden_states,
             interpolate_pos_encoding=interpolate_pos_encoding,
