@@ -26,7 +26,7 @@
       fps: 1
 
     model_config:
-      load_from_pretrained_path: "Qwen/Qwen2.5-Omni-7B"
+      load_from_pretrained_path: "ngqtrung/Qwen2.5-Omni-Thinker-7B"
       attn_implementation: "flash_attention_2"
       model_type: "qwen2_5_omni"
       torch_dtype: "bfloat16"
