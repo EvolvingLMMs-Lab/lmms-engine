@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 from transformers.utils import is_torch_xla_available
 
-from lmms_engine.train.registry import TRAINER_REGISTER
-from lmms_engine.train.hf.trainer import Trainer as HFTrainer
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.train.hf.trainer import Trainer as HFTrainer
+from lmms_engine.train.registry import TRAINER_REGISTER
 
 
 @TRAINER_REGISTER.register("dllm_trainer")
@@ -40,9 +40,17 @@ class DLLMTrainer(HFTrainer):
                 kwargs["num_items_in_batch"] = num_items_in_batch
             inputs = {**inputs, **kwargs}
 
-        zero_config = getattr(model.config, "zero_optimization", None) if hasattr(model, "config") else None
+        zero_config = (
+            getattr(model.config, "zero_optimization", None)
+            if hasattr(model, "config")
+            else None
+        )
         if zero_config:
-            zero_stage = zero_config.get("stage", None) if isinstance(zero_config, dict) else getattr(zero_config, "stage", None)
+            zero_stage = (
+                zero_config.get("stage", None)
+                if isinstance(zero_config, dict)
+                else getattr(zero_config, "stage", None)
+            )
             inputs["zero_stage"] = zero_stage
 
         if self.state.global_step == 0 or getattr(self, "cur_time", None) is None:
@@ -57,7 +65,7 @@ class DLLMTrainer(HFTrainer):
             .cpu()
             .tolist()
         )
-        
+
         self.step += 1
         do_log_nll_step = (self.step + 1) % self.args.gradient_accumulation_steps == 0
         outputs = model(**inputs)

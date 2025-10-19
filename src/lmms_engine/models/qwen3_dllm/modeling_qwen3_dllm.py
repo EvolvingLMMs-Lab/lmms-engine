@@ -1,8 +1,8 @@
+from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Union
 
 import torch
 from torch import nn
-from dataclasses import dataclass
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.generation import GenerationMixin
@@ -94,6 +94,7 @@ def cross_entropy_loss(
             f"Invalid kernel: {kernel}. Two possible reasons: 1. kernel is not supported/installed; 2. zero_stage 3 is not supported for liger and cutoff currently."
         )
     return loss
+
 
 @dataclass
 class Qwen3DLLMMaskedLMOutput(MaskedLMOutput):

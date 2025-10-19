@@ -186,6 +186,7 @@ def adam_update(grad, buf1, buf2, step, betas, eps):
     buf2c = buf2 / (1 - betas[1] ** step)
     return buf1c / (buf2c.sqrt() + eps)
 
+
 def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, rms_scale=False):
     # momentum update, please consider the nesterov as True
     momentum.lerp_(grad, 1 - beta)
