@@ -63,7 +63,7 @@ def create_train_task(config):
 
 def save_config(config):
     if dist.is_initialized():
-        rank = dist.get_rank()
+        rank = int(os.environ["LOCAL_RANK"])
     else:
         rank = 0
     if rank == 0:
