@@ -94,7 +94,8 @@ def main(config: DictConfig):
         logger.info(
             f"Detected config yaml, merging with the default config. Will use the args in {config_yaml} to override current config."
         )
-        config_yaml = yaml.safe_load(config_yaml)
+        with open(config_yaml, "r") as f:
+            config_yaml = yaml.safe_load(f)
         config.update(config_yaml)
     original_config = deepcopy(config)
     task = create_train_task(config)
