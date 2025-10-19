@@ -187,6 +187,15 @@ def adam_update(grad, buf1, buf2, step, betas, eps):
     return buf1c / (buf2c.sqrt() + eps)
 
 
+def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, rms_scale=False):
+    # momentum update, please consider the nesterov as True
+    momentum.lerp_(grad, 1 - beta)
+    update = grad.lerp_(momentum, beta) if nesterov else momentum
+    update = fast_newtonschulz(update, steps=ns_steps)
+    update = apply_scaling(update, rms_scale)
+    return update
+
+
 class Work(Protocol):
     def __init__(self, param, state, group, index: int):
         ...
@@ -489,70 +498,3 @@ class Muon(torch.optim.Optimizer):
             work.finish()
 
         return loss
-        # loss = None
-        # if closure is not None:
-        #     with torch.enable_grad():
-        #         loss = closure()
-        # for group in self.param_groups:
-        #     if group["use_muon"]:
-        #         params: list[Tensor] = group["params"]
-        #         update_buffer: Tensor = group["update_buffer"]
-        #         update_buffer_views: list[Tensor] = group["update_buffer_views"]
-
-        #         handle = None
-        #         params_world = None
-        #         weight_decays_world = None
-
-        #         def update_prev(): # optimized Muon implementation contributed by @YouJiacheng
-        #             handle.wait()
-        #             for p_world, g_world, weight_decay in zip(params_world, update_buffer_views, weight_decays_world):
-        #                 alpha = -group["lr"] * max(1, p_world.size(-2) / p_world.size(-1))**0.5
-        #                 p_world.mul_(1 - group["lr"] * group["weight_decays"])
-        #                 p_world.add_(
-        #                     g_world.view_as(p_world),
-        #                     alpha=alpha
-        #                 )
-
-        #         for base_i in range(len(params))[::self.world_size]:
-        #             if base_i + self.rank < len(params):
-        #                 p = params[base_i + self.rank]
-        #                 g = p.grad
-        #                 assert g is not None
-        #                 assert p.shape == g.shape
-        #                 state = self.state[p]
-        #                 if "momentum_buffer" not in state:
-        #                     state["momentum_buffer"] = torch.zeros_like(g)
-
-        #                 buf: Tensor = state["momentum_buffer"]
-        #                 buf.lerp_(g, 1 - group["beta"])
-        #                 g = g.lerp_(buf, group["beta"]) if group["nesterov"] else buf
-        #                 g = fast_newtonschulz(g, steps=group["ns_steps"]).flatten()
-        #             else:
-        #                 g = update_buffer_views[self.rank]
-        #             if base_i > 0:
-        #                 update_prev() # async all_gather instead of sync all_reduce by @YouJiacheng
-        #             handle = all_gather_into_tensor(update_buffer, g, async_op=True)
-        #             params_world = params[base_i : base_i + self.world_size]
-        #             weight_decays_world = weight_decays[base_i : base_i + self.world_size]
-        #         update_prev()
-        #     else:
-        #         for p in group["params"]:
-        #             g = p.grad
-        #             assert g is not None
-        #             state = self.state[p]
-        #             if "step" not in state: state["step"] = 0
-        #             if "momentum_buffer" not in state: state["momentum_buffer"] = torch.zeros_like(g)
-        #             if "momentum_sq_buffer" not in state: state["momentum_sq_buffer"] = torch.zeros_like(g)
-        #             m: Tensor = state["momentum_buffer"]
-        #             v: Tensor = state["momentum_sq_buffer"]
-        #             m.lerp_(g, 1 - group["adam_beta1"])
-        #             v.mul_(group["adam_beta2"]).addcmul_(g, g, value=1.0 - group["adam_beta2"])
-        #             state["step"] += 1
-        #             bias_correction1 = 1.0 - group["adam_beta1"] ** state["step"]
-        #             bias_correction2 = 1.0 - group["adam_beta2"] ** state["step"]
-        #             step_size = group["lr"] * (bias_correction2) ** 0.5 / bias_correction1
-        #             norm_grad = m / (v.sqrt().add_(group["adam_eps"]))
-        #             if weight_decay > 0.0:
-        #                 p.add_(p, alpha=(-group["lr"] * group["weight_decays"]))
-        #             p.add_(norm_grad, alpha=-step_size)
-        # return loss

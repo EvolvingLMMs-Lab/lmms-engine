@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Union
 
 import torch
@@ -95,10 +96,15 @@ def cross_entropy_loss(
     return loss
 
 
+@dataclass
 class Qwen3DLLMMaskedLMOutput(MaskedLMOutput):
-    def __init__(self, *args, **kwargs):
-        self.nll = kwargs.pop("nll", None)
-        super().__init__(*args, **kwargs)
+    nll: Optional[torch.Tensor] = None
+    d_loss: Optional[torch.Tensor] = None
+    logits: Optional[torch.Tensor] = None
+    hidden_states: Optional[torch.Tensor] = None
+    attention_mask: Optional[torch.Tensor] = None
+    position_ids: Optional[torch.Tensor] = None
+    logits_to_keep: Optional[Union[int, torch.Tensor]] = None
 
 
 @use_kernel_forward_from_hub("RMSNorm")
@@ -605,7 +611,6 @@ class Qwen3DLLMForMaskedLM(Qwen3DLLMPreTrainedModel, GenerationMixin):
         else:
             d_loss = d_loss.mean()
             nll = nll.mean()
-
         return Qwen3DLLMMaskedLMOutput(
             loss=d_loss,
             nll=nll,
