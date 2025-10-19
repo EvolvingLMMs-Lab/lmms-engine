@@ -5,6 +5,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
+from loguru import logger
 from transformers import AutoImageProcessor, AutoProcessor
 from transformers.models.siglip.modeling_siglip import (
     SiglipPreTrainedModel,
@@ -14,7 +15,7 @@ from transformers.utils import ModelOutput
 
 from .configuration_rae_siglip import RaeSiglipConfig
 from .general_decoder import GeneralDecoder
-from loguru import logger
+
 
 class RaeSiglipPreTrainedModel(SiglipPreTrainedModel):
     config_class = RaeSiglipConfig
