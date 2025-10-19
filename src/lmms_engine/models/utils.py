@@ -27,6 +27,7 @@ VALID_CONFIG_TYPE = {
     "qwen2_vl",
     "qwen2_5_vl",
     "qwen3",
+    "qwen3_dllm",
     "qwen3_moe",
     "deepseek_v3",
     "minicpmv",
@@ -48,8 +49,7 @@ class FlopsCounter:
     def __init__(self, config: PretrainedConfig):
         if config.model_type not in VALID_CONFIG_TYPE:
             logger.warning(
-                f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will always be "
-                f"zero."
+                f"Only support config type of {VALID_CONFIG_TYPE}, but got {config.model_type}. MFU will not be counted."
             )
 
         self.estimate_func = {
@@ -59,6 +59,7 @@ class FlopsCounter:
             "qwen2_vl": self._estimate_qwen2_flops,
             "qwen2_5_vl": self._estimate_qwen2_flops,
             "qwen3": self._estimate_qwen2_flops,
+            "qwen3_dllm": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,

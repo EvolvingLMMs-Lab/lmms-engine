@@ -9,19 +9,27 @@
       processor_config:
         processor_name: "Qwen/Qwen3-0.6B"
         processor_type: "pure_text"
+      extra_kwargs:
+        collator_type: dllm
+
     model_config:
-      attn_implementation: sdpa
       load_from_config:
         model_type: qwen3_dllm
-        config:
+        config : 
           vocab_size: 151936
           hidden_size: 1024
           intermediate_size: 4096
           num_hidden_layers: 24
           use_cache: false
-    per_device_train_batch_size: 32 # it should be multiple of world_size if we set split_batches to true
+
+    per_device_train_batch_size: 8 # it should be multiple of world_size if we set split_batches to true
+    use_muon: true
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_epsilon: 1.0e-8
     learning_rate: 0.001
     weight_decay: 0.01
+
     gradient_accumulation_steps: 16
     gradient_checkpointing: true
     max_steps: 10000
@@ -29,20 +37,18 @@
     save_total_limit: 1
     warmup_steps: 1000
     report_to: wandb
-    output_dir: ./output/debug102
-    run_name: lmms_engine_dllm_test_fineweb_edu
+    output_dir: ./output/debug1161
+    run_name: lmms_engine_dllm_fineweb_edu_muon
     eval_strategy: "no"
     logging_steps: 10
     seed: 42
     dataloader_num_workers: 4
     bf16: true
     fp16: false
-    accelerator_config:
-      split_batches: true
+    max_grad_norm: 1.0
     lr_scheduler_type: cosine
     use_liger_kernel: false
-    use_rmpad: true
     include_num_input_tokens_seen: true
     dataloader_drop_last: true
     sp_ulysses_degree: 1
-    deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
+    fsdp2: false

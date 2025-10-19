@@ -27,8 +27,8 @@ def create_train_task(config):
     model_config = ModelConfig(**model_config)
 
     trainer_type = config.pop("trainer_type")
-    global_rank = int(os.environ["RANK"])
-    world_size = int(os.environ["WORLD_SIZE"])
+    global_rank = int(os.environ.get("RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
 
     sp_degree = config.get("sp_ulysses_degree", 1)
     dp_size = world_size // sp_degree
@@ -39,6 +39,14 @@ def create_train_task(config):
     # If the process group is already initialized, don't initialize it again
     ddp_timeout = config.get("ddp_timeout", 30 * 60)
     if not dist.is_initialized():
+        # For single GPU without distributed launcher, set required env vars
+        if world_size == 1 and "MASTER_ADDR" not in os.environ:
+            os.environ["MASTER_ADDR"] = "127.0.0.1"
+            os.environ["MASTER_PORT"] = "29500"
+            os.environ["RANK"] = "0"
+            os.environ["WORLD_SIZE"] = "1"
+            os.environ["LOCAL_RANK"] = "0"
+
         dist.init_process_group(
             rank=global_rank,
             world_size=world_size,
@@ -46,6 +54,8 @@ def create_train_task(config):
             init_method=f"env://",
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
+
+    # Always setup ProcessGroupManager - required by trainers even in single-GPU mode
     setup_process_group_manager(
         tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size
     )
@@ -74,7 +84,8 @@ def main():
         else:
             raise ValueError(f"Unknown task type: {task_type}")
         task.run()
-    dist.destroy_process_group()
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":
