@@ -202,7 +202,7 @@ class Bagel(PreTrainedModel):
         self.config = config
         self._init_weights()
 
-    def _init_weights(self):
+    def _init_weights(self, module=None):
         if self.config.visual_gen:
             nn.init.constant_(self.llm2vae.weight, 0)
             nn.init.constant_(self.llm2vae.bias, 0)
@@ -412,9 +412,6 @@ class Bagel(PreTrainedModel):
             loss_dict["ce"] = ce.detach()
             loss = loss + ce * self.config.ce_weight
         else:
-            assert (
-                not self.config.visual_und
-            ), "ce loss is not supported when visual_und is False"
             loss_dict["ce"] = torch.tensor(0, device=self.device)
             total_ce_tokens = torch.tensor(0, device=self.device)
 
