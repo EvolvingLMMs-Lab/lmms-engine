@@ -33,25 +33,26 @@ model_config:
         attn_implementation: "eager"
     
 # Training arguments, mostly compatible with HuggingFace Trainer
-per_device_train_batch_size: 1
-learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
-weight_decay: 0.0
-gradient_accumulation_steps: 1
-gradient_checkpointing: true
-num_train_epochs: 1
-save_steps: 100
-save_total_limit: 1
-report_to: "wandb"
-output_dir: "./output/debug6"
-warmup_ratio: 0.0
-run_name: "gated_deltanet_test"
-eval_strategy: "no"
-logging_steps: 1
-group_by_length: true
-dataloader_num_workers: 8
-bf16: true
-lr_scheduler_type: "cosine"
-freeze_modules: ["visual"]
-use_liger_kernel: false
-use_rmpad: true
-deepspeed: "lmms-engine-mini/examples/ds_config/default_config.json"
+trainer_args:
+  per_device_train_batch_size: 1
+  learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+  weight_decay: 0.0
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  num_train_epochs: 1
+  save_steps: 100
+  save_total_limit: 1
+  report_to: "wandb"
+  output_dir: "./output/debug6"
+  warmup_ratio: 0.0
+  run_name: "gated_deltanet_test"
+  eval_strategy: "no"
+  logging_steps: 1
+  group_by_length: true
+  dataloader_num_workers: 8
+  bf16: true
+  lr_scheduler_type: "cosine"
+  freeze_modules: ["visual"]
+  use_liger_kernel: false
+  use_rmpad: true
+  deepspeed: "lmms-engine-mini/examples/ds_config/default_config.json"

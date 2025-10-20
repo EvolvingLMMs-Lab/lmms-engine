@@ -43,54 +43,53 @@ The training configuration is defined in YAML format. Reference configuration:
 Next, Key configuration highlights:
 
 ```yaml
-- type: trainer
-  config:
-    trainer_type: dllm_trainer  # Use DLLM-specific trainer
+trainer_type: dllm_trainer  # Use DLLM-specific trainer
 
-    # Model Configuration
-    model_config:
-      load_from_config:
-        model_type: qwen3_dllm  # DLLM variant of Qwen3
-        config:
-          vocab_size: 151936
-          hidden_size: 1024
-          intermediate_size: 4096
-          num_hidden_layers: 24
-          use_cache: false
+# Model Configuration
+model_config:
+  load_from_config:
+    model_type: qwen3_dllm  # DLLM variant of Qwen3
+    config:
+      vocab_size: 151936
+      hidden_size: 1024
+      intermediate_size: 4096
+      num_hidden_layers: 24
+      use_cache: false
 
-    # Dataset Configuration
-    dataset_config:
-      dataset_type: fineweb_edu
-      dataset_format: hf_dataset
-      dataset_path: HuggingFaceFW/fineweb-edu
-      packing_length: 2048
-      extra_kwargs:
-        collator_type: dllm  # DLLM-specific data collator
+# Dataset Configuration
+dataset_config:
+  dataset_type: fineweb_edu
+  dataset_format: hf_dataset
+  dataset_path: HuggingFaceFW/fineweb-edu
+  packing_length: 2048
+  extra_kwargs:
+    collator_type: dllm  # DLLM-specific data collator
 
-    # Muon Optimizer Settings
-    use_muon: true              # Enable Muon optimizer
-    adam_beta1: 0.9
-    adam_beta2: 0.999
-    adam_epsilon: 1.0e-8
-    learning_rate: 0.001
-    weight_decay: 0.01
-
-    # Training Configuration
-    per_device_train_batch_size: 32
-    gradient_accumulation_steps: 16
-    max_steps: 10000
-    warmup_steps: 1000
-
-    # Distributed Training
-    fsdp2: true  # FSDP2 for efficient distributed training
-    accelerator_config:
-      split_batches: true
-      # If true, rank 0 loads the dataset once, splits it into `world_size` shards,
-      # and dispatches each shard to the corresponding rank.
-      # Ensure `per_device_train_batch_size` is divisible by `world_size`.
-      # When `split_batches = true`, the effective batch per device is:
-      #   per_device_train_batch_size / world_size
-
+# Muon Optimizer Settings
+trainer_args:
+  use_muon: true              # Enable Muon optimizer
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-8
+  learning_rate: 0.001
+  weight_decay: 0.01
+  
+  # Training Configuration
+  per_device_train_batch_size: 32
+  gradient_accumulation_steps: 16
+  max_steps: 10000
+  warmup_steps: 1000
+  
+  # Distributed Training
+  fsdp2: true  # FSDP2 for efficient distributed training
+  accelerator_config:
+    split_batches: true
+    # If true, rank 0 loads the dataset once, splits it into `world_size` shards,
+    # and dispatches each shard to the corresponding rank.
+    # Ensure `per_device_train_batch_size` is divisible by `world_size`.
+    # When `split_batches = true`, the effective batch per device is:
+    #   per_device_train_batch_size / world_size
+  
 ```
 
 ### Running Training
