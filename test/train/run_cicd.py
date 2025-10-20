@@ -11,7 +11,9 @@ import unittest
 from pathlib import Path
 
 
-def run_training_tests(test_pattern="test_*.py", verbose=False, failfast=False):
+def run_training_tests(
+    test_pattern="test_*.py", verbose=False, failfast=False, model_name=None
+):
     """
     Run training tests using Python unittest.
 
@@ -19,9 +21,25 @@ def run_training_tests(test_pattern="test_*.py", verbose=False, failfast=False):
         test_pattern: Pattern to match test files
         verbose: Whether to run tests in verbose mode
         failfast: Whether to stop on first failure
+        model_name: Optional model name to run tests only for that model. If None, runs tests for all models.
     """
     # Get the directory containing this script
     test_dir = Path(__file__).parent
+
+    # If a specific model is requested, search only in that model's directory
+    if model_name:
+        model_dir = test_dir / model_name
+        if not model_dir.exists():
+            print(f"Error: Model directory '{model_name}' not found in {test_dir}")
+            print(
+                f"Available models: {', '.join([d.name for d in test_dir.iterdir() if d.is_dir() and not d.name.startswith('_')])}"
+            )
+            return False
+        search_dir = model_dir
+        print(f"Running tests for model: {model_name}")
+    else:
+        search_dir = test_dir
+        print("Running tests for all models")
 
     # Discover and run tests
     loader = unittest.TestLoader()
@@ -29,7 +47,7 @@ def run_training_tests(test_pattern="test_*.py", verbose=False, failfast=False):
     # For the new folder structure, we need to discover tests recursively
     # Start from the current directory and search all subdirectories
     suite = loader.discover(
-        str(test_dir), pattern=test_pattern, top_level_dir=str(test_dir)
+        str(search_dir), pattern=test_pattern, top_level_dir=str(test_dir)
     )
 
     # Create test runner
@@ -56,6 +74,11 @@ def main():
     )
     parser.add_argument("--failfast", action="store_true", help="Stop on first failure")
     parser.add_argument("--gpu-count", type=int, help="Override GPU count for testing")
+    parser.add_argument(
+        "--model-name",
+        default=None,
+        help="Optional model name to run tests only for that model (e.g., qwen2_5, qwen2_5_vl, qwen3_vl). Default: None (tests all models)",
+    )
 
     args = parser.parse_args()
 
@@ -69,7 +92,10 @@ def main():
     # Run tests
     print(f"Running training tests with pattern: {args.test_pattern}")
     success = run_training_tests(
-        test_pattern=args.test_pattern, verbose=args.verbose, failfast=args.failfast
+        test_pattern=args.test_pattern,
+        verbose=args.verbose,
+        failfast=args.failfast,
+        model_name=args.model_name,
     )
 
     # Exit with appropriate code
