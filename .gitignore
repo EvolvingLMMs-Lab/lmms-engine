@@ -167,5 +167,7 @@ wandb/
 playground/
 .deepspeed_env
 output/
+outputs/
 checkpoints/
 .vscode
+*.pth

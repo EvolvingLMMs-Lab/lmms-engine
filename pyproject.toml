@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmms_engine"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     { name = "Kaichen Zhang", email = "kaichenzhang358@outlook.com" },
     { name = "Fanyi Pu", email = "FPU001@e.ntu.edu.sg" },
@@ -19,7 +19,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "datasets",
@@ -42,13 +42,16 @@ dependencies = [
     "pyyaml",
     "wandb",
     "torchdata",
-    "flash-attn>=2.8.3",
     "liger-kernel>=0.6.1",
     "qwen-vl-utils",
     "qwen-omni-utils",
     "einops",
     "pandas",
     "rich>=14.1.0",
+    "hydra-core",
+    "omegaconf",
+    "requests",
+    "tqdm",    
 ]
 
 [project.optional-dependencies]
@@ -65,6 +68,12 @@ storage = [
 
 bagel = [
     "opencv_python",
+]
+
+sit = [
+    "timm",
+    "diffusers",
+    "torchdiffeq",
 ]
 
 all = [
@@ -92,3 +101,6 @@ lmms_launch="lmms_engine.launch.cli:main"
 [project.urls]
 Homepage = "https://lmms-lab.com/"
 Repository = "https://github.com/EvolvingLMMs-Lab/lmms_engine"
+
+[tool.isort]
+known_third_party = ["wandb"]

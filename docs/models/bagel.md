@@ -22,9 +22,11 @@ BAGEL integrates:
 
 An example dataset is available on `https://huggingface.co/datasets/kcz358/bagel-example`
 
-### 2. Ovewrite config
+### 2. Ovewrite config or load from converted weight
 
 Since the original Bagel config is not hf compatible and can't be used in AutoConfig, we prepare a config here `https://huggingface.co/kcz358/bagel_hf/blob/main/config.json`. Please overwrite this json file to the original `config.json` in the Bagel model path
+
+You can also load from `https://huggingface.co/lmms-lab/BAGEL-7B-MoT-ver.LE` which we converted bagel into hf safetensor weight. The weight are the same with the original weights.
 
 ### 3. Configure Training
 
@@ -67,9 +69,12 @@ Create a YAML configuration file based on the template above, adjusting:
     # Model configuration
     model_config:
       load_from_pretrained_path: "your-model-checkpoint-path"
-      attn_implementation: "eager"  # or "flash_attention_2"
+      attn_implementation: "eager"  # or "sdpa"
       extra_kwargs:
         visual_und: false  # Enable/disable visual understanding
+      # Optional: Enable Native Sparse Attention
+      # monkey_patch_kwargs:
+      #   patch_type: ["nsa"]
     
     # Training hyperparameters
     per_device_train_batch_size: 1
@@ -135,6 +140,52 @@ fsdp_config:
 ```
 
 ## Advanced Features
+
+### Native Sparse Attention (NSA) Support
+
+We supports Native Sparse Attention training on BAGEL through monkey patching to improve memory efficiency and training speed for long sequences. NSA replaces the standard attention mechanism with a sparse variant that reduces computational complexity.
+
+#### Prerequisites
+
+Install the native sparse attention library:
+
+```bash
+pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git
+```
+
+#### Configuration
+
+Enable NSA by adding the monkey patch configuration to your model config:
+
+```yaml
+model_config:
+  load_from_pretrained_path: "your-model-checkpoint-path"
+  attn_implementation: "eager/sdpa"
+  extra_kwargs:
+    visual_und: false
+  monkey_patch_kwargs:
+    patch_type: ["nsa"]
+    # NSA configuration parameters (all optional with defaults shown)
+    block_size: 64              # Size of attention blocks
+    compress_type: "weightedpool"  # Options: weightedpool, linear, avgpool
+    kernel_size: 32             # Compression kernel size
+    kernel_stride: 16           # Compression kernel stride
+    topk: 16                    # Number of top-k blocks to keep
+    init_blocks: 1              # Number of initial blocks to always include
+    local_blocks: 2             # Number of local blocks around current position
+    window_size: 512            # Local attention window size
+```
+
+#### NSA Parameters
+
+We recommend you to find out the meaning for parameters from [here](https://github.com/XunhaoLai/native-sparse-attention-triton/tree/main/native_sparse_attention/ops#readme)
+
+#### Usage Notes
+
+- NSA is most beneficial for longer seqence
+- The sparse attention pattern is learned during training and adapts to the data
+- All NSA parameters can be tuned based on your specific use case and hardware constraints
+
 
 ### Sequence Packing
 

@@ -50,7 +50,8 @@ class TrainRunner:
         self.config = config
 
     def build(self):
-        self.create_sp_dis_group()
+        if dist.is_initialized():
+            self.create_sp_dis_group()
         self.model = self._build_model()
         if self.config.dataset_config.eval_dataset_path is not None:
             self.eval_dataset = self._build_eval_dataset()
@@ -130,21 +131,6 @@ class TrainRunner:
         dataset.build()
         return dataset
 
-    def save_config(self):
-        output_dir = self.config.trainer_args.output_dir
-        os.makedirs(output_dir, exist_ok=True)
-        with open(f"{output_dir}/training_config.json", "w") as f:
-            json.dump(self.config.to_dict(), f, indent=4)
-        if self.config.dataset_config.dataset_format == "yaml":
-            if self.config.dataset_config.dataset_path:
-                # Copy the external yaml to output dir
-                yaml_path = self.config.dataset_config.dataset_path
-                shutil.copy(yaml_path, f"{output_dir}/dataset.yaml")
-            elif self.config.dataset_config.datasets:
-                # For inline datasets, save them to a yaml file
-                with open(f"{output_dir}/dataset.yaml", "w") as f:
-                    yaml.dump({"datasets": self.config.dataset_config.datasets}, f)
-
     def set_random_seed(self, random_seed: int = 42):
         # Setting random seed for all
         random.seed(random_seed)
@@ -183,7 +169,6 @@ class TrainRunner:
         return trainer
 
     def run(self, **kwargs):
-        self.save_config()
         if self.config.trainer_args.freeze_modules:
             for modules in self.config.trainer_args.freeze_modules:
                 cls = getattr(self.model, modules, None)
