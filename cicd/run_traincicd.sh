@@ -46,6 +46,20 @@ echo "Starting training CICD tests..."
 echo "Model: ${MODEL_NAME:-all models}"
 echo "GPU Count: $GPU_COUNT"
 
+# Get the absolute path of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/../data/lmms_engine_test"
+
+# Check if data folder exists, otherwise download
+if [ ! -d "$DATA_DIR" ]; then
+    echo "Data folder not found at: $DATA_DIR"
+    echo "Downloading data from hub..."
+    # TODO: Fill in the download command here
+    # Example: huggingface-cli download <repo-id> --repo-type dataset --local-dir "$DATA_DIR"
+    hf download kcz358/lmms_engine_test --local-dir "$DATA_DIR" --repo-type dataset --cache-dir "$DATA_DIR/.cache"
+else
+    echo "Data folder found at: $DATA_DIR"
+fi
 # Build the command
 CMD="python test/train/run_cicd.py $VERBOSE --gpu-count $GPU_COUNT"
 
