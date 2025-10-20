@@ -29,7 +29,7 @@ try:
     from qwen_omni_utils import process_mm_info
 except ImportError:
     process_mm_info = None
-    Logging.info("qwen_omni_utils not installed. Skipping import.")
+    logger.info("qwen_omni_utils not installed. Skipping import.")
 
 
 class MultiModalDataLoadingMixin:
