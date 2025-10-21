@@ -83,7 +83,7 @@ def model_forward(
         )
         batch_size, seq_length, _ = original_inputs_embeds.shape
 
-    # Get and split pos ids and input_ids first, then prepared the embeddings
+    # Get and split pos ids and input_ids first, then prepare the embeddings
     if position_ids is None:
         attention_mask_tensor = (
             attention_mask
