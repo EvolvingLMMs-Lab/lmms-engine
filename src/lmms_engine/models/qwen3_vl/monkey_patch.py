@@ -5,6 +5,11 @@ from typing import Callable
 from packaging import version
 from transformers import PreTrainedModel, Qwen3VLTextModel
 
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    get_ulysses_sequence_parallel_world_size,
+    patch_vlm_for_ulysses_input_slicing,
+)
+
 try:
     from liger_kernel.transformers.cross_entropy import LigerCrossEntropyLoss
     from liger_kernel.transformers.monkey_patch import (
@@ -95,6 +100,9 @@ def apply_liger_kernel_to_qwen3_vl(
             qwen3_ops_decoder_layer_forward
         )
         modeling_qwen3_vl.Qwen3VLTextAttention.forward = qwen3_ops_attn_forward
+
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        patch_vlm_for_ulysses_input_slicing(Qwen3VLTextModel)
 
     if model is not None:
         # The model instance already exists, so we need to additionally patch the

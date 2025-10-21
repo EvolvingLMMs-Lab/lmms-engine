@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import torch
+from loguru import logger
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel
@@ -15,6 +16,18 @@ from transformers.models.qwen3_vl.modeling_qwen3_vl import (
     apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available, is_torchdynamo_compiling
+
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_rank,
+    get_ulysses_sequence_parallel_world_size,
+    get_visual_embeds_for_rank,
+    pad_and_mask_visual_for_ulysses,
+    repeat_kv,
+    slice_input_tensor,
+    ulysses_pad,
+)
 
 from ..sequence_packing_utils import _unpad_input
 
@@ -70,62 +83,7 @@ def model_forward(
         )
         batch_size, seq_length, _ = original_inputs_embeds.shape
 
-    if inputs_embeds is None:
-        inputs_embeds = self.get_input_embeddings()(input_ids)
-
-    image_mask = None
-    video_mask = None
-
-    if pixel_values is not None:
-        image_embeds, deepstack_image_embeds = self.get_image_features(
-            pixel_values, image_grid_thw
-        )
-        image_embeds = torch.cat(image_embeds, dim=0).to(
-            inputs_embeds.device, inputs_embeds.dtype
-        )
-        image_mask, _ = self.get_placeholder_mask(
-            input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
-        )
-        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
-
-    if pixel_values_videos is not None:
-        video_embeds, deepstack_video_embeds = self.get_video_features(
-            pixel_values_videos, video_grid_thw
-        )
-        video_embeds = torch.cat(video_embeds, dim=0).to(
-            inputs_embeds.device, inputs_embeds.dtype
-        )
-        _, video_mask = self.get_placeholder_mask(
-            input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
-        )
-        inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
-
-    visual_pos_masks = None
-    deepstack_visual_embeds = None
-    if image_mask is not None and video_mask is not None:
-        # aggregate visual_pos_masks and deepstack_visual_embeds
-        image_mask = image_mask[..., 0]
-        video_mask = video_mask[..., 0]
-        visual_pos_masks = image_mask | video_mask
-        deepstack_visual_embeds = []
-        image_mask_joint = image_mask[visual_pos_masks]
-        video_mask_joint = video_mask[visual_pos_masks]
-        for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
-            embed_joint = img_embed.new_zeros(
-                visual_pos_masks.sum(), img_embed.shape[-1]
-            ).to(img_embed.device)
-            embed_joint[image_mask_joint, :] = img_embed
-            embed_joint[video_mask_joint, :] = vid_embed
-            deepstack_visual_embeds.append(embed_joint)
-    elif image_mask is not None:
-        image_mask = image_mask[..., 0]
-        visual_pos_masks = image_mask
-        deepstack_visual_embeds = deepstack_image_embeds
-    elif video_mask is not None:
-        video_mask = video_mask[..., 0]
-        visual_pos_masks = video_mask
-        deepstack_visual_embeds = deepstack_video_embeds
-
+    # Get and split pos ids and input_ids first, then prepared the embeddings
     if position_ids is None:
         attention_mask_tensor = (
             attention_mask
@@ -185,6 +143,131 @@ def model_forward(
         .transpose(0, 1)
         .unsqueeze(1)
     )
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        # Pad the input ids and position ids if the sequence parallelism is used
+        input_ids, position_ids, pad_size = ulysses_pad(
+            input_ids.unsqueeze(0),
+            position_ids,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
+        input_ids = input_ids.squeeze(0)
+    if inputs_embeds is None:
+        inputs_embeds = self.get_input_embeddings()(input_ids)
+
+    image_mask = None
+    video_mask = None
+
+    if pixel_values is not None:
+        image_embeds, deepstack_image_embeds = self.get_image_features(
+            pixel_values, image_grid_thw
+        )
+        image_embeds = torch.cat(image_embeds, dim=0).to(
+            inputs_embeds.device, inputs_embeds.dtype
+        )
+        image_mask, _ = self.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+    if pixel_values_videos is not None:
+        video_embeds, deepstack_video_embeds = self.get_video_features(
+            pixel_values_videos, video_grid_thw
+        )
+        video_embeds = torch.cat(video_embeds, dim=0).to(
+            inputs_embeds.device, inputs_embeds.dtype
+        )
+        _, video_mask = self.get_placeholder_mask(
+            input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
+        )
+        inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+    # Store original masks before rank-specific masking for visual embed distribution
+    original_image_mask = image_mask.clone() if image_mask is not None else None
+    original_video_mask = video_mask.clone() if video_mask is not None else None
+
+    visual_pos_masks = None
+    deepstack_visual_embeds = None
+    # Explain a bit here
+    # Because of the deepstack visual embeds, we also need to split the visual embeds for
+    # each rank. However, the visual embed size is not (seq_len, hidden_size), but in
+    # (num_visual_features, hidden_size), so we need to get the correct visual mask first per rank
+    # extract the visual embeds according to the original mask from cum sum
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        sp_size = get_ulysses_sequence_parallel_world_size()
+        if image_mask is not None:
+            image_mask = pad_and_mask_visual_for_ulysses(image_mask, sp_size=sp_size)
+        if video_mask is not None:
+            video_mask = pad_and_mask_visual_for_ulysses(video_mask, sp_size=sp_size)
+
+    if image_mask is not None and video_mask is not None:
+        # aggregate visual_pos_masks and deepstack_visual_embeds
+        image_mask = image_mask[..., 0]
+        video_mask = video_mask[..., 0]
+        visual_pos_masks = image_mask | video_mask
+
+        # Distribute deepstack embeds for this rank based on original masks
+        deepstack_visual_embeds = []
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            # Get this rank's portion of embeddings based on original masks
+            deepstack_image_embeds = [
+                get_visual_embeds_for_rank(
+                    image_embed,
+                    original_image_mask[..., 0].bool(),
+                    sp_size=get_ulysses_sequence_parallel_world_size(),
+                )
+                for image_embed in deepstack_image_embeds
+            ]
+            deepstack_video_embeds = [
+                get_visual_embeds_for_rank(
+                    video_embed,
+                    original_video_mask[..., 0].bool(),
+                    sp_size=get_ulysses_sequence_parallel_world_size(),
+                )
+                for video_embed in deepstack_video_embeds
+            ]
+
+        image_mask_joint = image_mask[visual_pos_masks]
+        video_mask_joint = video_mask[visual_pos_masks]
+        for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
+            embed_joint = img_embed.new_zeros(
+                visual_pos_masks.sum(), img_embed.shape[-1]
+            ).to(img_embed.device)
+            embed_joint[image_mask_joint, :] = img_embed
+            embed_joint[video_mask_joint, :] = vid_embed
+            deepstack_visual_embeds.append(embed_joint)
+    elif image_mask is not None:
+        image_mask = image_mask[..., 0]
+        visual_pos_masks = image_mask
+
+        # Distribute deepstack image embeds for this rank based on original mask
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            deepstack_image_embeds = [
+                get_visual_embeds_for_rank(
+                    image_embed,
+                    original_image_mask[..., 0].bool(),
+                    sp_size=get_ulysses_sequence_parallel_world_size(),
+                )
+                for image_embed in deepstack_image_embeds
+            ]
+        deepstack_visual_embeds = deepstack_image_embeds
+    elif video_mask is not None:
+        video_mask = video_mask[..., 0]
+        visual_pos_masks = video_mask
+
+        # Distribute deepstack video embeds for this rank based on original mask
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            deepstack_video_embeds = [
+                get_visual_embeds_for_rank(
+                    video_embed,
+                    original_video_mask[..., 0].bool(),
+                    sp_size=get_ulysses_sequence_parallel_world_size(),
+                )
+                for video_embed in deepstack_video_embeds
+            ]
+        deepstack_visual_embeds = deepstack_video_embeds
+
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        visual_pos_masks = slice_input_tensor(visual_pos_masks, dim=0)
 
     outputs = self.language_model(
         input_ids=None,
@@ -356,6 +439,7 @@ def attn_forward(
     self: Qwen3VLTextAttention,
     hidden_states: torch.Tensor,
     position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
+    position_ids: Optional[torch.LongTensor] = None,
     attention_mask: Optional[torch.Tensor] = None,
     past_key_values: Optional[Cache] = None,
     cache_position: Optional[torch.LongTensor] = None,
@@ -363,6 +447,7 @@ def attn_forward(
     cu_seq_lens: Optional[torch.LongTensor] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     input_shape = hidden_states.shape[:-1]
     hidden_shape = (*input_shape, -1, self.head_dim)
 
@@ -371,6 +456,38 @@ def attn_forward(
     value_states = self.v_proj(hidden_states).view(hidden_shape)
 
     cos, sin = position_embeddings
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        assert (
+            position_ids is not None
+        ), "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
+        # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
+        # For example:
+        # - nheads_k=4, sp=8, repeats=2
+        # - nheads_k=8, sp=8, repeats=1
+        # - nheads_k=16, sp=8, repeats=1
+        repeats = max(ulysses_sp_size // key_states.size(1), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+        # Cat the cu_seq_lens to the max seq len if padding is used
+        if cu_seq_lens.max().item() < query_states.shape[0]:
+            cu_seq_lens = torch.cat(
+                [
+                    cu_seq_lens,
+                    torch.tensor(
+                        [query_states.shape[0]],
+                        device=cu_seq_lens.device,
+                        dtype=cu_seq_lens.dtype,
+                    ),
+                ]
+            )
     # Unsqueeze the first dim to apply pos embeds
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
@@ -406,6 +523,11 @@ def attn_forward(
         softmax_scale=self.head_dim**-0.5,
         dropout_p=0.0,
     )
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     attn_output = self.o_proj(attn_output)

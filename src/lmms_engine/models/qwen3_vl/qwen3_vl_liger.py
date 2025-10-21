@@ -5,6 +5,12 @@ from transformers import Qwen3VLForConditionalGeneration
 from transformers.cache_utils import Cache
 from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLCausalLMOutputWithPast
 
+from lmms_engine.parallel.sequence_parallel.ulysses import (
+    calculate_seq_len_per_rank,
+    get_ulysses_sequence_parallel_world_size,
+    slice_input_tensor,
+)
+
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
         LigerFusedLinearCrossEntropyLoss,
@@ -68,6 +74,13 @@ def qwen3_vl_lce_forward(
     logits = None
     # if we are using sequence parallel, we need to slice the hidden states and labels
     labels_unpad = labels.view(-1)[word_idx.long()]
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        seq_lens = (
+            calculate_seq_len_per_rank(seq_lens.tolist())
+            if seq_lens is not None
+            else None
+        )
+        labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
     labels = labels_unpad
 
     config = getattr(self.config, "text_config", self.config)
