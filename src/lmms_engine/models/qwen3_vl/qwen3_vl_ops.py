@@ -187,7 +187,6 @@ def model_forward(
 
     visual_pos_masks = None
     deepstack_visual_embeds = None
-    # Explain a bit here
     # Because of the deepstack visual embeds, we also need to split the visual embeds for
     # each rank. However, the visual embed size is not (seq_len, hidden_size), but in
     # (num_visual_features, hidden_size), so we need to get the correct visual mask first per rank

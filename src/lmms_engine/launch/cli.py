@@ -31,7 +31,6 @@ def create_train_task(config):
 
     trainer_args = config.get("trainer_args")
     sp_degree = trainer_args.get("sp_ulysses_degree", 1)
-    print(f"sp_degree: {sp_degree}")
     dp_size = world_size // sp_degree
 
     # For now, we haven't implement the tp and pp
