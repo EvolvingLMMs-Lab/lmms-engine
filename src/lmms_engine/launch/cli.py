@@ -29,14 +29,16 @@ def create_train_task(config):
     global_rank = int(os.environ.get("RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
 
-    sp_degree = config.get("sp_ulysses_degree", 1)
+    trainer_args = config.get("trainer_args")
+    sp_degree = trainer_args.get("sp_ulysses_degree", 1)
+    print(f"sp_degree: {sp_degree}")
     dp_size = world_size // sp_degree
 
     # For now, we haven't implement the tp and pp
-    use_cpu = config.get("use_cpu", False)
+    use_cpu = trainer_args.get("use_cpu", False)
     backend = "gloo" if use_cpu else "nccl"
     # If the process group is already initialized, don't initialize it again
-    ddp_timeout = config.get("ddp_timeout", 30 * 60)
+    ddp_timeout = trainer_args.get("ddp_timeout", 30 * 60)
     if not dist.is_initialized():
         # For single GPU without distributed launcher, set required env vars
         if world_size == 1 and "MASTER_ADDR" not in os.environ:
