@@ -5,7 +5,6 @@
 The main design principle of the framework is using following concept
 1. Factory Pattern
 2. Builder
-3. MVC (But we are missing a V, anyway just like ignore this)
 
 ## Factory Pattern
 Factory pattern is simple. Basically is just using if else to create component we want. But what it nice is that it encapsulate most of the building process we want under the hood and is good if we want to use it as a separate api. So it might be ugly inside the factory (which make sense), but is easy for us to create new factory and build component all around the framework as we want.
@@ -36,9 +35,3 @@ def build(self):
 ``` 
 
 This allow us to separate the building process of different components and each building process and be determine by the config.
-
-
-## MVC
-Okay so this is the initial thoughts of creating a nice interface for everyone. But we don't have a visualizer. So anyway.
-
-What my thoughts is that we always let controller to queue the pipelines into process and then we send the run process to it. Thus, when we actually have the interface, we can just call the controller. But right now we only have models and controller. My thoughts is that if eventually we want to do evaluation etc. We can use this controller to call more functions and actions.

@@ -1,4 +1,4 @@
-### Trainer Registry: Adding a new trainer
+# Adding a new trainer
 
 This guide explains how to define, register, and use a custom trainer via the centralized registry used by the `TrainRunner`.
 

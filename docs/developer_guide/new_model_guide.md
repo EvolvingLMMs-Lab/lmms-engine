@@ -1,4 +1,4 @@
-### Guide: Adding a new model (and performance monkey patches)
+# Adding a new model (and performance monkey patches)
 
 This guide explains how to add a new model to the engine and how to provide an optional monkey patch for performance (e.g., removing padding or swapping kernels).
 
