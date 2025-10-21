@@ -580,6 +580,7 @@ class FSDP2SFTTrainer:
         metrics = {}
 
         # Calculate mfu per rank
+        # Divide by sp size because attention mask we use to calculate are unsplitted
         mfu = flops_tensor.item() / sp_size / promised_flops
         mfu = torch.tensor(mfu, device=device)
         torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
@@ -587,8 +588,11 @@ class FSDP2SFTTrainer:
 
         # Calculating token stats
         seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
-        total_seq_len = seq_len.sum()
+        # Divide total seq len by sp size if sp is enabled since we split the seq len
+        total_seq_len = seq_len.sum() / sp_size
         torch.distributed.all_reduce(total_seq_len, op=torch.distributed.ReduceOp.SUM)
+        # Avg seq len won't be effected by sp since we perform all reduce
+        # across world size
         global_seq_len_avg = seq_len.sum()
         torch.distributed.all_reduce(
             global_seq_len_avg, op=torch.distributed.ReduceOp.AVG
