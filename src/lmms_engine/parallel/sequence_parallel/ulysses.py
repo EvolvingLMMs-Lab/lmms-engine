@@ -174,6 +174,7 @@ def slice_input_tensor(
     parts = x.size(dim) // sp_world_size
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(sp_rank * parts, (sp_rank + 1) * parts)
+    slc = tuple(slc)
     return x[slc].contiguous()
 
 
@@ -440,3 +441,132 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
         slen, num_key_value_heads, n_rep, head_dim
     )
     return hidden_states.reshape(slen, num_key_value_heads * n_rep, head_dim)
+
+
+def pad_and_mask_visual_for_ulysses(
+    mask: Tensor,
+    sp_size: int = 1,
+    group: ProcessGroup = None,
+) -> Tensor:
+    """
+    Pad and apply rank-specific masking for visual masks (image/video) in Ulysses sequence parallelism.
+
+    This function:
+    1. Pads the mask to be divisible by sp_size along dimension 0
+    2. Sets chunks that don't belong to the current rank to False
+
+    Args:
+        mask (Tensor): Visual mask tensor of shape [..., seq_len, ...] (typically [seq_len, ...] or [seq_len])
+        sp_size (int): Sequence parallel size. If <= 1, returns mask unchanged.
+        group (ProcessGroup, optional): Process group for rank information. Uses default if None.
+
+    Returns:
+        Tensor: Padded mask with rank-specific masking applied
+
+    Example:
+        If sp_size=2 and mask is [T, T, F] (shape: [3]):
+        - After padding: [T, T, F, F] (shape: [4])
+        - On rank 0: [T, T, F, F]  (keeps first 2 chunks)
+        - On rank 1: [F, F, F, F]  (masks out first 2 chunks)
+    """
+    if sp_size <= 1:
+        return mask
+
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    if group is None:
+        return mask
+
+    # Get rank information
+    sp_rank = get_ulysses_sequence_parallel_rank(group)
+
+    # Get the original sequence length
+    original_seq_len = mask.size(0)
+
+    # Calculate padding needed to make divisible by sp_size
+    pad_size = (sp_size - original_seq_len % sp_size) % sp_size
+
+    # Pad the mask if necessary
+    if pad_size > 0:
+        padding = [0] * (2 * mask.ndim)
+        padding[0] = pad_size  # Pad at the end of dimension 0
+        mask = torch.nn.functional.pad(mask.float(), padding, value=0.0)
+
+    # Calculate chunk size per rank
+    padded_seq_len = mask.size(0)
+    chunk_size = padded_seq_len // sp_size
+
+    # Calculate which chunk indices belong to this rank
+    rank_start = sp_rank * chunk_size
+    rank_end = (sp_rank + 1) * chunk_size
+
+    # Create a mask for the current rank
+    # Set all elements to False, then set only the current rank's chunks to their original values
+    rank_mask = torch.zeros_like(mask)
+    rank_mask[rank_start:rank_end] = mask[rank_start:rank_end]
+
+    return rank_mask.bool() if mask.dtype == torch.bool else rank_mask
+
+
+def get_visual_embeds_for_rank(
+    visual_embeds: Tensor,
+    original_mask: Tensor,
+    sp_size: int,
+    group: ProcessGroup = None,
+) -> List[Tensor]:
+    """
+    Get the visual embeddings that belong to the current rank based on sequence parallel split.
+
+    This function distributes embeddings across ranks based on their chunk of the original sequence.
+    Each rank receives only the embeddings corresponding to True values in its assigned positions
+    of the original (unpadded) mask.
+
+    Args:
+        visual_embeds (Tensor): embeddings, shape [seq_len, ...]
+        original_mask (Tensor): Original mask before padding, shape [seq_len]
+        sp_size (int): Sequence parallel size. If <= 1, returns all embeds unchanged.
+        group (ProcessGroup, optional): Process group for rank information. Uses default if None.
+
+    Returns:
+        List[Tensor]: Embeddings for the current rank
+
+    Example:
+        Original mask: [T, T, T, F] → 3 True values → visual_embeds has 3 embeddings
+        After padding to [4] and splitting with sp_size=2:
+        - rank0 handles positions [0, 1] → positions 0,1 are True → gets embeds[0:2]
+        - rank1 handles positions [2, 3] → position 2 is True → gets embeds[2:3]
+    """
+    if sp_size <= 1:
+        return visual_embeds
+
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    if group is None:
+        return visual_embeds
+
+    sp_rank = get_ulysses_sequence_parallel_rank(group)
+    original_seq_len = original_mask.size(0)
+
+    # Calculate chunk size in padded sequence
+    pad_size = (sp_size - original_seq_len % sp_size) % sp_size
+    padded_seq_len = original_seq_len + pad_size
+    chunk_size = padded_seq_len // sp_size
+
+    # Determine which positions in original sequence belong to this rank
+    rank_start = sp_rank * chunk_size
+    rank_end = (sp_rank + 1) * chunk_size
+
+    # Clamp to original sequence length (padding positions have no real values)
+    rank_start_in_orig = min(rank_start, original_seq_len)
+    rank_end_in_orig = min(rank_end, original_seq_len)
+
+    # If this rank is entirely in the padding region, return empty list
+    if rank_start_in_orig >= original_seq_len:
+        return []
+
+    # Count True values before this rank's start in the original mask
+    count_before = (original_mask[:rank_start_in_orig]).sum().item()
+
+    # Count True values in this rank's range in the original mask
+    count_in_rank = (original_mask[rank_start_in_orig:rank_end_in_orig]).sum().item()
+
+    # Return the corresponding embeddings for this rank
+    return visual_embeds[count_before : count_before + count_in_rank]
