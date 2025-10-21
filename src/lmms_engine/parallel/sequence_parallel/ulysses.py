@@ -483,6 +483,7 @@ def pad_and_mask_visual_for_ulysses(
     original_seq_len = mask.size(0)
 
     # Calculate padding needed to make divisible by sp_size
+    # Calculate padding needed: (sp_size - remainder) mod sp_size handles both divisible (0) and non-divisible cases
     pad_size = (sp_size - original_seq_len % sp_size) % sp_size
 
     # Pad the mask if necessary
