@@ -541,18 +541,16 @@ def attn_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-        # Cat the cu_seq_lens to the max seq len if padding is used
-        if cu_seq_lens is not None and cu_seq_lens.max().item() < query_states.shape[0]:
-            cu_seq_lens = torch.cat(
-                [
-                    cu_seq_lens,
-                    torch.tensor(
-                        [query_states.shape[0]],
-                        device=cu_seq_lens.device,
-                        dtype=cu_seq_lens.dtype,
-                    ),
-                ]
+        # Append total sequence length to cu_seq_lens if padding was added
+        # Perform comparison on GPU, only sync the final boolean
+        if cu_seq_lens is not None:
+            seq_len_tensor = torch.tensor(
+                query_states.shape[0], device=cu_seq_lens.device, dtype=cu_seq_lens.dtype
             )
+            # Comparison happens on GPU; only the final bool is synced for the if statement
+            needs_append = (cu_seq_lens.max() < seq_len_tensor).item()
+            if needs_append:
+                cu_seq_lens = torch.cat([cu_seq_lens, seq_len_tensor.unsqueeze(0)])
     # Unsqueeze the first dim to apply pos embeds
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
@@ -565,9 +563,13 @@ def attn_forward(
             key_states, value_states, self.layer_idx, cache_kwargs
         )
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    # Compute max sequence length for flash attention
+    # The .item() call is necessary as flash_attn API requires a Python int
+    # Diff and max operations are performed on GPU before syncing the final scalar
+    if cu_seq_lens is not None:
+        max_seqlen = torch.diff(cu_seq_lens).max().item()
+    else:
+        max_seqlen = None
 
     # Reshape to the expected shape for Flash Attention
     query_states = query_states.transpose(1, 2).squeeze(0)
