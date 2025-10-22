@@ -24,7 +24,7 @@ license = { text = "MIT" }
 dependencies = [
     "datasets",
     "hf_transfer",
-    "transformers",
+    "transformers==4.57.1",
     "accelerate",
     "pillow",
     "peft",
@@ -51,7 +51,7 @@ dependencies = [
     "hydra-core",
     "omegaconf",
     "requests",
-    "tqdm",    
+    "tqdm",
 ]
 
 [project.optional-dependencies]
