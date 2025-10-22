@@ -16,6 +16,7 @@ class DatasetConfig(Args):
     dataset_path: Optional[str] = None  # Optional - used for external files
     datasets: Optional[List[dict]] = None  # Optional - used for inline YAML definitions
     shuffle: bool = True
+    data_seed: Optional[int] = 42
     eval_dataset_path: Optional[str] = None
 
     # Object storage configuration

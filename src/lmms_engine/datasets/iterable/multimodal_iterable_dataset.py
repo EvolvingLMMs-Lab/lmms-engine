@@ -115,7 +115,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             logger.info("Shuffle Dataset ...")
             data_index = [i for i in range(len(self.data_list))]
             # Make sure the shuffle is the same across all dp ranks
-            random.seed(self.rank)
+            random.seed(self.config.data_seed)
             random.shuffle(data_index)
             if isinstance(self.data_list, HFDataset):
                 self.data_list = self.data_list.select(data_index)
