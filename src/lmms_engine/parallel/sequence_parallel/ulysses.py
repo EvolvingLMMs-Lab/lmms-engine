@@ -451,23 +451,48 @@ def pad_and_mask_visual_for_ulysses(
     """
     Pad and apply rank-specific masking for visual masks (image/video) in Ulysses sequence parallelism.
 
-    This function:
-    1. Pads the mask to be divisible by sp_size along dimension 0
-    2. Sets chunks that don't belong to the current rank to False
+    This function prepares visual masks for distribution across sequence parallel ranks by:
+    1. Padding the mask to be divisible by sp_size along dimension 0
+    2. Masking out chunks that don't belong to the current rank (set to False)
 
     Args:
-        mask (Tensor): Visual mask tensor of shape [..., seq_len, ...] (typically [seq_len, ...] or [seq_len])
-        sp_size (int): Sequence parallel size. If <= 1, returns mask unchanged.
-        group (ProcessGroup, optional): Process group for rank information. Uses default if None.
+        mask (Tensor): Visual mask tensor of shape [seq_len, ...] where seq_len is the sequence length.
+                       Typically has shape [seq_len] or [seq_len, hidden_dim].
+        sp_size (int): Sequence parallel size. If <= 1, returns mask unchanged. Default: 1.
+        group (ProcessGroup, optional): Process group for rank information. If None, uses the
+                                       default Ulysses sequence parallel group.
 
     Returns:
-        Tensor: Padded mask with rank-specific masking applied
+        Tensor: Padded mask with shape [padded_seq_len, ...] where padded_seq_len is the smallest
+                multiple of sp_size >= seq_len. Only the chunk belonging to the current rank
+                contains the original mask values; other chunks are zeros.
 
-    Example:
-        If sp_size=2 and mask is [T, T, F] (shape: [3]):
-        - After padding: [T, T, F, F] (shape: [4])
-        - On rank 0: [T, T, F, F]  (keeps first 2 chunks)
-        - On rank 1: [F, F, F, F]  (masks out first 2 chunks)
+    Examples:
+        Example 1 - Basic usage with sp_size=2:
+            Input mask: torch.tensor([True, True, False])  # shape: [3]
+            sp_size: 2
+            Result on rank 0: torch.tensor([True, True, False, False])  # shape: [4], keeps positions [0:2]
+            Result on rank 1: torch.tensor([False, False, False, False])  # shape: [4], keeps positions [2:4]
+
+        Example 2 - Already divisible sequence:
+            Input mask: torch.tensor([True, True, True, True])  # shape: [4]
+            sp_size: 2
+            Result on rank 0: torch.tensor([True, True, False, False])  # positions [0:2]
+            Result on rank 1: torch.tensor([False, False, True, True])  # positions [2:4]
+
+        Example 3 - Higher dimensional mask:
+            Input mask: torch.tensor([[True], [False], [True]])  # shape: [3, 1]
+            sp_size: 2
+            Result on rank 0: torch.tensor([[True], [False], [False], [False]])  # shape: [4, 1]
+
+    Edge Cases:
+        - Empty sequence (seq_len=0): Returns padded zeros of shape [sp_size, ...]
+        - sp_size=1: Returns original mask unchanged (no parallelism)
+        - seq_len < sp_size: Pads to sp_size, some ranks may get only padding
+
+    Performance Notes:
+        - Padding is done on device using torch.nn.functional.pad (no CPU sync)
+        - Memory overhead is minimal: at most (sp_size - 1) additional elements
     """
     if sp_size <= 1:
         return mask
@@ -518,26 +543,72 @@ def get_visual_embeds_for_rank(
     group: ProcessGroup = None,
 ) -> List[Tensor]:
     """
-    Get the visual embeddings that belong to the current rank based on sequence parallel split.
+    Distribute visual embeddings to the current rank based on sequence parallel split.
 
-    This function distributes embeddings across ranks based on their chunk of the original sequence.
-    Each rank receives only the embeddings corresponding to True values in its assigned positions
-    of the original (unpadded) mask.
+    This function solves the challenge of distributing visual embeddings when using sequence
+    parallelism: the embeddings are stored densely (only for True mask positions), but the
+    sequence is split spatially across ranks. Each rank receives only the embeddings that
+    correspond to True mask values within its assigned sequence chunk.
+
+    The distribution logic:
+    1. Determine which positions [rank_start:rank_end] belong to this rank in the padded sequence
+    2. Count how many True values appear before rank_start in the original mask
+    3. Count how many True values appear in [rank_start:rank_end] in the original mask
+    4. Return the corresponding slice of visual_embeds
 
     Args:
-        visual_embeds (Tensor): embeddings, shape [seq_len, ...]
-        original_mask (Tensor): Original mask before padding, shape [seq_len]
-        sp_size (int): Sequence parallel size. If <= 1, returns all embeds unchanged.
-        group (ProcessGroup, optional): Process group for rank information. Uses default if None.
+        visual_embeds (Tensor): Dense visual embeddings of shape [num_true_values, hidden_dim],
+                               containing embeddings only for positions where original_mask is True.
+        original_mask (Tensor): Boolean mask of shape [seq_len] indicating which positions have
+                               visual features. Must be the unpadded, original mask before any
+                               sequence parallel transformations.
+        sp_size (int): Sequence parallel size. Number of ranks across which to distribute.
+                      If <= 1, returns all embeddings unchanged.
+        group (ProcessGroup, optional): Process group for rank information. If None, uses the
+                                       default Ulysses sequence parallel group.
 
     Returns:
-        List[Tensor]: Embeddings for the current rank
+        Tensor: Subset of visual_embeds for the current rank, shape [num_true_in_chunk, hidden_dim].
+               Returns empty tensor if the current rank's chunk contains no True values.
 
-    Example:
-        Original mask: [T, T, T, F] → 3 True values → visual_embeds has 3 embeddings
-        After padding to [4] and splitting with sp_size=2:
-        - rank0 handles positions [0, 1] → positions 0,1 are True → gets embeds[0:2]
-        - rank1 handles positions [2, 3] → position 2 is True → gets embeds[2:3]
+    Examples:
+        Example 1 - Basic distribution:
+            original_mask: torch.tensor([True, True, True, False])  # 3 visual features
+            visual_embeds: torch.randn(3, 768)  # embeddings for the 3 True positions
+            sp_size: 2
+
+            After padding mask to [4]:
+            - rank0 gets positions [0:2] → mask[0:2] = [True, True] → returns embeds[0:2]
+            - rank1 gets positions [2:4] → mask[2:4] = [True, False] → returns embeds[2:3]
+
+        Example 2 - Uneven distribution:
+            original_mask: torch.tensor([True, False, False, True, True])  # 3 visual features
+            visual_embeds: torch.randn(3, 768)
+            sp_size: 2
+
+            After padding mask to [6]:
+            - rank0 gets positions [0:3] → mask[0:3] = [True, False, False] → returns embeds[0:1]
+            - rank1 gets positions [3:6] → mask[3:6] = [True, True, <pad>] → returns embeds[1:3]
+
+        Example 3 - Rank gets no visual features:
+            original_mask: torch.tensor([True, True, False])
+            visual_embeds: torch.randn(2, 768)
+            sp_size: 2
+
+            After padding mask to [4]:
+            - rank0 gets positions [0:2] → mask[0:2] = [True, True] → returns embeds[0:2]
+            - rank1 gets positions [2:4] → mask[2:4] = [False, <pad>] → returns empty tensor []
+
+    Edge Cases:
+        - sp_size=1: Returns all embeddings unchanged (no parallelism)
+        - Empty embeddings: Returns empty tensor
+        - All False mask: Returns empty tensor for all ranks
+        - Rank entirely in padding region: Returns empty list
+
+    Performance Notes:
+        - Uses tensor slicing and sum operations on mask (stays on device)
+        - No data movement between ranks; purely local computation
+        - Memory efficient: only stores embeddings for current rank
     """
     if sp_size <= 1:
         return visual_embeds
