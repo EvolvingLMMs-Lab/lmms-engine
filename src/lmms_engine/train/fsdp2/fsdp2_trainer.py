@@ -161,6 +161,7 @@ class FSDP2SFTTrainer:
         num_warmup_steps: int,
         num_training_steps: int,
     ):
+        self.args.lr_scheduler_kwargs = self.args.lr_scheduler_kwargs or {}
         if self.args.lr_scheduler_type == "cosine":
             self.scheduler = get_cosine_schedule_with_warmup(
                 self.optimizer,
