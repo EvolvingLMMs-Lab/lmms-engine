@@ -75,11 +75,8 @@ def qwen3_vl_lce_forward(
     # if we are using sequence parallel, we need to slice the hidden states and labels
     labels_unpad = labels.view(-1)[word_idx.long()]
     if get_ulysses_sequence_parallel_world_size() > 1:
-        seq_lens = (
-            calculate_seq_len_per_rank(seq_lens.tolist())
-            if seq_lens is not None
-            else None
-        )
+        if seq_lens is not None:
+            seq_lens = calculate_seq_len_per_rank(seq_lens.tolist())
         labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
     labels = labels_unpad
 
