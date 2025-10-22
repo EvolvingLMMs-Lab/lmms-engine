@@ -639,17 +639,30 @@ def get_visual_embeds_for_rank(
 
     # If this rank is entirely in the padding region, return empty tensor
     if rank_start_in_orig >= original_seq_len:
-        return torch.empty(0, *visual_embeds.shape[1:], device=visual_embeds.device, dtype=visual_embeds.dtype)
+        return torch.empty(
+            0,
+            *visual_embeds.shape[1:],
+            device=visual_embeds.device,
+            dtype=visual_embeds.dtype,
+        )
 
     # Use cumsum to compute indices on GPU, avoiding intermediate .item() calls
     # cumsum gives us the count of True values up to each position
     cumsum_mask = torch.cumsum(original_mask.int(), dim=0)
 
     # Count of True values before this rank's chunk (exclusive)
-    count_before = cumsum_mask[rank_start_in_orig - 1] if rank_start_in_orig > 0 else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    count_before = (
+        cumsum_mask[rank_start_in_orig - 1]
+        if rank_start_in_orig > 0
+        else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    )
 
     # Count of True values up to the end of this rank's chunk (inclusive)
-    count_up_to_end = cumsum_mask[rank_end_in_orig - 1] if rank_end_in_orig > 0 else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    count_up_to_end = (
+        cumsum_mask[rank_end_in_orig - 1]
+        if rank_end_in_orig > 0
+        else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    )
 
     # Tensor slicing will implicitly call .item() on the indices, but the computation
     # stayed on GPU. This is more efficient than calling .sum().item() multiple times.

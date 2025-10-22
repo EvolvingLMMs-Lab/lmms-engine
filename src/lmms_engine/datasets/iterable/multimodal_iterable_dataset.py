@@ -67,7 +67,11 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                 "Distributed environment initialized, setting rank and world size to dist.get_rank() and dist.get_world_size()"
             )
             # Try to use data parallel rank if available, otherwise fall back to global rank
-            if pgm is not None and hasattr(pgm, 'process_group_manager') and pgm.process_group_manager is not None:
+            if (
+                pgm is not None
+                and hasattr(pgm, "process_group_manager")
+                and pgm.process_group_manager is not None
+            ):
                 self.rank = pgm.process_group_manager.dp_rank
                 self.world_size = pgm.process_group_manager.dp_world_size
             else:

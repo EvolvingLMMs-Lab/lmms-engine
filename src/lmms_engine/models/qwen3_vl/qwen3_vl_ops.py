@@ -36,9 +36,7 @@ if is_flash_attn_2_available():
     from flash_attn.bert_padding import index_first_axis, rearrange
 
 
-def _distribute_deepstack_embeds_for_rank(
-    deepstack_embeds, original_mask, sp_size
-):
+def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):
     """
     Distribute deepstack embeddings for the current rank based on sequence parallel split.
 
@@ -115,9 +113,7 @@ def _aggregate_visual_masks_and_embeds(
     return visual_pos_masks, deepstack_visual_embeds
 
 
-def _process_single_visual_modality(
-    mask, deepstack_embeds, original_mask, sp_size
-):
+def _process_single_visual_modality(mask, deepstack_embeds, original_mask, sp_size):
     """
     Process visual embeddings for a single modality (image or video).
 
@@ -545,7 +541,9 @@ def attn_forward(
         # Perform comparison on GPU, only sync the final boolean
         if cu_seq_lens is not None:
             seq_len_tensor = torch.tensor(
-                query_states.shape[0], device=cu_seq_lens.device, dtype=cu_seq_lens.dtype
+                query_states.shape[0],
+                device=cu_seq_lens.device,
+                dtype=cu_seq_lens.dtype,
             )
             # Comparison happens on GPU; only the final bool is synced for the if statement
             needs_append = (cu_seq_lens.max() < seq_len_tensor).item()
