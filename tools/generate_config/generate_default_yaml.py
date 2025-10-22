@@ -54,6 +54,15 @@ if __name__ == "__main__":
 
     # Create directory if it doesn't exist
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    config["config_yaml"] = None
+    config["trainer_args"]["fsdp_config"].update(
+        {
+            "transformer_layer_cls_to_wrap": ["Qwen2_5_VLDecoderLayer"],
+            "reshard_after_forward": False,
+        }
+    )
+    # Deprecated, pop to remove warning
+    config["trainer_args"].pop("push_to_hub_token")
 
     # Save config to yaml
     with open(output_path, "w") as f:
