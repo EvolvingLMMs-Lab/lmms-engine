@@ -36,6 +36,112 @@ if is_flash_attn_2_available():
     from flash_attn.bert_padding import index_first_axis, rearrange
 
 
+def _distribute_deepstack_embeds_for_rank(
+    deepstack_embeds, original_mask, sp_size
+):
+    """
+    Distribute deepstack embeddings for the current rank based on sequence parallel split.
+
+    Args:
+        deepstack_embeds: List of embeddings to distribute
+        original_mask: Original mask before padding
+        sp_size: Sequence parallel size
+
+    Returns:
+        List of distributed embeddings for current rank
+    """
+    if sp_size <= 1:
+        return deepstack_embeds
+
+    return [
+        get_visual_embeds_for_rank(
+            embed,
+            original_mask[..., 0].bool(),
+            sp_size=sp_size,
+        )
+        for embed in deepstack_embeds
+    ]
+
+
+def _aggregate_visual_masks_and_embeds(
+    image_mask,
+    video_mask,
+    deepstack_image_embeds,
+    deepstack_video_embeds,
+    original_image_mask,
+    original_video_mask,
+    sp_size,
+):
+    """
+    Aggregate visual position masks and deepstack visual embeddings for both image and video.
+
+    Args:
+        image_mask: Image mask tensor
+        video_mask: Video mask tensor
+        deepstack_image_embeds: Deepstack image embeddings
+        deepstack_video_embeds: Deepstack video embeddings
+        original_image_mask: Original image mask before rank-specific masking
+        original_video_mask: Original video mask before rank-specific masking
+        sp_size: Sequence parallel size
+
+    Returns:
+        Tuple of (visual_pos_masks, deepstack_visual_embeds)
+    """
+    image_mask = image_mask[..., 0]
+    video_mask = video_mask[..., 0]
+    visual_pos_masks = image_mask | video_mask
+
+    # Distribute deepstack embeds for this rank based on original masks
+    deepstack_visual_embeds = []
+    if sp_size > 1:
+        deepstack_image_embeds = _distribute_deepstack_embeds_for_rank(
+            deepstack_image_embeds, original_image_mask, sp_size
+        )
+        deepstack_video_embeds = _distribute_deepstack_embeds_for_rank(
+            deepstack_video_embeds, original_video_mask, sp_size
+        )
+
+    # Merge image and video embeddings
+    image_mask_joint = image_mask[visual_pos_masks]
+    video_mask_joint = video_mask[visual_pos_masks]
+    for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
+        embed_joint = img_embed.new_zeros(
+            visual_pos_masks.sum(), img_embed.shape[-1]
+        ).to(img_embed.device)
+        embed_joint[image_mask_joint, :] = img_embed
+        embed_joint[video_mask_joint, :] = vid_embed
+        deepstack_visual_embeds.append(embed_joint)
+
+    return visual_pos_masks, deepstack_visual_embeds
+
+
+def _process_single_visual_modality(
+    mask, deepstack_embeds, original_mask, sp_size
+):
+    """
+    Process visual embeddings for a single modality (image or video).
+
+    Args:
+        mask: Visual mask tensor
+        deepstack_embeds: Deepstack embeddings
+        original_mask: Original mask before rank-specific masking
+        sp_size: Sequence parallel size
+
+    Returns:
+        Tuple of (visual_pos_masks, deepstack_visual_embeds)
+    """
+    mask = mask[..., 0]
+    visual_pos_masks = mask
+
+    # Distribute deepstack embeds for this rank based on original mask
+    if sp_size > 1:
+        deepstack_embeds = _distribute_deepstack_embeds_for_rank(
+            deepstack_embeds, original_mask, sp_size
+        )
+
+    return visual_pos_masks, deepstack_embeds
+
+
 @dataclass
 class Qwen3VLModelOutputWithPast(HFQwen3VLModelOutputWithPast):
     """
@@ -198,72 +304,31 @@ def model_forward(
         if video_mask is not None:
             video_mask = pad_and_mask_visual_for_ulysses(video_mask, sp_size=sp_size)
 
+    # Process visual embeddings based on available modalities
     if image_mask is not None and video_mask is not None:
-        # aggregate visual_pos_masks and deepstack_visual_embeds
-        image_mask = image_mask[..., 0]
-        video_mask = video_mask[..., 0]
-        visual_pos_masks = image_mask | video_mask
-
-        # Distribute deepstack embeds for this rank based on original masks
-        deepstack_visual_embeds = []
-        if get_ulysses_sequence_parallel_world_size() > 1:
-            # Get this rank's portion of embeddings based on original masks
-            deepstack_image_embeds = [
-                get_visual_embeds_for_rank(
-                    image_embed,
-                    original_image_mask[..., 0].bool(),
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
-                for image_embed in deepstack_image_embeds
-            ]
-            deepstack_video_embeds = [
-                get_visual_embeds_for_rank(
-                    video_embed,
-                    original_video_mask[..., 0].bool(),
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
-                for video_embed in deepstack_video_embeds
-            ]
-
-        image_mask_joint = image_mask[visual_pos_masks]
-        video_mask_joint = video_mask[visual_pos_masks]
-        for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
-            embed_joint = img_embed.new_zeros(
-                visual_pos_masks.sum(), img_embed.shape[-1]
-            ).to(img_embed.device)
-            embed_joint[image_mask_joint, :] = img_embed
-            embed_joint[video_mask_joint, :] = vid_embed
-            deepstack_visual_embeds.append(embed_joint)
+        visual_pos_masks, deepstack_visual_embeds = _aggregate_visual_masks_and_embeds(
+            image_mask,
+            video_mask,
+            deepstack_image_embeds,
+            deepstack_video_embeds,
+            original_image_mask,
+            original_video_mask,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
     elif image_mask is not None:
-        image_mask = image_mask[..., 0]
-        visual_pos_masks = image_mask
-
-        # Distribute deepstack image embeds for this rank based on original mask
-        if get_ulysses_sequence_parallel_world_size() > 1:
-            deepstack_image_embeds = [
-                get_visual_embeds_for_rank(
-                    image_embed,
-                    original_image_mask[..., 0].bool(),
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
-                for image_embed in deepstack_image_embeds
-            ]
-        deepstack_visual_embeds = deepstack_image_embeds
+        visual_pos_masks, deepstack_visual_embeds = _process_single_visual_modality(
+            image_mask,
+            deepstack_image_embeds,
+            original_image_mask,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
     elif video_mask is not None:
-        video_mask = video_mask[..., 0]
-        visual_pos_masks = video_mask
-
-        # Distribute deepstack video embeds for this rank based on original mask
-        if get_ulysses_sequence_parallel_world_size() > 1:
-            deepstack_video_embeds = [
-                get_visual_embeds_for_rank(
-                    video_embed,
-                    original_video_mask[..., 0].bool(),
-                    sp_size=get_ulysses_sequence_parallel_world_size(),
-                )
-                for video_embed in deepstack_video_embeds
-            ]
-        deepstack_visual_embeds = deepstack_video_embeds
+        visual_pos_masks, deepstack_visual_embeds = _process_single_visual_modality(
+            video_mask,
+            deepstack_video_embeds,
+            original_video_mask,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
 
     if get_ulysses_sequence_parallel_world_size() > 1:
         visual_pos_masks = slice_input_tensor(visual_pos_masks, dim=0)
