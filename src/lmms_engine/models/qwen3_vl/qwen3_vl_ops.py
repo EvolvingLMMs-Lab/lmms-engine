@@ -522,9 +522,10 @@ def attn_forward(
     cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        assert (
-            position_ids is not None
-        ), "position_ids is required for Ulysses sequence parallelism"
+        assert position_ids is not None, (
+            f"position_ids is required for Ulysses sequence parallelism "
+            f"(sp_size={ulysses_sp_size}). Got None."
+        )
 
         # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
         # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
@@ -541,7 +542,7 @@ def attn_forward(
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
         # Cat the cu_seq_lens to the max seq len if padding is used
-        if cu_seq_lens.max().item() < query_states.shape[0]:
+        if cu_seq_lens is not None and cu_seq_lens.max().item() < query_states.shape[0]:
             cu_seq_lens = torch.cat(
                 [
                     cu_seq_lens,

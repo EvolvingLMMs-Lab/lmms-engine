@@ -472,6 +472,9 @@ def pad_and_mask_visual_for_ulysses(
     if sp_size <= 1:
         return mask
 
+    assert sp_size > 0, f"sp_size must be positive, got {sp_size}"
+    assert mask is not None, "mask cannot be None for sequence parallelism"
+
     group = get_ulysses_sequence_parallel_group() if group is None else group
     if group is None:
         return mask
@@ -538,6 +541,10 @@ def get_visual_embeds_for_rank(
     """
     if sp_size <= 1:
         return visual_embeds
+
+    assert sp_size > 0, f"sp_size must be positive, got {sp_size}"
+    assert visual_embeds is not None, "visual_embeds cannot be None"
+    assert original_mask is not None, "original_mask cannot be None"
 
     group = get_ulysses_sequence_parallel_group() if group is None else group
     if group is None:
