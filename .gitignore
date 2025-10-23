@@ -171,3 +171,6 @@ outputs/
 checkpoints/
 .vscode
 *.pth
+
+# macOS
+.DS_Store
