@@ -234,12 +234,6 @@ Both main and EMA models are saved for proper resumption.
 - Use a smaller model variant (e.g., SiT-L/2, SiT-B/2, or SiT-S/2)
 - Use larger `patch_size` (4 or 8 instead of 2)
 
-### VAE Download Failed
-- Check `HF_TOKEN` is set correctly: `export HF_TOKEN="your_token"`
-- Verify network connectivity to HuggingFace Hub
-- Manual download: `huggingface-cli download stabilityai/sd-vae-ft-ema`
-- Check HuggingFace Hub status: https://status.huggingface.co/
-
 ### Slow Training
 - Increase `dataloader_num_workers` (default: 4, try 8 or 16)
 - Enable `tf32=true` for A100+ GPUs (faster compute)
