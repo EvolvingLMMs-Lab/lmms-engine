@@ -38,6 +38,7 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
    :caption: Models
 
    models/bagel
+   models/qwenvl
 
 Indices and tables
 ==================

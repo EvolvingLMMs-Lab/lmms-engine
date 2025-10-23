@@ -7,3 +7,4 @@ Documentation for available models and model architectures.
    :maxdepth: 2
 
    bagel
+   qwenvl
