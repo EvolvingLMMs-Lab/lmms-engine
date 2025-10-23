@@ -22,10 +22,11 @@ def check_import(module_name, package_name=None):
 def check_sit_components():
     """Check if SiT-specific components are available."""
     try:
-        from lmms_engine.models.sit import SiTConfig, SiTModel
         from lmms_engine.datasets.naive.sit_dataset import SitDataset
         from lmms_engine.datasets.processor.sit_processor import SitDataProcessor
+        from lmms_engine.models.sit import SiTConfig, SiTModel
         from lmms_engine.train.fsdp2.sit_trainer import SitTrainer
+
         print("✓ All SiT components imported successfully")
         return True
     except ImportError as e:
@@ -67,6 +68,7 @@ def main():
     print("\n[Hardware]")
     try:
         import torch
+
         if torch.cuda.is_available():
             print(f"✓ CUDA available - {torch.cuda.device_count()} GPU(s)")
             print(f"  - GPU 0: {torch.cuda.get_device_name(0)}")
@@ -94,7 +96,7 @@ def main():
         print("\nTo install all SiT dependencies:")
         print("  pip install lmms_engine[sit]")
         print("or:")
-        print("  uv pip install -e \".[sit]\"")
+        print('  uv pip install -e ".[sit]"')
         return 1
 
 
