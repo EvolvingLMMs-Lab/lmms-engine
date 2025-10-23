@@ -24,8 +24,9 @@ from lmms_engine.train import FSDP2SFTTrainer
 # Configure your dataset
 config = DatasetConfig(
     # Core settings
-    dataset_type="vision",                    # Type: vision | vision_audio | fineweb_edu
-    dataset_format="hf_dataset",              # Format: json | jsonl | yaml | hf_dataset | arrow | parquet
+    dataset_type="vision",                    # Type: vision | vision_audio | fineweb_edu | rae | sit | qwen_omni
+                                              # Note: Use vision_iterable or bagel_iterable for streaming versions
+    dataset_format="hf_dataset",              # Format: json | jsonl | csv | yaml | hf_dataset | arrow | parquet
     dataset_path="your/dataset/path",         # Path to dataset or HF Hub ID
     
     # Processing
@@ -36,14 +37,16 @@ config = DatasetConfig(
     packing=True,                              # Enable sequence packing
     packing_length=32000,                      # Maximum tokens per packed sequence
     filter_overlong=True,                      # Drop sequences > packing_length
-    packing_strategy="first_fit",              # Naive only: first_fit | window_XX
+    packing_strategy="first_fit",              # Naive only: first_fit | window_XX (ignored for Streaming)
 )
 
 # Choose your dataset implementation
 # Option 1: Naive (precomputed packing)
 dataset = MultiModalDataset(config)
 
-# Option 2: Streaming (on-the-fly packing)  
+# Option 2: Streaming (on-the-fly packing)
+# Important: For Streaming dataset, prefer dataset_format="hf_dataset", "arrow", or "parquet"
+# json/jsonl formats work better with Naive dataset  
 dataset = MultiModalIterableDataset(config)
 
 # Build and use
@@ -67,16 +70,16 @@ trainer.train()
 The `MultiModalDataset` loads all data into memory and precomputes optimal packing arrangements before training begins.
 
 #### How it works:
-1. **Load**: Reads entire dataset into memory
-2. **Estimate**: Calculates token length for each sample  
-3. **Pack**: Groups samples using packing algorithm (`first_fit` or `window`)
+1. **Load**: Loads dataset (memory-mapped for arrow/parquet/hf_dataset, full load for json/jsonl)
+2. **Estimate**: Calculates token length for each sample using map operations
+3. **Pack**: Precomputes optimal packing arrangements using selected algorithm
 4. **Serve**: Returns precomputed packs during training
 
 #### Characteristics:
 - ✅ **Deterministic**: Same packing arrangement every epoch
 - ✅ **Optimal packing**: Can use sophisticated algorithms for better utilization
 - ✅ **Known length**: Exact number of steps per epoch is known
-- ❌ **Memory intensive**: Requires loading full dataset upfront
+- ⚠️ **Memory usage**: Full load for json/jsonl; memory-mapped for arrow/parquet/hf_dataset
 - ❌ **Slower startup**: Preprocessing adds initialization time
 
 #### When to use:
@@ -96,12 +99,12 @@ The `MultiModalIterableDataset` streams data and packs sequences dynamically dur
 4. **Flush**: Yields remaining buffer at epoch end
 
 #### Characteristics:
-- ✅ **Memory efficient**: Only loads current batch
+- ✅ **Memory efficient**: Streams data samples without precomputing packs
 - ✅ **Fast startup**: No preprocessing required
 - ✅ **Scales infinitely**: Works with any dataset size
 - ❌ **Non-deterministic**: Different packing each epoch
-- ❌ **Unknown length**: Can't calculate exact steps per epoch (Thus, max_steps must be set instead of epochs)
-- ❌ **Suboptimal packing**: Greedy algorithm may waste tokens
+- ❌ **Unknown length**: Can't calculate exact steps per epoch (use `max_steps` instead of `num_train_epochs`)
+- ❌ **Suboptimal packing**: Uses greedy buffer-filling strategy - yields buffer when `buffer_length + next_sample > packing_length`, may waste tokens compared to global optimization
 
 #### When to use:
 - Large datasets (> 100GB)
@@ -140,7 +143,10 @@ The `MultiModalIterableDataset` streams data and packs sequences dynamically dur
 ### Packing Strategies (Naive Only)
 
 - **`first_fit`**: Greedily pack sequences into first available space
-- **`window_XX`**: Group sequences within sliding windows of size XX
+- **`window_XX`**: Group sequences within sliding windows of size XX (e.g., `window_100`)
+  - First sorts sequences by length
+  - Groups sequences within windows of XX consecutive samples
+  - Provides better packing for sorted data while maintaining some randomness
 
 ### Configuration Examples
 
@@ -248,12 +254,13 @@ torch.distributed.all_reduce(loss, op=ReduceOp.AVG)
 | Criterion | Naive Dataset | Streaming Dataset |
 |-----------|--------------|-------------------|
 | Dataset Size | < 100GB | Any size |
-| Memory Usage | High | Low |
+| Memory Usage | Medium (memory-mapped) to High (json/jsonl) | Low |
+| Best Formats | All supported | hf_dataset, arrow, parquet |
 | Startup Time | Slow | Fast |
 | Packing Quality | Optimal | Good |
 | Reproducibility | Yes | No |
 | Step Count Known | Yes | No |
-| LR Schedulers | All supported | Limited |
+| LR Schedulers | All supported | Limited (use max_steps) |
 | Best For | Research, debugging | Production, scale |
 
 ## Migration Guide
