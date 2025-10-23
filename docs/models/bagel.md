@@ -22,11 +22,11 @@ BAGEL integrates:
 
 An example dataset is available on `https://huggingface.co/datasets/kcz358/bagel-example`
 
-### 2. Ovewrite config or load from converted weight
+### 2. Overwrite config or load from converted weight
 
 Since the original Bagel config is not hf compatible and can't be used in AutoConfig, we prepare a config here `https://huggingface.co/kcz358/bagel_hf/blob/main/config.json`. Please overwrite this json file to the original `config.json` in the Bagel model path
 
-You can also load from `https://huggingface.co/lmms-lab/BAGEL-7B-MoT-ver.LE` which we converted bagel into hf safetensor weight. The weight are the same with the original weights.
+You can also load from `https://huggingface.co/lmms-lab/BAGEL-7B-MoT-ver.LE` where we converted bagel into hf safetensor weight. The weight are the same with the original weights.
 
 ### 3. Configure Training
 
@@ -182,7 +182,7 @@ We recommend you to find out the meaning for parameters from [here](https://gith
 
 #### Usage Notes
 
-- NSA is most beneficial for longer seqence
+- NSA is most beneficial for longer sequence
 - The sparse attention pattern is learned during training and adapts to the data
 - All NSA parameters can be tuned based on your specific use case and hardware constraints
 
