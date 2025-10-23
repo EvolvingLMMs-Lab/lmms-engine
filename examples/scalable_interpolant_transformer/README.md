@@ -5,9 +5,7 @@
 
 ## Overview
 
-SiT is a family of generative models built on Diffusion Transformers (DiT) that uses an **interpolant framework** to flexibly connect two distributions. The model achieves state-of-the-art performance on ImageNet generation:
-- **FID-50K: 2.06** on ImageNet 256×256 (SiT-XL/2)
-- **FID-50K: 2.62** on ImageNet 512×512
+SiT is a family of generative models built on Diffusion Transformers (DiT) that uses an **interpolant framework** to flexibly connect two distributions.
 
 Key features:
 - Transformer-based architecture with VAE latent space encoding
@@ -277,9 +275,9 @@ Results from the paper on ImageNet 256×256:
 
 | Model | FID-50K ↓ | Inception Score ↑ | Precision ↑ | Recall ↑ |
 |-------|-----------|-------------------|-------------|----------|
-| SiT-XL/2 | **2.06** | **270.27** | **0.82** | **0.57** |
-
-*Note: Results use Linear interpolant with velocity prediction, CFG scale of 1.5, and 250 sampling steps with ODE sampler.*
+| DiT-XL(cfg = 1.5) | 2.27 | 4.60 | 278.24 | 0.83 | 0.57 | |
+| SiT-XL(cfg = 1.5, ODE) | **2.15** | **4.60** | **258.09** | **0.81** | **0.60** | |
+| SiT-XL(cfg = 1.5, SDE) | **2.06** | **4.49** | **277.50** | **0.83** | **0.59** | |
 
 ## References
 
