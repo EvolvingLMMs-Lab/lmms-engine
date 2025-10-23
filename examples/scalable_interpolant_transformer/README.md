@@ -211,14 +211,6 @@ If you encounter OOM errors, reduce batch size and increase `gradient_accumulati
 4. **FSDP2**: Fully Sharded Data Parallel for large-scale distributed training
 5. **Transport Framework**: Flexible interpolant paths and prediction targets
 
-## Monitoring Training
-
-### TensorBoard
-
-```bash
-tensorboard --logdir output/sit_xl_2_training
-```
-
 ### Checkpoint Structure
 
 Checkpoints are saved to `{output_dir}/checkpoint-{step}/`:
