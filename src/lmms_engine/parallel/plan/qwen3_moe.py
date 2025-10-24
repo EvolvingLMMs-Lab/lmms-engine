@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from loguru import logger
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.tensor import DTensor, Replicate
+from torch.distributed.tensor import DTensor, Replicate, Shard
 from torch.distributed.tensor.parallel import (
     ParallelStyle,
     PrepareModuleInput,
@@ -18,7 +18,23 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
+def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
+    logger.info("Stacking expert parameters for Qwen3Moe model")
+    for decoder_layer in model.model.layers:
+        up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
+        stacked_up_proj = torch.stack(up_proj_weights, dim=0)
+        decoder_layer.mlp.register_parameter("up_proj", nn.Parameter(stacked_up_proj))
 
+        down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
+        stacked_down_proj = torch.stack(down_proj_weights, dim=0)
+        decoder_layer.mlp.register_parameter("down_proj", nn.Parameter(stacked_down_proj))
+
+        gate_proj_weights = [expert.gate_proj.weight for expert in decoder_layer.mlp.experts]
+        stacked_gate_proj = torch.stack(gate_proj_weights, dim=0)
+        decoder_layer.mlp.register_parameter("gate_proj", nn.Parameter(stacked_gate_proj))
+        decoder_layer.mlp.act_fn = decoder_layer.mlp.experts[0].act_fn
+
+        del decoder_layer.mlp.experts
 
 def apply_qwen3_moe_parallel(
     model: Qwen3MoeForCausalLM,
@@ -27,6 +43,8 @@ def apply_qwen3_moe_parallel(
     **kwargs,
 ):
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3Moe"
+
+    stack_expert_params(model)
 
     for decoder_layer in model.model.layers:
         module = decoder_layer
@@ -37,11 +55,12 @@ def apply_qwen3_moe_parallel(
             parallelize_plan=ep_plan,
         )
 
+
     for name, module in model.model.named_modules():
         if isinstance(module, Qwen3MoeSparseMoeBlock):
             parallel_style = PrepareModuleInput(
-                input_layouts=Replicate(),
-                desired_input_layouts=Replicate(),
+                input_layouts=Shard(0),
+                desired_input_layouts=Shard(0),
                 use_local_output=True,
             )
             parallelize_module(
@@ -76,10 +95,10 @@ def apply_qwen3_moe_parallel(
             and name != "norm"
         ):
             linear_parallel_style = PrepareModuleInputOutput(
-                input_layouts=Replicate(),
-                desired_input_layouts=Replicate(),
-                output_layouts=Replicate(),
-                desired_output_layouts=Replicate(),
+                input_layouts=Shard(0),
+                desired_input_layouts=Shard(0),
+                output_layouts=Shard(0),
+                desired_output_layouts=Shard(0),
                 use_local_output=True,
             )
             parallelize_module(

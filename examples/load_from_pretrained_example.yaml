@@ -1,56 +1,85 @@
+# Unified LMMs Engine Training Configuration
+# This example shows how to combine dataset definitions directly in the config
+
 - type: trainer
   config:
-    trainer_type: hf_trainer
-
+    trainer_type: fsdp2_trainer
+    
     # Dataset configuration - now includes the actual dataset definitions
     dataset_config:
-      dataset_type: vision
-      dataset_format: yaml # Uses 'yaml' format for both external files and inline definitions
-
+      dataset_type: vision_iterable
+      dataset_format: yaml  # Uses 'yaml' format for both external files and inline definitions
+      
       # Inline dataset definitions (no dataset_path needed)
       datasets:
         - path: data/open_thoughts_debug
           data_folder: ""
           data_type: arrow
-
+        # - path: /pfs/kaichenzhang/tik_tool/cache/v1/length_filtered_full/llava_cot_train
+          # data_folder: ""
+          # data_type: arrow 
+        # - path: /pfs/training-data/kaichenzhang/data/bagel-example/dataset.parquet
+        #   data_folder: ""
+        #   data_type: parquet
+        # - path: /pfs/training-data/kaichenzhang/data/BLIP3o-60k/dataset
+        #   data_folder: ""
+        #   data_type: arrow
+      
       # Processor configuration
       processor_config:
-        processor_name: "Qwen/Qwen2.5-VL-7B-Instruct"
-        processor_type: "qwen2_5_vl"
-
+        # processor_name: "/pfs/training-data/hf/models/Qwen/Qwen2.5-7B-Instruct"
+        processor_name: "Qwen/Qwen3-30B-A3B"
+        processor_type: "qwen2"
+      
       # Packing configuration
-      packing: true
+      packing: false 
       packing_strategy: first_fit
-      packing_length: 16384
-
+      packing_length: 10240 
+      video_backend: qwen_vl_utils
+      filter_overlong: true
+    
     # Model configuration
     model_config:
-      load_from_pretrained_path: "Qwen/Qwen2.5-VL-7B-Instruct"
-      attn_implementation: "flash_attention_2"
-
+      load_from_pretrained_path: "Qwen/Qwen3-30B-A3B"
+      monkey_patch_kwargs:
+        patch_type: ["liger"]
+        use_rmpad: true
+        rope: false
+        swiglu: false
+        cross_entropy: false
+        fused_linear_cross_entropy: true
+        rms_norm: false
+    
     # Training arguments, mostly compatible with HuggingFace Trainer
     per_device_train_batch_size: 1
     learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
     weight_decay: 0.0
     gradient_accumulation_steps: 1
     gradient_checkpointing: true
+    max_steps: 500
     num_train_epochs: 1
     save_steps: 100
     save_total_limit: 1
-    report_to: "wandb"
-    output_dir: "./output/debug"
+    report_to: "none"
+    output_dir: "./output/debug/test"
     warmup_ratio: 0.0
-    run_name: "qwen2_5_vl_config"
+    warmup_steps: 100
+    run_name: "debug"
     eval_strategy: "no"
     logging_steps: 1
-    group_by_length: true
-    dataloader_num_workers: 8
+    group_by_length: false 
+    dataloader_num_workers: 0
     bf16: true
-    lr_scheduler_type: "cosine"
-    freeze_modules: ["visual"]
+    lr_scheduler_type: "constant"
     use_liger_kernel: true
     use_rmpad: true
-    fsdp2: true
+    fsdp2: false
     fsdp_config:
-      transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
+      transformer_layer_cls_to_wrap: ["Qwen3MoeDecoderLayer"]
       reshard_after_forward: false
+    sp_ulysses_degree: 1
+    ep_degree: 8
+    enable_profiler: false
+    profiler_config:
+      start_step: 1
+      end_step: 3

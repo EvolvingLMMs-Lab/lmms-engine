@@ -281,7 +281,7 @@ def moe_sparse_layer_forward(
     routed_input = torch.gather(
         hidden_states, dim=0, index=token_indices_experts_sorted
     )
-
+    #print(routed_input)
     if pgm.process_group_manager.ep_world_size > 1:
         (
             routed_input,
@@ -300,12 +300,18 @@ def moe_sparse_layer_forward(
             split_size_or_sections=num_tokens_per_expert.tolist(),
             dim=0,
         )
-
-    num_experts = len(self.experts)
+    down_proj = self.down_proj.to_local()
+    up_proj = self.up_proj.to_local()
+    gate_proj = self.gate_proj.to_local()
+    num_experts = down_proj.shape[0]
     out_experts_split = []
-    for expert_idx, x_expert in enumerate(routed_input):
-        expert_layer = self.experts[expert_idx % num_experts]
-        out_experts_split.append(expert_layer(x_expert))
+    
+    for idx, x in enumerate(routed_input):
+        expert_idx = idx % num_experts
+        hidden = self.act_fn(torch.matmul(x, gate_proj[expert_idx].transpose(-2, -1)))
+        hidden = hidden * torch.matmul(x, up_proj[expert_idx].transpose(-2, -1))
+        hidden = torch.matmul(hidden, down_proj[expert_idx].transpose(-2, -1))
+        out_experts_split.append(hidden)
 
     out_experts_split = torch.cat(out_experts_split, dim=0)
 

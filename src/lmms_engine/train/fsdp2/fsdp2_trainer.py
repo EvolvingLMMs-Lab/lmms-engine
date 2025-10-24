@@ -218,8 +218,6 @@ class FSDP2SFTTrainer:
         grad_norm = fsdp2_clip_grad_norm_(
             self.fsdp2_model.parameters(), self.args.max_grad_norm
         )
-        if pgm.process_group_manager.ep_world_size > 1:
-            sync_gradients(self.fsdp2_model)
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
             print(f"WARN: grad_norm is not finite: {grad_norm}")
