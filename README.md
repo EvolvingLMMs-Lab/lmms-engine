@@ -118,126 +118,23 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 
 ## 🔥 Featured Examples
 
-### 1. BAGEL: Unified Multimodal Models
+| Model | Architecture | FSDP2 | Ulysses SP | Muon | Packing | Key Capabilities | Quick Start |
+|-------|-------------|-------|------------|------|---------|------------------|-------------|
+| **[Qwen3-VL](examples/qwen3_vl)** | Vision-Language | ✅ | ✅ | ✅ | ✅ | Multi-resolution, long context (10K+ tokens) | [run.sh](examples/qwen3_vl/run.sh) |
+| **[Qwen2.5-Omni](examples/qwen2_5_omni)** | Vision+Audio+Text | ✅ | ✅ | ✅ | ✅ | Unified multimodal (image, audio, text) | [run.sh](examples/qwen2_5_omni/run.sh) |
+| **[dLLM (Qwen3)](examples/diffusion_language_model)** | Diffusion LM | ✅ | ❌ | ✅ | ❌ | Masked diffusion, superior convergence | [run.sh](examples/diffusion_language_model/run.sh) |
+| **[Gated DeltaNet](examples/dgn)** | Gated Linear Attn | ✅ | ❌ | ✅ | ✅ | Recurrent arch, FineWeb-Edu pretraining | [run.sh](examples/dgn/run.sh) |
+| **[WanVideo](examples/wanvideo)** | Video Generation | ✅ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) | [run.sh](examples/wanvideo/run.sh) |
+| **[SiT](examples/scalable_interpolant_transformer)** | Diffusion Transformer | ✅ | ❌ | ❌ | ❌ | DiT 675M, CFG, ImageNet-1K | [run.sh](examples/scalable_interpolant_transformer/run.sh) |
+| **[RAE-SigLip](examples/representation_autoencoder)** | Visual AutoEncoder | ✅ | ❌ | ❌ | ❌ | Adversarial discriminator, LPIPS, EMA | [run.sh](examples/representation_autoencoder/run.sh) |
 
+**Optimization Legend:**
+- **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
+- **Ulysses SP**: Sequence Parallel for long contexts (10K+ visual tokens)
+- **Muon**: Advanced optimizer with Newton-Schulz orthogonalization
+- **Packing**: First-fit bin packing for 35-40% MFU vs 20-25% without
 
-```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/bagel/train_bagel.yaml
-```
-
-**Key Innovations:**
-- Mixture-of-Teacher (MoT) architecture for unified image understanding and generation.
-- FSDP2 distributed training with `Qwen2MoTDecoderLayer`
-- Native Sparse Attention (NSA) operations - topk attention, linear compression
-- Ulysses Sequence Parallel for long sequences.
-- Multi-dimensional Parallelism
-- Liger Kernel fused operations
-- Sequence Packing
-- Streaming Datasets
-- Monkey Patching System
-
-### 2. Qwen2.5/3-VL, Qwen2.5/3-Omni
-
-Train vision-language, audio-language, and unified multimodal models with long sequences:
-
-```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
-```
-
-**Key Features:**
-- Qwen2.5/3-VL: Vision-language models with long sequences.
-- Qwen2.5/3-Omni: Unified multimodal models with vision, language, and audio modalities.
-- Ulysses Sequence Parallel for long sequences.
-- Multi-dimensional Parallelism
-- Sequence Packing
-- Streaming Datasets
-- Monkey Patching System
-
-### 3. Gated DeltaNet (DGN)
-
-Train a 1B Gated Linear Attention model from scratch:
-
-```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/muon_DGN_1B_from_scratch.yaml
-```
-
-**Highlights:**
-- Gated Linear Attention architecture
-- FineWeb-Edu pretraining dataset
-
-### 4. Diffusion Large Language Models (dLLM) with Muon
-
-Train Qwen3-based diffusion language model:
-
-```bash
-# Single GPU
-python -m lmms_engine.launch.cli \
-  --config examples/diffusion_language_model/dllm_train_muon_single_gpu.yaml
-
-# Multi-GPU with FSDP2
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/diffusion_language_model/dllm_train_muon_multi_gpu_fsdp2.yaml
-```
-
-**Key Features:**
-- Qwen3 architecture with masked diffusion
-- Muon optimizer for superior convergence
-- Streaming FineWeb-Edu dataset
-- FSDP2 distributed training
-
-[→ Full dLLM Guide](examples/diffusion_language_model/README.md)
-
-### 5. WanVideo: Text/Image-to-Video Generation
-
-Train video generation models at scale:
-
-```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/wanvideo/configs/wan2.2_ti2v_5b_from_pretrained.yaml
-```
-
-**Capabilities:**
-- Text-to-Video (T2V)
-- Image-to-Video (I2V)
-- Video-to-Video (V2V)
-- 1.3B and 14B model variants
-- Flow-matching scheduler
-
-[→ WanVideo Training Guide](examples/wanvideo/README.md)
-
-### 6. Scalable Interpolant Transformers (SiT)
-
-Train diffusion transformers for class-conditional image generation:
-
-```bash
-bash examples/scalable_interpolant_transformer/run.sh
-```
-
-**Features:**
-- DiT-based architecture (XL/2 = 675M params)
-- Flexible interpolant paths (Linear, GVP, VP)
-- Classifier-Free Guidance
-- FSDP2 distributed training
-- ImageNet-1K training
-
-[→ SiT Training Guide](examples/scalable_interpolant_transformer/README.md)
-
-### 7. Representation AutoEncoder (RAE)
-
-Train a visual representation autoencoder with adversarial loss:
-
-```bash
-bash examples/representation_autoencoder/run_rae.sh
-```
-
-**Features:**
-- SigLip encoder + general decoder + discriminator
-- LPIPS perceptual loss
-- Differentiable augmentation
-- EMA for stable generation
-- ImageNet-1K training
+> 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
 
 ## 📖 Documentation
 
