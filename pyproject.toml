@@ -8,19 +8,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lmms_engine"
 version = "0.1.2"
-authors = [
-    { name = "Kaichen Zhang", email = "kaichenzhang358@outlook.com" },
-    { name = "Fanyi Pu", email = "FPU001@e.ntu.edu.sg" },
-]
-description = "A train engine"
+authors = [LMMs-Lab]
+description = "A simple, unified multimodal models training engine. Lean, flexible, and built for hacking, and hacking at scale."
 readme = "README.md"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 dependencies = [
     "datasets",
     "hf_transfer",
