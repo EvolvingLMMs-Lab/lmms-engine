@@ -24,48 +24,32 @@ class Qwen3MoeParallelStyle(ParallelStyle):
         use_local_output: bool = True,
     ) -> None:
         super().__init__()
-        self.input_layouts = (input_layouts or Replicate(),)
-        self.output_layouts = (output_layouts or Replicate(),)
+        self.input_layouts = (input_layouts or Shard(0),)
+        self.output_layouts = (output_layouts or Shard(0),)
         self.use_local_output = use_local_output
-        self.desired_input_layouts = (Replicate(),)
+        self.desired_input_layouts = (Shard(0),)
 
     @staticmethod
     def _partition_fn(name, mod, device_mesh):
-        """
-        Partition experts across devices based on expert parallelism (EP) size.
-
-        Args:
-            name: Module name
-            mod: Module containing experts (typically a Qwen3MoeSparseMoeBlock)
-            device_mesh: DeviceMesh representing the EP dimension
-
-        Returns:
-            Dictionary specifying how to partition the module
-        """
         if isinstance(mod, Qwen3MoeSparseMoeBlock):
-            # Get EP size and current device rank from the device mesh
-            ep_size = device_mesh.size(0)  # Assuming EP is the first dimension
-            current_rank = device_mesh.get_local_rank(0)  # Get rank in EP dimension
+            # Distribute the expert parameters across the expert parallel mesh
+            expert_parallel_dim = 0  # Assuming experts are sharded along the first dimension
 
-            # Calculate expert distribution
-            total_experts = len(mod.experts)
-            assert (
-                total_experts % ep_size == 0
-            ), f"Number of experts ({total_experts}) must be divisible by EP size ({ep_size})"
-
-            experts_per_device = total_experts // ep_size
-
-            # Calculate start and end indices for current device
-            start_idx = current_rank * experts_per_device
-            end_idx = start_idx + experts_per_device
-
-            # Create new experts list with only the experts for this device
-            new_experts = nn.ModuleList()
-            for expert_idx in range(start_idx, end_idx):
-                new_experts.append(mod.experts[expert_idx])
-
-            # Update the module list with the new experts
-            setattr(mod, "experts", new_experts)
+            mod.register_parameter("up_proj", nn.Parameter(distribute_tensor(
+                mod.up_proj,
+                device_mesh,
+                [Shard(expert_parallel_dim)],
+            )))
+            mod.register_parameter("down_proj", nn.Parameter(distribute_tensor(
+                mod.down_proj,
+                device_mesh,
+                [Shard(expert_parallel_dim)],
+            )))
+            mod.register_parameter("gate_proj", nn.Parameter(distribute_tensor(
+                mod.gate_proj,
+                device_mesh,
+                [Shard(expert_parallel_dim)],
+            )))
 
     # The token all to all dispatch will be handled in the ops
     # Check the lmms_engine/models/qwen3_moe/qwen3_moe_ops.py

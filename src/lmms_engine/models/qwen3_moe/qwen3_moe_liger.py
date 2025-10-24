@@ -109,7 +109,8 @@ def lce_forward(
     shift_labels = kwargs.pop("shift_labels", None)
     logits = None
     loss = None
-    labels = labels.view(-1)[word_idx.long()]
+    if labels is not None:
+        labels = labels.view(-1)[word_idx.long()]
 
     if skip_logits is None:
         skip_logits = self.training and (labels is not None or shift_labels is not None)

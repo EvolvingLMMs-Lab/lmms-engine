@@ -53,4 +53,3 @@ trainer_args:
   fsdp_config:
     transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
     reshard_after_forward: false
-  
