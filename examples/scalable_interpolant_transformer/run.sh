@@ -41,7 +41,7 @@ torchrun \
   --node_rank=$NODE_RANK \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
-  -m lmms_engine.launch.cli --config $CONFIG_FILE
+  -m lmms_engine.launch.cli config_yaml=$CONFIG_FILE
 
 # ==================== Usage Examples ====================
 # Single node 8 GPUs (SiT-XL/2):

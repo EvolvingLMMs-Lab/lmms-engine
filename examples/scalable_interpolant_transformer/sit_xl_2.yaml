@@ -3,106 +3,74 @@
 # Paper: https://arxiv.org/abs/2401.08740
 # Model: SiT-XL/2 (~675M parameters)
 
-- type: trainer
-  config:
-    trainer_type: sit_trainer
+trainer_type: sit_trainer
 
-    # ==================== Dataset Configuration ====================
-    dataset_config:
-      dataset_type: "vision"
-      dataset_format: "yaml"
+# ==================== Dataset Configuration ====================
+dataset_config:
+  dataset_type: "sit"
+  dataset_format: "hf_dataset"
+  dataset_path: ILSVRC/imagenet-1k
 
-      # Data processor configuration
-      processor_config:
-        processor_type: "sit"
-        extra_kwargs:
-          image_size: 256  # Image size (256x256 for ImageNet)
+  # Data processor configuration
+  processor_config:
+    processor_type: "sit"
+    extra_kwargs:
+      image_size: 256  # Image size (256x256 for ImageNet)
 
-      # Dataset list
-      datasets:
-        - path: "path/to/your/imagenet/dataset"  # Replace with actual dataset path
-          data_type: "arrow"  # Format: arrow, parquet, json, etc.
+# ==================== Model Configuration ====================
+model_config:
+  load_from_config:
+    model_type: "sit"
+    config:
+      input_size: 32
+      patch_size: 8
+      hidden_size: 384
+      depth: 12
+      num_heads: 6
+      cfg_scale: 4.0
+  attn_implementation: "flash_attention_2"
 
-    # ==================== Model Configuration ====================
-    model_config:
-      load_from_config:
-        model_type: "sit"
+# ==================== Training Hyperparameters ====================
+trainer_args:
+  output_dir: "./output/sit_xl_2_training"
 
-        # Model Architecture (SiT-XL/2)
-        input_size: 32              # Latent space size (image = 32 * 8 = 256)
-        patch_size: 2               # Patch size: 2 (finest detail)
-        in_channels: 4              # VAE latent channels
-        hidden_size: 1152           # Hidden dimension for XL model
-        depth: 28                   # Number of transformer blocks
-        num_heads: 16               # Number of attention heads
-        mlp_ratio: 4.0              # MLP expansion ratio
+  # Batch and Learning Rate
+  per_device_train_batch_size: 8   # Batch size per GPU (adjust based on memory)
+  gradient_accumulation_steps: 1   # Gradient accumulation steps
+  learning_rate: 1.0e-4            # Learning rate
+  weight_decay: 0.0                # Weight decay
 
-        # Conditional Generation
-        class_dropout_prob: 0.1     # Class dropout for Classifier-Free Guidance
-        num_classes: 1000           # Number of classes (ImageNet-1K)
-        learn_sigma: true           # Learn diffusion variance
+  # Epochs and Steps
+  num_train_epochs: 100            # Number of training epochs
 
-        # VAE Configuration
-        vae_path: "stabilityai/sd-vae-ft-ema"
+  # Learning Rate Scheduler
+  lr_scheduler_type: "cosine"      # LR scheduler
+  warmup_steps: 1000               # Warmup steps
 
-        # Transport Interpolant Configuration
-        path_type: "Linear"         # Interpolant path: Linear, GVP, VP
-        prediction: "velocity"      # Prediction target: velocity, noise, score
-        loss_weight: null           # Loss weight type (optional)
-        train_eps: null             # Training epsilon (optional)
-        sample_eps: null            # Sampling epsilon (optional)
-        cfg_scale: 1.0              # CFG scale (>1.0 enables CFG during inference)
+  # Saving and Logging
+  save_steps: 1000                 # Save checkpoint interval
+  save_total_limit: 5              # Max number of checkpoints
+  logging_steps: 100               # Logging interval
+  logging_first_step: true
 
-    # ==================== Training Hyperparameters ====================
-    output_dir: "./output/sit_xl_2_training"
+  # Evaluation (optional)
+  # evaluation_strategy: "steps"
+  # eval_steps: 1000
 
-    # Batch and Learning Rate
-    per_device_train_batch_size: 8   # Batch size per GPU (adjust based on memory)
-    gradient_accumulation_steps: 1   # Gradient accumulation steps
-    learning_rate: 1.0e-4            # Learning rate
-    weight_decay: 0.0                # Weight decay
+  # Precision and Performance
+  bf16: true                       # Use BF16 mixed precision
+  dataloader_num_workers: 4        # Data loader threads
+  dataloader_pin_memory: true
 
-    # Epochs and Steps
-    num_train_epochs: 100            # Number of training epochs
-    max_steps: -1                    # Max steps (-1 to use epochs)
+  # Gradient Clipping
+  max_grad_norm: 1.0
 
-    # Optimizer Configuration
-    optim: "adamw_torch"             # Optimizer type
-    adam_beta1: 0.9
-    adam_beta2: 0.999
-    adam_epsilon: 1.0e-8
+  # Random Seed
+  seed: 42
 
-    # Learning Rate Scheduler
-    lr_scheduler_type: "cosine"      # LR scheduler
-    warmup_steps: 1000               # Warmup steps
+  # ==================== FSDP2 Distributed Training ====================
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap: ["SiTBlock"]
 
-    # Saving and Logging
-    save_steps: 1000                 # Save checkpoint interval
-    save_total_limit: 5              # Max number of checkpoints
-    logging_steps: 100               # Logging interval
-    logging_first_step: true
-
-    # Evaluation (optional)
-    # evaluation_strategy: "steps"
-    # eval_steps: 1000
-
-    # Precision and Performance
-    bf16: true                       # Use BF16 mixed precision
-    tf32: true                       # Enable TF32 (A100+)
-    dataloader_num_workers: 4        # Data loader threads
-    dataloader_pin_memory: true
-
-    # Gradient Clipping
-    max_grad_norm: 1.0
-
-    # Random Seed
-    seed: 42
-
-    # ==================== FSDP2 Distributed Training ====================
-    fsdp2: true
-    fsdp_config:
-      transformer_layer_cls_to_wrap: ["SiTBlock"]
-
-    # ==================== Other Configuration ====================
-    remove_unused_columns: false     # Keep all columns
-    report_to: ["tensorboard"]       # Loggers: tensorboard, wandb
+  report_to: ["wandb"]

@@ -40,9 +40,10 @@ Supported formats: Arrow, Parquet, HuggingFace Dataset
 Edit `sit_xl_2.yaml` and set your dataset path:
 
 ```yaml
-datasets:
-  - path: "path/to/your/imagenet/dataset"  # Update this
-    data_type: "arrow"
+dataset_config:
+  dataset_type: "sit"
+  dataset_format: "hf_dataset"
+  dataset_path: ILSVRC/imagenet-1k
 ```
 
 ### 4. Set Environment Variables
