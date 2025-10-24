@@ -67,21 +67,23 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 
 ## 🔥 Featured Examples
 
-| Model | Architecture | FSDP2 | Ulysses SP | Muon | Packing | Highlights | Quick Start |
-|-------|-------------|-------|------------|------|---------|------------------|-------------|
-| **[Qwen3-VL](examples/qwen3_vl)** | Vision-Language | ✅ | ✅ | ✅ | ✅ | Native-resolution, long context (10K+ tokens) | [run.sh](examples/qwen3_vl/run.sh) |
-| **[Qwen2.5-Omni](examples/qwen2_5_omni)** | Vision+Audio+Text | ✅ | ✅ | ✅ | ✅ | Unified multimodal (image, audio, text) | [run.sh](examples/qwen2_5_omni/run.sh) |
-| **[dLLM (Qwen3)](examples/diffusion_language_model)** | Diffusion LM | ✅ | ❌ | ✅ | ❌ | Masked diffusion | [run.sh](examples/diffusion_language_model/run.sh) |
-| **[Gated DeltaNet](examples/dgn)** | Gated Linear Attn | ✅ | ❌ | ✅ | ✅ | Linear Attention Arch, FineWeb-Edu pretraining | [run.sh](examples/dgn/run.sh) |
-| **[WanVideo](examples/wanvideo)** | Video Generation | ✅ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) | [run.sh](examples/wanvideo/run.sh) |
-| **[SiT](examples/scalable_interpolant_transformer)** | Diffusion Transformer | ✅ | ❌ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K | [run.sh](examples/scalable_interpolant_transformer/run.sh) |
-| **[RAE-SigLip](examples/representation_autoencoder)** | Visual AutoEncoder | ✅ | ❌ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA | [run.sh](examples/representation_autoencoder/run.sh) |
+| Model | Architecture | FSDP2 | Ulysses SP | Muon | Packing | NSA | Highlights | Quick Start |
+|-------|-------------|-------|------------|------|---------|-----|------------------|-------------|
+| **[BAGEL](src/lmms_engine/models/bagel)** | Vision+Generation | ✅ | ❌ | ❌ | ✅ | ✅ | Unified visual understanding & generation | [test](test/train/bagel/train_bagel.py) |
+| **[dLLM (Qwen3)](examples/diffusion_language_model)** | Diffusion LM | ✅ | ❌ | ✅ | ❌ | ❌ | Masked diffusion language model | [run.sh](examples/diffusion_language_model/run.sh) |
+| **[Gated DeltaNet](examples/dgn)** | Gated Linear Attn | ✅ | ❌ | ✅ | ✅ | ❌ | Efficient architecture, FineWeb-Edu pretraining | [run.sh](examples/dgn/run.sh) |
+| **[Qwen2.5-Omni](examples/qwen2_5_omni)** | Vision+Audio+Text | ✅ | ✅ | ✅ | ✅ | ❌ | Unified multimodal (image, audio, text) | [run.sh](examples/qwen2_5_omni/run.sh) |
+| **[Qwen3-VL](examples/qwen3_vl)** | Vision-Language | ✅ | ✅ | ✅ | ✅ | ❌ | Native-resolution, long context (10K+ tokens) | [run.sh](examples/qwen3_vl/run.sh) |
+| **[RAE-SigLip](examples/representation_autoencoder)** | Visual AutoEncoder | ✅ | ❌ | ❌ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA | [run.sh](examples/representation_autoencoder/run.sh) |
+| **[SiT](examples/scalable_interpolant_transformer)** | Diffusion Transformer | ✅ | ❌ | ❌ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K | [run.sh](examples/scalable_interpolant_transformer/run.sh) |
+| **[WanVideo](examples/wanvideo)** | Video Generation | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) | [run.sh](examples/wanvideo/run.sh) |
 
 **Optimization Legend:**
 - **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
-- **Ulysses SP**: Sequence Parallel for long contexts (10K+ visual tokens)
+- **Ulysses SP**: Sequence Parallel for long contexts
 - **Muon**: Advanced optimizer with Newton-Schulz orthogonalization
 - **Packing**: First-fit bin packing for peaking at 35-40% MFU vs 20-25% (wo in Qwen2.5-VL finetuning)
+- **NSA**: Native Sparse Attention for efficient long-context processing
 
 > 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
 
@@ -123,6 +125,8 @@ Production-grade efficiency from distributed training to kernel fusion.
 ### Memory & Compute Optimizations
 
 - **Flash Attention + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
+
+- **Native Sparse Attention (NSA)** - Hybrid attention mechanism combining compressed attention, topk sparse attention, and sliding window attention. Enables efficient long-context processing for BAGEL model with reduced memory footprint.
 
 - **Liger Kernel** - Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) achieve 30% memory reduction by avoiding intermediate materializations.
 
@@ -214,6 +218,37 @@ trainer_args:
 - Splits sequence length across GPUs
 - Reduces memory footprint for long contexts
 - Works with Flash Attention
+</details>
+
+<details>
+<summary><b>Native Sparse Attention (NSA)</b> - Efficient long-context attention for BAGEL</summary>
+
+```yaml
+model_config:
+  load_from_pretrained_path: "lmms-lab/BAGEL-7B-MoT-ver.LE"
+
+monkey_patch:
+  - type: nsa
+    model_type: bagel
+    kwargs:
+      block_size: 64
+      compress_type: "weightedpool"  # weightedpool, linear, avgpool
+      kernel_size: 32
+      kernel_stride: 16
+      topk: 16
+      init_blocks: 1
+      local_blocks: 2
+      window_size: 512
+```
+
+**Features:**
+- Compressed attention with key-value compression
+- TopK sparse attention for efficiency
+- Sliding window attention for local context
+- Hybrid mechanism combines all three attention types
+- Requires: `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`
+
+**Note:** Currently only supported for BAGEL model.
 </details>
 
 ## 📖 Documentation
