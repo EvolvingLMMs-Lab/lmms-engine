@@ -18,6 +18,39 @@ A simple, unified multimodal models training engine. Lean, flexible, and built f
 
 ---
 
+[TOC]
+- [LMMs Engine](#lmms-engine)
+  - [Overview](#overview)
+  - [Modular Design for Extensibility](#modular-design-for-extensibility)
+  - [State-of-the-Art Optimizations](#state-of-the-art-optimizations)
+  - [Comprehensive Model Support](#comprehensive-model-support)
+    - [Multimodal Models](#multimodal-models)
+    - [Diffusion \& Generative Models](#diffusion--generative-models)
+    - [Language Models](#language-models)
+  - [🚀 Quick Start](#-quick-start)
+    - [Installation](#installation)
+    - [Launch Training](#launch-training)
+  - [🔥 Featured Examples](#-featured-examples)
+  - [📖 Documentation](#-documentation)
+    - [Getting Started](#getting-started)
+    - [Advanced Topics](#advanced-topics)
+    - [Step-by-Step Guides](#step-by-step-guides)
+  - [🏗️ Modular Architecture](#️-modular-architecture)
+    - [Component Registry](#component-registry)
+    - [Training Pipeline](#training-pipeline)
+    - [Supported Trainers](#supported-trainers)
+  - [⚙️ Advanced Optimizations](#️-advanced-optimizations)
+    - [Sequence Packing](#sequence-packing)
+    - [Liger Kernel](#liger-kernel)
+    - [Muon Optimizer](#muon-optimizer)
+    - [FSDP2 Configuration](#fsdp2-configuration)
+    - [Ulysses Sequence Parallel](#ulysses-sequence-parallel)
+  - [🎯 Use Cases](#-use-cases)
+  - [🤝 Contributing](#-contributing)
+  - [📝 Citation](#-citation)
+  - [📄 License](#-license)
+  - [🔗 Links](#-links)
+
 ## Overview
 
 **LMMs Engine** is a highly efficient, modular training framework for training Unified Multimodal Models at scale. It provides:
@@ -26,17 +59,13 @@ A simple, unified multimodal models training engine. Lean, flexible, and built f
 - **Scalability Optimizations** with FSDP2, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, and state-of-the-art Muon optimizer for training large models on thousands of GPUs.
 - **Modular design** using Factory and Builder patterns for easy extensibility to support many types of models and datasets.
 
-## 🎯 Key Features
-
-### 1. Modular Architecture
+## Modular Design for Extensibility
 
 > TODO: KAICHEN
 
-### 2. State-of-the-Art Optimizations
+## State-of-the-Art Optimizations
 
 Production-grade efficiency from distributed training to kernel fusion.
-
-#### Native PyTorch Distributed Training
 
 - **FSDP2** - PyTorch 2.0+ DTensor-based sharding for parameters, gradients, and optimizer states. Improved composability over original FSDP enables flexible parallelism composition.
 
@@ -44,15 +73,11 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 - **Multi-dimensional Parallelism** - Compose TP × CP × PP × DP meshes for cluster-scale training.
 
-#### Kernel Fusion & Memory Efficiency
-
 - **Flash Attention + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
 
 - **Liger Kernel** - Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) achieve 30% memory reduction by avoiding intermediate materializations.
 
 - **Monkey Patching System** - Runtime kernel injection via `lmms_engine/configs/monkey_patch/` for model-specific optimizations without code modification.
-
-#### Advanced Optimizers & Data Efficiency
 
 - **Muon Optimizer** - Newton-Schulz orthogonalization with Triton kernels, distributed via DTensor. Selective 2D-parameter application outperforms AdamW convergence.
 
@@ -60,11 +85,11 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 - **Streaming Datasets** - `IterableDataset` for trillion-token pretraining without full data loading.
 
-### 3. Comprehensive Model Support
+## Comprehensive Model Support
 
 **19+ architectures spanning vision-language, diffusion, and language models.**
 
-#### Vision-Language Models
+### Multimodal Models
 - **Qwen2.5-VL** - Multi-resolution vision-language model
 - **Qwen3-VL** - Latest Qwen vision-language with Ulysses SP
 - **Qwen2.5-Omni** - Unified vision + audio + text modalities
@@ -72,13 +97,13 @@ Production-grade efficiency from distributed training to kernel fusion.
 - **Bagel** - Vision-language with NSA operations
 - **AERO** - 3D-aware video understanding
 
-#### Diffusion & Generative Models
-- **DLLM (Qwen3)** - Diffusion Language Model with masked prediction
+### Diffusion & Generative Models
+- **dLLM (Qwen3)** - Diffusion Language Model with masked prediction
 - **WanVideo (1.3B/14B)** - Text/Image-to-Video generation (T2V/I2V/V2V)
 - **SiT (XL/2)** - Scalable Interpolant Transformers for class-conditional image generation
 - **RAE-SigLip** - Representation AutoEncoder with adversarial discriminator
 
-#### Language Models
+### Language Models
 - **Qwen2/2.5/3 series** - Full Liger kernel support with fused operations
 - **Gated DeltaNet (DGN)** - Recurrent architecture optimized for Muon
 - **Custom architectures** - Extensible via `@register_model()` decorator
