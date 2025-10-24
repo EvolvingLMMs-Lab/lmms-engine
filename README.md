@@ -1,5 +1,7 @@
 # LMMs Engine
 
+> 
+
 A simple, unified multimodal models training engine. Lean, flexible, and built for hacking at scale.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -22,9 +24,9 @@ A simple, unified multimodal models training engine. Lean, flexible, and built f
 
 **LMMs Engine** is a highly efficient, modular training framework for training Unified Multimodal Models at scale.
 
-Train any multimodal model architectures including vision-language models (Qwen2/3-VL, LLaVA-OV), diffusion models (dLLM, SiT, WanVideo), and specialized research architectures. 
+Train any multimodal model architectures including vision-language models (Qwen2/3-VL, LLaVA-OV), diffusion models (dLLM, WanVideo), unified multimodal models (Qwen2.5-Omni, BAGEL) and specialized research architectures (RAE, Gated DeltaNet, SiT). 
 
-Built with distributed training optimizations (FSDP2 Multi-dimensional Parallelism, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, Muon optimizer) and a modular design for easy extensibility.
+Built with distributed training optimizations (FSDP2 Multi-dimensional Parallelism, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, Muon optimizer, Native Sparse Attention) and a modular design for easy extensibility.
 
 ## 🚀 Quick Start
 
@@ -79,7 +81,7 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 - **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
 - **Ulysses SP**: Sequence Parallel for long contexts (10K+ visual tokens)
 - **Muon**: Advanced optimizer with Newton-Schulz orthogonalization
-- **Packing**: First-fit bin packing for 35-40% MFU vs 20-25% without
+- **Packing**: First-fit bin packing for peaking at 35-40% MFU vs 20-25% (wo in Qwen2.5-VL finetuning)
 
 > 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
 
@@ -139,7 +141,7 @@ Production-grade efficiency from distributed training to kernel fusion.
 ### Configuration Examples
 
 <details>
-<summary><b>Sequence Packing</b> - Achieve 35-40% MFU with full unpadding</summary>
+<summary><b>Sequence Packing</b> - with full unpadding</summary>
 
 ```yaml
 dataset_config:
