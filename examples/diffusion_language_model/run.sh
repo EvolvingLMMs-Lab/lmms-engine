@@ -53,7 +53,7 @@ CONFIG="dllm_train_muon_single_gpu.yaml"      # For single GPU
 if [ "$CONFIG" = "dllm_train_muon_single_gpu.yaml" ]; then
   echo "Running single GPU training..."
   python -m lmms_engine.launch.cli \
-    --config examples/diffusion_language_model/${CONFIG}
+    config_yaml=examples/diffusion_language_model/${CONFIG}
 
 # ============================================================================
 # MULTI-GPU TRAINING (FSDP2)
@@ -68,7 +68,7 @@ else
     --master_addr=127.0.0.1 \
     --master_port=12355 \
     -m lmms_engine.launch.cli \
-    --config examples/diffusion_language_model/${CONFIG}
+    config_yaml=examples/diffusion_language_model/${CONFIG}
 fi
 
 ################################################################################

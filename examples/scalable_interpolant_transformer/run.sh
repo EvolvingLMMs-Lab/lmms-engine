@@ -92,7 +92,7 @@ torchrun \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   -m lmms_engine.launch.cli \
-  --config $CONFIG_FILE
+  config_yaml=$CONFIG_FILE
 
 ################################################################################
 # USAGE EXAMPLES:

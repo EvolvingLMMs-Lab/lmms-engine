@@ -1,1 +1,1 @@
-torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 --master_addr=127.0.0.1 --master_port=12355 -m lmms_engine.launch.cli --config examples/load_from_pretrained_example.yaml
+torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 --master_addr=127.0.0.1 --master_port=12355 -m lmms_engine.launch.cli config_yaml=examples/load_from_pretrained_example.yaml

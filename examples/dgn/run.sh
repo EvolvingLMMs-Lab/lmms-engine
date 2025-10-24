@@ -57,7 +57,7 @@ torchrun --nproc_per_node=${NGPUS} \
   --master_addr=127.0.0.1 \
   --master_port=12355 \
   -m lmms_engine.launch.cli \
-  --config examples/dgn/train_dgn_1b.yaml
+  config_yaml=examples/dgn/train_dgn_1b.yaml
 
 ################################################################################
 # WANDB LOGGING (recommended):
@@ -65,7 +65,7 @@ torchrun --nproc_per_node=${NGPUS} \
 # export WANDB_ENTITY="your-entity"
 #
 # SINGLE GPU (for debugging):
-# python -m lmms_engine.launch.cli --config examples/dgn/train_dgn_1b.yaml
+# python -m lmms_engine.launch.cli config_yaml=examples/dgn/train_dgn_1b.yaml
 #
 # MULTI-NODE TRAINING:
 # Set --nnodes, --node_rank, and --master_addr accordingly

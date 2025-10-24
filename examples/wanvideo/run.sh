@@ -72,12 +72,12 @@ torchrun --nproc_per_node=${NGPUS} \
   --master_addr=127.0.0.1 \
   --master_port=12355 \
   -m lmms_engine.launch.cli \
-  --config examples/wanvideo/configs/${CONFIG}
+  config_yaml=examples/wanvideo/configs/${CONFIG}
 
 ################################################################################
 # SINGLE GPU (for debugging small models):
 # python -m lmms_engine.launch.cli \
-#   --config examples/wanvideo/configs/${CONFIG}
+#   config_yaml=examples/wanvideo/configs/${CONFIG}
 #
 # MULTI-NODE TRAINING:
 # Set --nnodes, --node_rank, and --master_addr accordingly

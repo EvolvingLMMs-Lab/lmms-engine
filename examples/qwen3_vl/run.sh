@@ -63,7 +63,7 @@ torchrun --nproc_per_node=${NGPUS} \
   --master_addr=127.0.0.1 \
   --master_port=12355 \
   -m lmms_engine.launch.cli \
-  --config examples/qwen3_vl/example_config.yaml
+  config_yaml=examples/qwen3_vl/example_config.yaml
 
 ################################################################################
 # MULTI-NODE TRAINING:
@@ -75,7 +75,7 @@ torchrun --nproc_per_node=${NGPUS} \
 #   --master_addr=<RANK_0_IP> \
 #   --master_port=12355 \
 #   -m lmms_engine.launch.cli \
-#   --config examples/qwen3_vl/example_config.yaml
+#   config_yaml=examples/qwen3_vl/example_config.yaml
 #
 # On rank 1 node:
 # torchrun --nproc_per_node=8 \
@@ -84,6 +84,6 @@ torchrun --nproc_per_node=${NGPUS} \
 #   --master_addr=<RANK_0_IP> \
 #   --master_port=12355 \
 #   -m lmms_engine.launch.cli \
-#   --config examples/qwen3_vl/example_config.yaml
+#   config_yaml=examples/qwen3_vl/example_config.yaml
 #
 ################################################################################

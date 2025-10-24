@@ -62,11 +62,11 @@ torchrun --nproc_per_node=${NGPUS} \
   --master_addr=127.0.0.1 \
   --master_port=12355 \
   -m lmms_engine.launch.cli \
-  --config examples/qwen2_5_omni/example_config.yaml
+  config_yaml=examples/qwen2_5_omni/example_config.yaml
 
 ################################################################################
 # SINGLE GPU (for debugging):
-# python -m lmms_engine.launch.cli --config examples/qwen2_5_omni/example_config.yaml
+# python -m lmms_engine.launch.cli config_yaml=examples/qwen2_5_omni/example_config.yaml
 #
 # MULTI-NODE TRAINING:
 # Set --nnodes, --node_rank, and --master_addr accordingly
