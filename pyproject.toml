@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lmms_engine"
 version = "0.1.2"
-authors = [LMMs-Lab]
+authors = [{name = "LMMs-Lab"}]
 description = "A simple, unified multimodal models training engine. Lean, flexible, and built for hacking, and hacking at scale."
 readme = "README.md"
 requires-python = ">=3.11"
