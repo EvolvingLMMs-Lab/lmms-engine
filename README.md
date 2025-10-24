@@ -1,8 +1,8 @@
 # LMMs Engine
 
-<div align="center">
+A simple, unified multimodal framework for pretraining and finetuning. Lean, flexible, and built for hacking, and hacking at scale.
 
-**A Production-Ready Training Framework for Large Multimodal Models**
+<div align="center">
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
@@ -26,21 +26,7 @@
 
 ### 1. Modular Architecture
 
-**Factory Pattern** for component registration and creation:
-```python
-@register_dataset("custom_dataset")
-class CustomDataset(BaseDataset):
-    ...
-
-@register_processor("custom_processor")
-class CustomProcessor(BaseProcessor):
-    ...
-```
-
-**Builder Pattern** for flexible composition:
-- Lazy initialization of models, datasets, and trainers
-- Plugin-based feature enablement via configuration
-- Clear separation of concerns for maintainability
+> TODO: KAICHEN
 
 ### 2. State-of-the-Art Optimizations
 
@@ -56,7 +42,7 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 #### Kernel Fusion & Memory Efficiency
 
-- **Flash Attention 2 + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
+- **Flash Attention + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
 
 - **Liger Kernel** - Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) achieve 30% memory reduction by avoiding intermediate materializations.
 
@@ -72,37 +58,26 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 ### 3. Comprehensive Model Support
 
-<details>
-<summary><b>Vision-Language Models (6)</b></summary>
+**19+ architectures spanning vision-language, diffusion, and language models.**
 
+#### Vision-Language Models
 - **Qwen2.5-VL** - Multi-resolution vision-language model
 - **Qwen3-VL** - Latest Qwen vision-language with Ulysses SP
-- **Qwen2.5-Omni** - Unified vision + audio + text
-- **LLaVA-OneVision** - Multi-resolution understanding
+- **Qwen2.5-Omni** - Unified vision + audio + text modalities
+- **LLaVA-OneVision** - Multi-resolution visual understanding
 - **Bagel** - Vision-language with NSA operations
 - **AERO** - 3D-aware video understanding
 
-</details>
-
-<details>
-<summary><b>Diffusion & Generative Models (5)</b></summary>
-
+#### Diffusion & Generative Models
 - **DLLM (Qwen3)** - Diffusion Language Model with masked prediction
 - **WanVideo (1.3B/14B)** - Text/Image-to-Video generation (T2V/I2V/V2V)
-- **SiT (XL/2)** - Scalable Interpolant Transformers for images
-- **RAE-SigLip** - Representation AutoEncoder with discriminator
-- **Custom architectures** - Easy to add via model registry
+- **SiT (XL/2)** - Scalable Interpolant Transformers for class-conditional image generation
+- **RAE-SigLip** - Representation AutoEncoder with adversarial discriminator
 
-</details>
-
-<details>
-<summary><b>Language Models (8+)</b></summary>
-
-- **Qwen2/2.5/3 series** - With Liger kernel support
-- **Gated DeltaNet (DGN)** - Recurrent architecture with Muon
-- **Custom LMs** - Extensible via `register_model()`
-
-</details>
+#### Language Models
+- **Qwen2/2.5/3 series** - Full Liger kernel support with fused operations
+- **Gated DeltaNet (DGN)** - Recurrent architecture optimized for Muon
+- **Custom architectures** - Extensible via `@register_model()` decorator
 
 ## 🚀 Quick Start
 
@@ -127,7 +102,7 @@ uv pip install liger-kernel
 ```bash
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
   --master_addr=127.0.0.1 --master_port=12355 \
-  -m lmms_engine.launch.cli --config examples/load_from_pretrained_example.yaml
+  -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 ```
 
 **Alternative: Accelerate**
@@ -138,56 +113,7 @@ accelerate launch --use_fsdp \
 
 **Single GPU**
 ```bash
-python -m lmms_engine.launch.cli --config examples/muon_DGN_1B_from_scratch.yaml
-```
-
-### Basic Configuration
-
-```yaml
-# Training configuration (YAML recommended)
-trainer_type: hf_trainer  # or dllm_trainer, wan_trainer, rae_trainer, sit_trainer
-
-# Dataset configuration
-dataset_config:
-  dataset_type: vision  # vision, qwen_omni, fineweb_edu, etc.
-  dataset_format: jsonl  # json, jsonl, csv, arrow, hf_dataset
-  dataset_path: data/open_thoughts_debug
-  packing: true  # Enable sequence packing
-  packing_length: 32000
-  processor_config:
-    processor_type: Qwen2_5VLProcessor
-    processor_name: Qwen/Qwen2.5-VL-7B-Instruct
-
-# Model configuration
-model_config:
-  load_from_pretrained_path: Qwen/Qwen2.5-VL-7B-Instruct
-  attn_implementation: flash_attention_2
-
-# Training arguments
-trainer_args:
-  output_dir: ./output/qwen2_5_vl_training
-  num_train_epochs: 3
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4
-  learning_rate: 1.0e-5
-
-  # Optimizations
-  bf16: true
-  use_liger_kernel: true
-  use_rmpad: true
-  gradient_checkpointing: true
-
-  # Distributed training
-  fsdp2: true
-  sp_ulysses_degree: 1  # Sequence parallel degree
-
-  # Checkpointing
-  save_steps: 500
-  save_total_limit: 3
-
-  # Logging
-  logging_steps: 10
-  report_to: wandb
+python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 ```
 
 ## 🔥 Featured Examples
@@ -212,7 +138,7 @@ torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
 - Streaming FineWeb-Edu dataset
 - FSDP2 distributed training
 
-[→ Full DLLM Guide](examples/diffusion_language_model/README.md)
+[-> Full dLLM Guide](examples/diffusion_language_model/README.md)
 
 ### 2. Muon Optimizer with Gated DeltaNet
 
@@ -260,7 +186,7 @@ torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
 - 1.3B and 14B model variants
 - Flow-matching scheduler
 
-[→ WanVideo Training Guide](examples/wanvideo/README.md)
+[-> WanVideo Training Guide](examples/wanvideo/README.md)
 
 ### 5. Scalable Interpolant Transformers (SiT)
 
@@ -277,7 +203,7 @@ bash examples/scalable_interpolant_transformer/run.sh
 - FSDP2 distributed training
 - ImageNet-1K training
 
-[→ SiT Training Guide](examples/scalable_interpolant_transformer/README.md)
+[-> SiT Training Guide](examples/scalable_interpolant_transformer/README.md)
 
 ### 6. Qwen3-VL with Ulysses Sequence Parallel
 
@@ -482,7 +408,7 @@ If you use LMMs Engine in your research, please cite:
 
 ```bibtex
 @software{lmms_engine2024,
-  title={LMMs Engine: A Production-Ready Training Framework for Large Multimodal Models},
+  title={LMMs Engine: A simple, unified multimodal framework for pretraining and finetuning.},
   author={LMMs-Lab},
   year={2024},
   url={https://github.com/LMMs-Lab/lmms-engine}
@@ -496,7 +422,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 ## 🔗 Links
 
 - **GitHub**: https://github.com/LMMs-Lab/lmms-engine
-- **LMMs-Lab**: https://lmms-lab.github.io/
+- **LMMs-Lab**: https://lmms-lab.com
 - **Documentation**: [docs/](docs/)
 - **Issues**: https://github.com/LMMs-Lab/lmms-engine/issues
 
@@ -504,7 +430,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 
 <div align="center">
 
-**Built with ❤️ by [LMMs-Lab](https://lmms-lab.github.io/)**
+**Built with ❤️ by [LMMs-Lab](https://lmms-lab.com/)**
 
 ⭐ **Star us on GitHub to support the project!** ⭐
 
