@@ -2,11 +2,15 @@
 
 A simple, unified multimodal framework for pretraining and finetuning. Lean, flexible, and built for hacking, and hacking at scale.
 
-<div align="center">
-
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet.svg)](https://github.com/astral-sh/uv)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Lint](https://github.com/EvolvingLMMs-Lab/lmms-engine/actions/workflows/lint.yml/badge.svg)](https://github.com/EvolvingLMMs-Lab/lmms-engine/actions/workflows/lint.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/EvolvingLMMs-Lab/lmms-engine?style=social)](https://github.com/LMMs-Lab/lmms-engine/stargazers)
+
+<div align="center">
 
 [Features](#-key-features) • [Quick Start](#-quick-start) • [Examples](#-featured-examples) • [Documentation](#-documentation) • [Architecture](#-modular-architecture)
 
