@@ -118,9 +118,58 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 
 ## 🔥 Featured Examples
 
-### 1. Diffusion Language Models (DLLM) with Muon Optimizer
+### 1. BAGEL: Unified Multimodal Models
 
-Train a diffusion-based language model using the cutting-edge Muon optimizer:
+
+```bash
+torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
+  --config examples/bagel/train_bagel.yaml
+```
+
+**Key Innovations:**
+- Mixture-of-Teacher (MoT) architecture for unified image understanding and generation.
+- FSDP2 distributed training with `Qwen2MoTDecoderLayer`
+- Native Sparse Attention (NSA) operations - topk attention, linear compression
+- Ulysses Sequence Parallel for long sequences.
+- Multi-dimensional Parallelism
+- Liger Kernel fused operations
+- Sequence Packing
+- Streaming Datasets
+- Monkey Patching System
+
+### 2. Qwen2.5/3-VL, Qwen2.5/3-Omni
+
+Train vision-language, audio-language, and unified multimodal models with long sequences:
+
+```bash
+torchrun --nproc_per_node=8 -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
+```
+
+**Key Features:**
+- Qwen2.5/3-VL: Vision-language models with long sequences.
+- Qwen2.5/3-Omni: Unified multimodal models with vision, language, and audio modalities.
+- Ulysses Sequence Parallel for long sequences.
+- Multi-dimensional Parallelism
+- Sequence Packing
+- Streaming Datasets
+- Monkey Patching System
+
+### 3. Gated DeltaNet (DGN)
+
+Train a 1B Gated Linear Attention model from scratch:
+
+```bash
+torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
+  --config examples/muon_DGN_1B_from_scratch.yaml
+```
+
+**Highlights:**
+- Gated Linear Attention architecture
+- FineWeb-Edu pretraining dataset
+
+### 4. Diffusion Large Language Models (dLLM) with Muon
+
+Train Qwen3-based diffusion language model:
 
 ```bash
 # Single GPU
@@ -133,44 +182,14 @@ torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
 ```
 
 **Key Features:**
-- Masked language modeling with diffusion
-- Muon optimizer with Newton-Schulz orthogonalization
+- Qwen3 architecture with masked diffusion
+- Muon optimizer for superior convergence
 - Streaming FineWeb-Edu dataset
 - FSDP2 distributed training
 
-[-> Full dLLM Guide](examples/diffusion_language_model/README.md)
+[→ Full dLLM Guide](examples/diffusion_language_model/README.md)
 
-### 2. Muon Optimizer with Gated DeltaNet
-
-Train a 1B Gated DeltaNet model from scratch with Muon:
-
-```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/muon_DGN_1B_from_scratch.yaml
-```
-
-**Highlights:**
-- `use_muon: true` - Enable Muon optimizer
-- FSDP2 for efficient distributed training
-- Sequence packing with `use_rmpad: true`
-- FineWeb-Edu dataset for pretraining
-
-### 3. Representation AutoEncoder (RAE)
-
-Train a visual representation autoencoder with adversarial loss:
-
-```bash
-bash examples/representation_autoencoder/run_rae.sh
-```
-
-**Features:**
-- SigLip encoder + general decoder + discriminator
-- LPIPS perceptual loss
-- Differentiable augmentation
-- EMA for stable generation
-- ImageNet-1K training
-
-### 4. WanVideo: Text/Image-to-Video Generation
+### 5. WanVideo: Text/Image-to-Video Generation
 
 Train video generation models at scale:
 
@@ -186,9 +205,9 @@ torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
 - 1.3B and 14B model variants
 - Flow-matching scheduler
 
-[-> WanVideo Training Guide](examples/wanvideo/README.md)
+[→ WanVideo Training Guide](examples/wanvideo/README.md)
 
-### 5. Scalable Interpolant Transformers (SiT)
+### 6. Scalable Interpolant Transformers (SiT)
 
 Train diffusion transformers for class-conditional image generation:
 
@@ -203,22 +222,22 @@ bash examples/scalable_interpolant_transformer/run.sh
 - FSDP2 distributed training
 - ImageNet-1K training
 
-[-> SiT Training Guide](examples/scalable_interpolant_transformer/README.md)
+[→ SiT Training Guide](examples/scalable_interpolant_transformer/README.md)
 
-### 6. Qwen3-VL with Ulysses Sequence Parallel
+### 7. Representation AutoEncoder (RAE)
 
-Train vision-language models with long sequences:
+Train a visual representation autoencoder with adversarial loss:
 
 ```bash
-torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
-  --config examples/qwen3_vl/example_config.yaml
+bash examples/representation_autoencoder/run_rae.sh
 ```
 
-**Optimizations:**
-- Ulysses Sequence Parallel (`sp_ulysses_degree: 2`)
-- Flash Attention 2 with rmpad
-- Liger Kernel fused operations
-- Multi-resolution image support
+**Features:**
+- SigLip encoder + general decoder + discriminator
+- LPIPS perceptual loss
+- Differentiable augmentation
+- EMA for stable generation
+- ImageNet-1K training
 
 ## 📖 Documentation
 
