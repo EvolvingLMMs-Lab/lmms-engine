@@ -1,6 +1,6 @@
 # LMMs Engine
 
-A simple, unified multimodal models training engine. Lean, flexible, and built for hacking, and hacking at scale.
+A simple, unified multimodal models training engine. Lean, flexible, and built for hacking at scale.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
@@ -12,101 +12,19 @@ A simple, unified multimodal models training engine. Lean, flexible, and built f
 
 <div align="center">
 
-[Features](#-key-features) • [Quick Start](#-quick-start) • [Examples](#-featured-examples) • [Documentation](#-documentation) • [Architecture](#-modular-architecture)
+[Quick Start](#-quick-start) • [Examples](#-featured-examples) • [Model Support](#-model-support) • [Optimizations](#️-optimizations) • [Architecture](#️-architecture) • [Documentation](#-documentation)
 
 </div>
 
 ---
 
-[TOC]
-- [LMMs Engine](#lmms-engine)
-  - [Overview](#overview)
-  - [Modular Design for Extensibility](#modular-design-for-extensibility)
-  - [State-of-the-Art Optimizations](#state-of-the-art-optimizations)
-  - [Comprehensive Model Support](#comprehensive-model-support)
-    - [Multimodal Models](#multimodal-models)
-    - [Diffusion \& Generative Models](#diffusion--generative-models)
-    - [Language Models](#language-models)
-  - [🚀 Quick Start](#-quick-start)
-    - [Installation](#installation)
-    - [Launch Training](#launch-training)
-  - [🔥 Featured Examples](#-featured-examples)
-  - [📖 Documentation](#-documentation)
-    - [Getting Started](#getting-started)
-    - [Advanced Topics](#advanced-topics)
-    - [Step-by-Step Guides](#step-by-step-guides)
-  - [🏗️ Modular Architecture](#️-modular-architecture)
-    - [Component Registry](#component-registry)
-    - [Training Pipeline](#training-pipeline)
-    - [Supported Trainers](#supported-trainers)
-  - [⚙️ Advanced Optimizations](#️-advanced-optimizations)
-    - [Sequence Packing](#sequence-packing)
-    - [Liger Kernel](#liger-kernel)
-    - [Muon Optimizer](#muon-optimizer)
-    - [FSDP2 Configuration](#fsdp2-configuration)
-    - [Ulysses Sequence Parallel](#ulysses-sequence-parallel)
-  - [🎯 Use Cases](#-use-cases)
-  - [🤝 Contributing](#-contributing)
-  - [📝 Citation](#-citation)
-  - [📄 License](#-license)
-  - [🔗 Links](#-links)
-
 ## Overview
 
-**LMMs Engine** is a highly efficient, modular training framework for training Unified Multimodal Models at scale. It provides:
+**LMMs Engine** is a highly efficient, modular training framework for training Unified Multimodal Models at scale.
 
-- **19+ model architectures** including vision-language models (Qwen2/3-VL, LLaVA-OV), diffusion models (dLLM, SiT, WanVideo), and specialized architectures for research purposes (RAE)
-- **Scalability Optimizations** with FSDP2, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, and state-of-the-art Muon optimizer for training large models on thousands of GPUs.
-- **Modular design** using Factory and Builder patterns for easy extensibility to support many types of models and datasets.
+Train any multimodal model architectures including vision-language models (Qwen2/3-VL, LLaVA-OV), diffusion models (dLLM, SiT, WanVideo), and specialized research architectures. 
 
-## Modular Design for Extensibility
-
-> TODO: KAICHEN
-
-## State-of-the-Art Optimizations
-
-Production-grade efficiency from distributed training to kernel fusion.
-
-- **FSDP2** - PyTorch 2.0+ DTensor-based sharding for parameters, gradients, and optimizer states. Improved composability over original FSDP enables flexible parallelism composition.
-
-- **Ulysses Sequence Parallel** - Splits sequence dimension across GPUs for ultra-long contexts. Critical for vision-language models like Qwen3-VL with 10K+ visual tokens.
-
-- **Multi-dimensional Parallelism** - Compose TP × CP × PP × DP meshes for cluster-scale training.
-
-- **Flash Attention + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
-
-- **Liger Kernel** - Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) achieve 30% memory reduction by avoiding intermediate materializations.
-
-- **Monkey Patching System** - Runtime kernel injection via `lmms_engine/configs/monkey_patch/` for model-specific optimizations without code modification.
-
-- **Muon Optimizer** - Newton-Schulz orthogonalization with Triton kernels, distributed via DTensor. Selective 2D-parameter application outperforms AdamW convergence.
-
-- **Sequence Packing** - First-fit bin packing achieves 35-40% MFU vs 20-25% without packing. Combined with unpadding for zero padding waste.
-
-- **Streaming Datasets** - `IterableDataset` for trillion-token pretraining without full data loading.
-
-## Comprehensive Model Support
-
-**19+ architectures spanning vision-language, diffusion, and language models.**
-
-### Multimodal Models
-- **Qwen2.5-VL** - Multi-resolution vision-language model
-- **Qwen3-VL** - Latest Qwen vision-language with Ulysses SP
-- **Qwen2.5-Omni** - Unified vision + audio + text modalities
-- **LLaVA-OneVision** - Multi-resolution visual understanding
-- **Bagel** - Vision-language with NSA operations
-- **AERO** - 3D-aware video understanding
-
-### Diffusion & Generative Models
-- **dLLM (Qwen3)** - Diffusion Language Model with masked prediction
-- **WanVideo (1.3B/14B)** - Text/Image-to-Video generation (T2V/I2V/V2V)
-- **SiT (XL/2)** - Scalable Interpolant Transformers for class-conditional image generation
-- **RAE-SigLip** - Representation AutoEncoder with adversarial discriminator
-
-### Language Models
-- **Qwen2/2.5/3 series** - Full Liger kernel support with fused operations
-- **Gated DeltaNet (DGN)** - Recurrent architecture optimized for Muon
-- **Custom architectures** - Extensible via `@register_model()` decorator
+Built with distributed training optimizations (FSDP2 Multi-dimensional Parallelism, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, Muon optimizer) and a modular design for easy extensibility.
 
 ## 🚀 Quick Start
 
@@ -165,18 +83,141 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 
 > 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
 
+## 🤖 Model Support
+
+**19+ architectures spanning vision-language, diffusion, and language models.**
+
+### Multimodal Models
+- **Qwen2.5-VL** - SOTA level performance vision-language model
+- **Qwen3-VL** - SOTA level performance vision-language model
+- **Qwen2.5-Omni** - Unified vision + audio + text modalities
+- **LLaVA-OneVision** - Fully open-source vision-language model
+- **Bagel** - Unified multimodal model for visual understanding and generation
+- **Aero** - Lightweight audio-language model
+
+### Diffusion & Generative Models
+- **dLLM (Qwen3)** - Diffusion Language Model with masked prediction
+- **WanVideo (1.3B/14B)** - Text/Image-to-Video generation (T2V/I2V/V2V)
+- **SiT (XL/2)** - Scalable Interpolant Transformers for class-conditional image generation
+- **RAE-SigLip** - Representation AutoEncoder with adversarial discriminator
+
+### Language Models
+- **Qwen2/2.5/3 series** - Full Liger kernel support with fused operations
+- **Gated DeltaNet (DGN)** - Recurrent architecture optimized for Muon
+- **Custom architectures** - Extensible via `@register_model()` decorator
+
+## ⚡️ Optimizations
+
+Production-grade efficiency from distributed training to kernel fusion.
+
+### Core Distributed Training
+
+- **FSDP2** - PyTorch 2.0+ DTensor-based sharding for parameters, gradients, and optimizer states. Improved composability over original FSDP enables flexible parallelism composition.
+
+- **Ulysses Sequence Parallel** - Splits sequence dimension across GPUs for ultra-long contexts. Critical for vision-language models like Qwen3-VL with 10K+ visual tokens.
+
+- **Multi-dimensional Parallelism** - Compose TP × CP × PP × DP meshes for cluster-scale training.
+
+### Memory & Compute Optimizations
+
+- **Flash Attention + Unpadding** - Tiled attention with `use_rmpad` eliminates all padding computation. 2-3× speedup on variable-length sequences.
+
+- **Liger Kernel** - Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) achieve 30% memory reduction by avoiding intermediate materializations.
+
+- **Monkey Patching System** - Runtime kernel injection via `lmms_engine/configs/monkey_patch/` for model-specific optimizations without code modification.
+
+- **Sequence Packing** - First-fit bin packing achieves 35-40% MFU vs 20-25% without packing. Combined with unpadding for zero padding waste.
+
+### Advanced Optimizer
+
+- **Muon Optimizer** - Newton-Schulz orthogonalization with Triton kernels, distributed via DTensor. Selective 2D-parameter application outperforms AdamW convergence.
+
+### Data Pipeline
+
+- **Streaming Datasets** - `IterableDataset` for trillion-token pretraining without full data loading.
+
+### Configuration Examples
+
+<details>
+<summary><b>Sequence Packing</b> - Achieve 35-40% MFU with full unpadding</summary>
+
+```yaml
+dataset_config:
+  packing: true
+  packing_strategy: first_fit
+  packing_length: 32000
+
+trainer_args:
+  use_rmpad: true  # Requires flash-attn
+  use_liger_kernel: true
+```
+</details>
+
+<details>
+<summary><b>Liger Kernel</b> - Enable LinkedIn's Triton kernels for 30% memory reduction</summary>
+
+```yaml
+trainer_args:
+  use_liger_kernel: true
+```
+
+**Fused operations:**
+- CrossEntropy (major memory savings)
+- RMSNorm, RoPE, SwiGLU
+- Automatically applied via monkey patching
+</details>
+
+<details>
+<summary><b>Muon Optimizer</b> - State-of-the-art optimizer for LLMs</summary>
+
+```yaml
+trainer_args:
+  use_muon: true
+  learning_rate: 0.001
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  weight_decay: 0.01
+  # ns_steps: 5  # Newton-Schulz iterations (default)
+```
+
+**Features:**
+- Newton-Schulz orthogonalization with Triton kernels
+- Distributed via DTensor (FSDP2)
+- Selective 2D parameter application
+- Superior convergence vs AdamW
+</details>
+
+<details>
+<summary><b>FSDP2 Configuration</b></summary>
+
+```yaml
+trainer_args:
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap: ["Qwen2VLDecoderLayer"]
+    reshard_after_forward: false
+    activation_checkpointing: true
+```
+</details>
+
+<details>
+<summary><b>Ulysses Sequence Parallel</b> - For long-sequence VLMs</summary>
+
+```yaml
+trainer_args:
+  sp_ulysses_degree: 2  # Sequence parallel degree
+```
+
+**Benefits:**
+- Splits sequence length across GPUs
+- Reduces memory footprint for long contexts
+- Works with Flash Attention
+</details>
+
 ## 📖 Documentation
 
-### Getting Started
-- [Dataset Preparation](docs/data_prep.md) - How to prepare and structure your data
-- [Dataset & Packing Guide](docs/datasets.md) - Detailed dataset implementations and packing strategies
-- [Training Guide](docs/train.md) - Comprehensive training walkthrough
+### Step-by-Step Workflow
 
-### Advanced Topics
-- [Design Principles](docs/design_principle.md) - Architectural patterns and philosophy
-- [API Reference](docs/api.md) - Detailed API documentation
-
-### Step-by-Step Guides
 1. **Process the dataset** into OpenAI chat format (JSONL/JSON/Arrow/CSV)
    ```bash
    hf download kcz358/open-thoughts-debug --local-dir data/open_thoughts_debug --repo-type dataset
@@ -192,7 +233,18 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 
 3. **Configure training** - See [examples/config_example.yaml](examples/config_example.yaml)
 
-## 🏗️ Modular Architecture
+### Comprehensive Guides
+
+**Getting Started:**
+- [Dataset Preparation](docs/data_prep.md) - How to prepare and structure your data
+- [Dataset & Packing Guide](docs/datasets.md) - Detailed dataset implementations and packing strategies
+- [Training Guide](docs/train.md) - Comprehensive training walkthrough
+
+**Advanced Topics:**
+- [Design Principles](docs/design_principle.md) - Architectural patterns and philosophy
+- [API Reference](docs/api.md) - Detailed API documentation
+
+## 🏗️ Architecture
 
 ### Component Registry
 
@@ -251,82 +303,6 @@ runner.run()    # Execute training
 | `wan_trainer` | Video generation | Flow-matching, multi-modal inputs |
 | `rae_trainer` | Visual autoencoders | Adversarial loss, EMA, LPIPS |
 | `sit_trainer` | Diffusion transformers | Interpolant framework, CFG, EMA |
-
-## ⚙️ Advanced Optimizations
-
-### Sequence Packing
-
-Achieve 35-40% MFU with full unpadding:
-
-```yaml
-dataset_config:
-  packing: true
-  packing_strategy: first_fit
-  packing_length: 32000
-
-trainer_args:
-  use_rmpad: true  # Requires flash-attn
-  use_liger_kernel: true
-```
-
-### Liger Kernel
-
-Enable LinkedIn's Triton kernels for 30% memory reduction:
-
-```yaml
-trainer_args:
-  use_liger_kernel: true
-```
-
-**Fused operations:**
-- CrossEntropy (major memory savings)
-- RMSNorm, RoPE, SwiGLU
-- Automatically applied via monkey patching
-
-### Muon Optimizer
-
-State-of-the-art optimizer for LLMs:
-
-```yaml
-trainer_args:
-  use_muon: true
-  learning_rate: 0.001
-  adam_beta1: 0.9
-  adam_beta2: 0.999
-  weight_decay: 0.01
-  # ns_steps: 5  # Newton-Schulz iterations (default)
-```
-
-**Features:**
-- Newton-Schulz orthogonalization with Triton kernels
-- Distributed via DTensor (FSDP2)
-- Selective 2D parameter application
-- Superior convergence vs AdamW
-
-### FSDP2 Configuration
-
-```yaml
-trainer_args:
-  fsdp2: true
-  fsdp_config:
-    transformer_layer_cls_to_wrap: ["Qwen2VLDecoderLayer"]
-    reshard_after_forward: false
-    activation_checkpointing: true
-```
-
-### Ulysses Sequence Parallel
-
-For long-sequence VLMs:
-
-```yaml
-trainer_args:
-  sp_ulysses_degree: 2  # Sequence parallel degree
-```
-
-**Benefits:**
-- Splits sequence length across GPUs
-- Reduces memory footprint for long contexts
-- Works with Flash Attention
 
 ## 🎯 Use Cases
 
