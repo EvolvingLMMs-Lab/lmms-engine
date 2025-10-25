@@ -23,10 +23,6 @@ LMMs-Engine
 
 **LMMs-Engine:** a lean, efficient framework built to train unified multimodal model at scale.
 
-From Qwen LLM, VLM, LLaVA-OV, and WanVideo, to unified models like Qwen-Omni and BAGEL — plus Linear-Attn GDN and research prototypes like RAE and SiT - all under one modular system that seamlessly integrates diverse datasets and optimization strategies.
-
-Powered by FSDP2 multi-dim parallelism, Ulysses sequence parallel, Flash-Attention, Liger Kernels, and Native Sparse Attention (also with bonus support for the Muon optimizer for all models).
-
 **Efficiency Report**
 
 > [TBD] We will soon report the MFU metrics of following models.
