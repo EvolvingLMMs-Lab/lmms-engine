@@ -138,7 +138,7 @@ trainer_args:
   resume_from_checkpoint: null
   hub_model_id: null
   hub_strategy: every_save
-  # hub_token: <HUB_TOKEN>
+  hub_token: <HUB_TOKEN>
   hub_private_repo: null
   hub_always_push: false
   hub_revision: null
