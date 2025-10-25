@@ -23,7 +23,7 @@
 #
 # DATASET:
 #   Prepare your dataset in OpenAI chat format (JSONL/Arrow):
-#   See: docs/data_prep.md
+#   See: docs/user_guide/data_prep.md
 #
 #   Example dataset YAML (data/video/debug.yaml):
 #   ```yaml

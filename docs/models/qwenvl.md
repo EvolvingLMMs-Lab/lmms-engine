@@ -354,7 +354,7 @@ torchrun --nproc_per_node=8 \
     --node_rank=0 \
     --master_addr=127.0.0.1 \
     --master_port=8000 \
-    -m lmms_engine.launch.cli --config ${CONFIG}
+    -m lmms_engine.launch.cli config_yaml=${CONFIG}
 ```
 
 ### Multi-Node Training
@@ -366,7 +366,7 @@ torchrun --nproc_per_node=8 \
     --node_rank=0 \
     --master_addr=<MASTER_NODE_IP> \
     --master_port=8000 \
-    -m lmms_engine.launch.cli --config ${CONFIG}
+    -m lmms_engine.launch.cli config_yaml=${CONFIG}
 
 # Node 1
 torchrun --nproc_per_node=8 \
@@ -374,7 +374,7 @@ torchrun --nproc_per_node=8 \
     --node_rank=1 \
     --master_addr=<MASTER_NODE_IP> \
     --master_port=8000 \
-    -m lmms_engine.launch.cli --config ${CONFIG}
+    -m lmms_engine.launch.cli config_yaml=${CONFIG}
 ```
 
 ## Model Architecture Details
