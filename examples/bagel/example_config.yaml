@@ -3,16 +3,16 @@ trainer_type: fsdp2_trainer
 dataset_config:
   extra_kwargs: {}
   dataset_type: bagel_iterable
-  dataset_format: parquet
+  dataset_format: arrow
   processor_config:
     processor_name: lmms-lab/BAGEL-7B-MoT-ver.LE
     processor_type: bagel
   # Update this to your dataset path
   # Example dataset: https://huggingface.co/datasets/kcz358/bagel-example
   datasets:
-    - path: data/your_bagel_dataset.parquet
-      data_folder: ""
-      data_type: parquet
+    - path: /mnt/aigc/users/pufanyi/workspace/playground/bagel/temp/bagel_data/
+      data_folder: /mnt/aigc/users/pufanyi/workspace/playground/bagel/data/
+      data_type: arrow
   shuffle: true
   eval_dataset_path: null
   object_storage: none
@@ -138,7 +138,7 @@ trainer_args:
   resume_from_checkpoint: null
   hub_model_id: null
   hub_strategy: every_save
-  hub_token: <HUB_TOKEN>
+  # hub_token: <HUB_TOKEN>
   hub_private_repo: null
   hub_always_push: false
   hub_revision: null

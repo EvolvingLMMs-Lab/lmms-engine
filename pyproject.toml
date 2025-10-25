@@ -44,6 +44,7 @@ dependencies = [
     "omegaconf",
     "requests",
     "tqdm",
+    "opencv-python>=4.12.0.88",
 ]
 
 [project.optional-dependencies]

@@ -15,7 +15,7 @@ try:
 except ImportError:
     logger.warning(
         "native_sparse_attention is not installed, please install with"
-        " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
+        " `uv pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
     )
 
 
