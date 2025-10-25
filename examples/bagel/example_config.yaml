@@ -3,16 +3,16 @@ trainer_type: fsdp2_trainer
 dataset_config:
   extra_kwargs: {}
   dataset_type: bagel_iterable
-  dataset_format: parquet
+  dataset_format: yaml
   processor_config:
     processor_name: lmms-lab/BAGEL-7B-MoT-ver.LE
     processor_type: bagel
   # Update this to your dataset path
   # Example dataset: https://huggingface.co/datasets/kcz358/bagel-example
   datasets:
-    - path: data/your_bagel_dataset.parquet
-      data_folder: ""
-      data_type: parquet
+    - path: /path/to/your/dataset
+      data_folder: /path/to/your/data/folder
+      data_type: arrow
   shuffle: true
   eval_dataset_path: null
   object_storage: none
