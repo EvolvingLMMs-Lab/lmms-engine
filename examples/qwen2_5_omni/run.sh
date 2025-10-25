@@ -24,7 +24,7 @@
 #
 # DATASET:
 #   Prepare multimodal dataset in JSON format with image, audio, and text:
-#   See: docs/data_prep.md
+#   See: docs/user_guide/data_prep.md
 #
 #   Example dataset format:
 #   ```json

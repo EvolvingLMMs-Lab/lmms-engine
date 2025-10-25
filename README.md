@@ -24,7 +24,7 @@ A simple, unified multimodal models training engine. Lean, flexible, and built f
 
 **LMMs Engine** is a highly efficient, modular training framework for training Unified Multimodal Models at scale.
 
-Train any multimodal model architectures including vision-language models (Qwen2/3-VL, LLaVA-OV), diffusion models (dLLM, WanVideo), unified multimodal models (Qwen2.5-Omni, BAGEL) and specialized research architectures (RAE, Gated DeltaNet, SiT). 
+Train any multimodal model architectures including vision-language models (Qwen2.5/3-VL, LLaVA-OV), diffusion models (dLLM, WanVideo), unified multimodal models (Qwen2.5-Omni, BAGEL) and specialized research architectures (RAE, Gated DeltaNet, SiT). 
 
 Built with distributed training optimizations (FSDP2 Multi-dimensional Parallelism, Ulysses Sequence Parallel, Flash Attention 2, Liger Kernel, Muon optimizer, Native Sparse Attention) and a modular design for easy extensibility.
 
@@ -51,18 +51,18 @@ uv pip install liger-kernel
 ```bash
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
   --master_addr=127.0.0.1 --master_port=12355 \
-  -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
+  -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.yaml
 ```
 
 **Alternative: Accelerate**
 ```bash
 accelerate launch --use_fsdp \
-  -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
+  -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.yaml
 ```
 
 **Single GPU**
 ```bash
-python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
+python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.yaml
 ```
 
 ## 🔥 Featured Examples
@@ -82,7 +82,7 @@ python -m lmms_engine.launch.cli --config examples/qwen3_vl/example_config.yaml
 - **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
 - **Ulysses SP**: Sequence Parallel for long contexts
 - **Muon**: Advanced optimizer with Newton-Schulz orthogonalization
-- **Packing**: First-fit bin packing for peaking at 35-40% MFU vs 20-25% (wo in Qwen2.5-VL finetuning)
+- **Packing**: First-fit bin packing for peaking at 35-40% MFU vs 20-25% (w/o in Qwen2.5-VL finetuning)
 - **NSA**: Native Sparse Attention for efficient long-context processing
 
 > 💡 **Tip:** Each `run.sh` file contains detailed setup instructions, prerequisites, and configuration options.
@@ -120,7 +120,7 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 - **Ulysses Sequence Parallel** - Splits sequence dimension across GPUs for ultra-long contexts. Critical for vision-language models like Qwen3-VL with 10K+ visual tokens.
 
-- **Multi-dimensional Parallelism** - Compose TP × CP × PP × DP meshes for cluster-scale training.
+- **Multi-dimensional Parallelism (TODO)** - Compose TP × CP × PP × DP meshes for cluster-scale training.
 
 ### Memory & Compute Optimizations
 
@@ -273,13 +273,13 @@ monkey_patch:
 ### Comprehensive Guides
 
 **Getting Started:**
-- [Dataset Preparation](docs/data_prep.md) - How to prepare and structure your data
-- [Dataset & Packing Guide](docs/datasets.md) - Detailed dataset implementations and packing strategies
-- [Training Guide](docs/train.md) - Comprehensive training walkthrough
+- [Dataset Preparation](docs/user_guide/data_prep.md) - How to prepare and structure your data
+- [Dataset & Packing Guide](docs/user_guide/datasets.md) - Detailed dataset implementations and packing strategies
+- [Training Guide](docs/getting_started/train.md) - Comprehensive training walkthrough
 
 **Advanced Topics:**
-- [Design Principles](docs/design_principle.md) - Architectural patterns and philosophy
-- [API Reference](docs/api.md) - Detailed API documentation
+- [Design Principles](docs/reference/design_principle.md) - Architectural patterns and philosophy
+- [API Reference](docs/reference/api.md) - Detailed API documentation
 
 ## 🏗️ Codebase Architecture
 
@@ -352,7 +352,7 @@ runner.run()    # Execute training
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Design Principles](docs/design_principle.md) for coding guidelines:
+We welcome contributions! Please see our [Design Principles](docs/reference/design_principle.md) for coding guidelines:
 
 - **Simplicity**: Write simple, straightforward code
 - **Readability**: Prioritize clarity over cleverness
