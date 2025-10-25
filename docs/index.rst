@@ -34,6 +34,7 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
    reference/api
    reference/design_principle
    reference/video_configuration
+   reference/mfu
 
 .. toctree::
    :maxdepth: 1

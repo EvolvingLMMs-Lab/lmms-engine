@@ -9,3 +9,4 @@ API reference and technical documentation.
    api
    design_principle
    video_configuration
+   mfu

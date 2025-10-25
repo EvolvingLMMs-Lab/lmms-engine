@@ -25,12 +25,13 @@ LMMs-Engine
 
 **Efficiency Report**
 
-> [TBD] We will soon report the MFU metrics of following models.
+> We provide comprehensive Model FLOPs Utilization (MFU) metrics for various model architectures and training configurations. See [MFU Reference](docs/reference/mfu.md) for detailed benchmarks.
 
-1. Qwen LLM series
-2. Qwen VLM series
-3. BAGEL
-4. dLLM
+**Covered Models:**
+1. Qwen2.5 & Qwen2.5-VL (Text & Image modalities)
+2. Qwen3-VL (Image & Video modalities)
+3. BAGEL (in progress)
+4. dLLM (in progress)
 
 ## 🚀 Quick Start
 
