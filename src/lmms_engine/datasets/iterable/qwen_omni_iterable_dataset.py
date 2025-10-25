@@ -22,7 +22,7 @@ class QwenOmniIterableDataset(MultiModalIterableDataset):
 
         if not isinstance(self.data_list, HFDataset):
             self.data_list = HFDataset.from_list(self.data_list)
-            if not hasattr(self, 'data_folder') or self.data_folder is None:
+            if not hasattr(self, "data_folder") or self.data_folder is None:
                 self.data_folder = [None] * len(self.data_list)
 
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
@@ -32,7 +32,9 @@ class QwenOmniIterableDataset(MultiModalIterableDataset):
         messages = data["messages"]
         new_messages = []
         kwargs = {}
-        max_audio_length = getattr(self.processor, 'audio_max_length', DEFAULT_MAX_AUDIO_LENGTH)
+        max_audio_length = getattr(
+            self.processor, "audio_max_length", DEFAULT_MAX_AUDIO_LENGTH
+        )
 
         for message in messages:
             new_content = []
