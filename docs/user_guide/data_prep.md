@@ -14,7 +14,7 @@ datasets:
 ...
 ```
 
-The actual dataset format can refer to the debug dataset we provide on huggingface or refer to the protocol files in `src/lmms_engine/protocol/data_proto.py`
+The actual dataset format can refer to the debug dataset we provide on [huggingface](https://huggingface.co/datasets/kcz358/lmms_engine_test) or refer to the protocol files in `src/lmms_engine/protocol/data_proto.py`
 
 ### Cloud Data Access
 With the data scaling, it might be very redundant to download and extract all the data to your local storage (and unrealistic). A way to cope with this is through object storage. The training framework now supports using `google cloud storage` and `azure blob storage` to access the data file directly. To use it, you should specify in your training config that
