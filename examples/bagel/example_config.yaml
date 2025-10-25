@@ -3,7 +3,7 @@ trainer_type: fsdp2_trainer
 dataset_config:
   extra_kwargs: {}
   dataset_type: bagel_iterable
-  dataset_format: arrow
+  dataset_format: yaml
   processor_config:
     processor_name: lmms-lab/BAGEL-7B-MoT-ver.LE
     processor_type: bagel
