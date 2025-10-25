@@ -13,8 +13,6 @@ LMMs-Engine
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/EvolvingLMMs-Lab/lmms-engine?style=social)](https://github.com/LMMs-Lab/lmms-engine/stargazers)
 
-<div align="center">
-
 [Quick Start](#-quick-start) • [Examples](#-featured-examples) • [Model Support](#-model-support) • [Optimizations](#️-optimizations) • [Architecture](#️-architecture) • [Documentation](#-documentation)
 
 </div>
