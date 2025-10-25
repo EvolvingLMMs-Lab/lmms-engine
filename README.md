@@ -68,14 +68,14 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 
 | Model | Architecture | FSDP2 | Ulysses SP | Muon | Packing | NSA | Highlights | Quick Start |
 |-------|-------------|-------|------------|------|---------|-----|------------------|-------------|
-| **[BAGEL](src/lmms_engine/models/bagel)** | Vision+Generation | ✅ | ❌ | ❌ | ✅ | ✅ | Unified visual understanding & generation | [test](test/train/bagel/train_bagel.py) |
+| **[BAGEL](src/lmms_engine/models/bagel)** | Vision+Generation | ✅ | ❌ | ✅ | ✅ | ✅ | Unified visual understanding & generation | [test](test/train/bagel/train_bagel.py) |
 | **[dLLM (Qwen3)](examples/diffusion_language_model)** | Diffusion LM | ✅ | ❌ | ✅ | ❌ | ❌ | Masked diffusion language model | [run.sh](examples/diffusion_language_model/run.sh) |
-| **[Gated DeltaNet](examples/dgn)** | Gated Linear Attn | ✅ | ❌ | ✅ | ✅ | ❌ | Efficient architecture, FineWeb-Edu pretraining | [run.sh](examples/dgn/run.sh) |
 | **[Qwen2.5-Omni](examples/qwen2_5_omni)** | Vision+Audio+Text | ✅ | ✅ | ✅ | ✅ | ❌ | Unified multimodal (image, audio, text) | [run.sh](examples/qwen2_5_omni/run.sh) |
 | **[Qwen3-VL](examples/qwen3_vl)** | Vision-Language | ✅ | ✅ | ✅ | ✅ | ❌ | Native-resolution, long context (10K+ tokens) | [run.sh](examples/qwen3_vl/run.sh) |
-| **[RAE-SigLip](examples/representation_autoencoder)** | Visual AutoEncoder | ✅ | ❌ | ❌ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA | [run.sh](examples/representation_autoencoder/run.sh) |
-| **[SiT](examples/scalable_interpolant_transformer)** | Diffusion Transformer | ✅ | ❌ | ❌ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K | [run.sh](examples/scalable_interpolant_transformer/run.sh) |
-| **[WanVideo](examples/wanvideo)** | Video Generation | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) | [run.sh](examples/wanvideo/run.sh) |
+| **[RAE-SigLip](examples/representation_autoencoder)** | Visual AutoEncoder | ✅ | ❌ | ✅ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA | [run.sh](examples/representation_autoencoder/run.sh) |
+| **[SiT](examples/scalable_interpolant_transformer)** | Diffusion Transformer | ✅ | ❌ | ✅ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K | [run.sh](examples/scalable_interpolant_transformer/run.sh) |
+| **[WanVideo](examples/wanvideo)** | Video Generation | ✅ | ❌ | ✅ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) | [run.sh](examples/wanvideo/run.sh) |
+| **[FLA models](examples/dgn)** | Liear Attn Models | ✅ | ❌ | ✅ | ✅ | ❌ | Efficient architecture, FineWeb-Edu pretraining | [run.sh](examples/dgn/run.sh) |
 
 **Optimization Legend:**
 - **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
@@ -106,7 +106,7 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 
 ### Language Models
 - **Qwen2/2.5/3 series** - Full Liger kernel support with fused operations
-- **Gated DeltaNet (DGN)** - Recurrent architecture optimized for Muon
+- **Linear Attention Models** - Recurrent architecture optimized for Muon; Please Install FLA first.
 - **Custom architectures** - Extensible via `@register_model()` decorator
 
 ## ⚡️ Optimizations
@@ -177,19 +177,26 @@ trainer_args:
 
 ```yaml
 trainer_args:
-  use_muon: true
+  use_muon: true # enable muonwithadam optimizer
+  adam_beta1: 0.9 # for the adam part in muonwithadam optimizer
+  adam_beta2: 0.999 # for the adam part in muonwithadam optimizer
+  adam_epsilon: 1.0e-8 # for the adam part in muonwithadam optimizer
   learning_rate: 0.001
-  adam_beta1: 0.9
-  adam_beta2: 0.999
   weight_decay: 0.01
   # ns_steps: 5  # Newton-Schulz iterations (default)
+
+  # for some modules which the user hope to 
 ```
 
 **Features:**
 - Newton-Schulz orthogonalization with Triton kernels
 - Distributed via DTensor (FSDP2)
 - Selective 2D parameter application
-- Superior convergence vs AdamW
+
+**Note**
+If users wish to specify whether a module should be optimized using Muon or Adam, they can designate this in `lmms_engine.train.hf.trainer.create_optimizer`. By default, modules excluded from Muon optimization include those containing the following substrings in their names: `["emb", "norm", "lm_head", "bias", "wte", "wpe", "output", "a_proj", "b_proj", "conv1d", "rotary"]`
+as well as any parameters whose dimension does not equal 2.
+
 </details>
 
 <details>
