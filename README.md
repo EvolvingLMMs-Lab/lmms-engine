@@ -399,7 +399,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 - **GitHub**: https://github.com/EvolvingLMMs-Lab/lmms-engine
 - **LMMs-Lab**: https://lmms-lab.com
 - **Documentation**: [docs/](docs/)
-- **Issues**: https://github.com/LMMs-Lab/lmms-engine/issues
+- **Issues**: https://github.com/EvolvingLMMs-Lab/lmms-engine/issues
 
 ---
 
