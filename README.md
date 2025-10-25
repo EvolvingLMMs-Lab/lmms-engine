@@ -281,7 +281,7 @@ monkey_patch:
 - [Design Principles](docs/design_principle.md) - Architectural patterns and philosophy
 - [API Reference](docs/api.md) - Detailed API documentation
 
-## 🏗️ Architecture
+## 🏗️ Codebase Architecture
 
 ### Component Registry
 
