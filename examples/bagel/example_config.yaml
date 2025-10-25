@@ -10,8 +10,8 @@ dataset_config:
   # Update this to your dataset path
   # Example dataset: https://huggingface.co/datasets/kcz358/bagel-example
   datasets:
-    - path: /mnt/aigc/users/pufanyi/workspace/playground/bagel/temp/bagel_data/
-      data_folder: /mnt/aigc/users/pufanyi/workspace/playground/bagel/data/
+    - path: /path/to/your/dataset
+      data_folder: /path/to/your/data/folder
       data_type: arrow
   shuffle: true
   eval_dataset_path: null
