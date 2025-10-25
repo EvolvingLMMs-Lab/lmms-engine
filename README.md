@@ -1,6 +1,6 @@
 <div align="center">
 
-GPU-optimized library for training transformer models at scale
+LMMs-Engine
 ===========================
 
 <h4>A simple, unified multimodal models training engine. Lean, flexible, and built for hacking at scale.</h4>
