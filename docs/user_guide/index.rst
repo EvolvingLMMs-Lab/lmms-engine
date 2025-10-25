@@ -9,3 +9,4 @@ Comprehensive guides for using LMMs Engine in various scenarios.
    datasets
    data_prep
    peak_perf
+   merge_fsdp

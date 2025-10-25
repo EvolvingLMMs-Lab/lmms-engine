@@ -183,3 +183,7 @@ Then visit `http://localhost:8000` in your browser.
 4. Enable PDF/ePub downloads
 
 For more information, visit [Sphinx Documentation](https://www.sphinx-doc.org/) or [ReadTheDocs Documentation](https://docs.readthedocs.io/).
+
+## Evaluation
+
+To evaluate your model, use the [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) tool. This repository provides comprehensive utilities for assessing model performance.
