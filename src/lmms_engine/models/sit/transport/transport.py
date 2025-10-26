@@ -88,15 +88,8 @@ class Transport:
         if type(self.path_sampler) in [path.VPCPlan]:
             t1 = 1 - eps if (not sde or last_step_size == 0) else 1 - last_step_size
 
-        elif (type(self.path_sampler) in [path.ICPlan, path.GVPCPlan]) and (
-            self.model_type != ModelType.VELOCITY or sde
-        ):  # avoid numerical issue by taking a first semi-implicit step
-            t0 = (
-                eps
-                if (diffusion_form == "SBDM" and sde)
-                or self.model_type != ModelType.VELOCITY
-                else 0
-            )
+        elif (type(self.path_sampler) in [path.ICPlan, path.GVPCPlan]) and (self.model_type != ModelType.VELOCITY or sde):  # avoid numerical issue by taking a first semi-implicit step
+            t0 = eps if (diffusion_form == "SBDM" and sde) or self.model_type != ModelType.VELOCITY else 0
             t1 = 1 - eps if (not sde or last_step_size == 0) else 1 - last_step_size
 
         if reverse:
@@ -183,9 +176,7 @@ class Transport:
 
         def body_fn(x, t, model, **model_kwargs):
             model_output = drift_fn(x, t, model, **model_kwargs)
-            assert (
-                model_output.shape == x.shape
-            ), "Output shape from ODE solver must match input shape"
+            assert model_output.shape == x.shape, "Output shape from ODE solver must match input shape"
             return model_output
 
         return body_fn
@@ -196,18 +187,11 @@ class Transport:
         """member function for obtaining score of
         x_t = alpha_t * x + sigma_t * eps"""
         if self.model_type == ModelType.NOISE:
-            score_fn = (
-                lambda x, t, model, **kwargs: model(x, t, **kwargs)
-                / -self.path_sampler.compute_sigma_t(path.expand_t_like_x(t, x))[0]
-            )
+            score_fn = lambda x, t, model, **kwargs: model(x, t, **kwargs) / -self.path_sampler.compute_sigma_t(path.expand_t_like_x(t, x))[0]
         elif self.model_type == ModelType.SCORE:
             score_fn = lambda x, t, model, **kwagrs: model(x, t, **kwagrs)
         elif self.model_type == ModelType.VELOCITY:
-            score_fn = (
-                lambda x, t, model, **kwargs: self.path_sampler.get_score_from_velocity(
-                    model(x, t, **kwargs), x, t
-                )
-            )
+            score_fn = lambda x, t, model, **kwargs: self.path_sampler.get_score_from_velocity(model(x, t, **kwargs), x, t)
         else:
             raise NotImplementedError()
 
@@ -237,14 +221,10 @@ class Sampler:
         diffusion_norm=1.0,
     ):
         def diffusion_fn(x, t):
-            diffusion = self.transport.path_sampler.compute_diffusion(
-                x, t, form=diffusion_form, norm=diffusion_norm
-            )
+            diffusion = self.transport.path_sampler.compute_diffusion(x, t, form=diffusion_form, norm=diffusion_norm)
             return diffusion
 
-        sde_drift = lambda x, t, model, **kwargs: self.drift(
-            x, t, model, **kwargs
-        ) + diffusion_fn(x, t) * self.score(x, t, model, **kwargs)
+        sde_drift = lambda x, t, model, **kwargs: self.drift(x, t, model, **kwargs) + diffusion_fn(x, t) * self.score(x, t, model, **kwargs)
 
         sde_diffusion = diffusion_fn
 
@@ -262,23 +242,13 @@ class Sampler:
         if last_step is None:
             last_step_fn = lambda x, t, model, **model_kwargs: x
         elif last_step == "Mean":
-            last_step_fn = (
-                lambda x, t, model, **model_kwargs: x
-                + sde_drift(x, t, model, **model_kwargs) * last_step_size
-            )
+            last_step_fn = lambda x, t, model, **model_kwargs: x + sde_drift(x, t, model, **model_kwargs) * last_step_size
         elif last_step == "Tweedie":
-            alpha = (
-                self.transport.path_sampler.compute_alpha_t
-            )  # simple aliasing; the original name was too long
+            alpha = self.transport.path_sampler.compute_alpha_t  # simple aliasing; the original name was too long
             sigma = self.transport.path_sampler.compute_sigma_t
-            last_step_fn = lambda x, t, model, **model_kwargs: x / alpha(t)[0][0] + (
-                sigma(t)[0][0] ** 2
-            ) / alpha(t)[0][0] * self.score(x, t, model, **model_kwargs)
+            last_step_fn = lambda x, t, model, **model_kwargs: x / alpha(t)[0][0] + (sigma(t)[0][0] ** 2) / alpha(t)[0][0] * self.score(x, t, model, **model_kwargs)
         elif last_step == "Euler":
-            last_step_fn = (
-                lambda x, t, model, **model_kwargs: x
-                + self.drift(x, t, model, **model_kwargs) * last_step_size
-            )
+            last_step_fn = lambda x, t, model, **model_kwargs: x + self.drift(x, t, model, **model_kwargs) * last_step_size
         else:
             raise NotImplementedError()
 
@@ -331,9 +301,7 @@ class Sampler:
             sampler_type=sampling_method,
         )
 
-        last_step_fn = self.__get_last_step(
-            sde_drift, last_step=last_step, last_step_size=last_step_size
-        )
+        last_step_fn = self.__get_last_step(sde_drift, last_step=last_step, last_step_size=last_step_size)
 
         def _sample(init, model, **model_kwargs):
             xs = _sde.sample(init, model, **model_kwargs)
@@ -367,9 +335,7 @@ class Sampler:
         - reverse: whether solving the ODE in reverse (data to noise); default to False
         """
         if reverse:
-            drift = lambda x, t, model, **kwargs: self.drift(
-                x, th.ones_like(t) * (1 - t), model, **kwargs
-            )
+            drift = lambda x, t, model, **kwargs: self.drift(x, th.ones_like(t) * (1 - t), model, **kwargs)
         else:
             drift = self.drift
 
@@ -418,9 +384,7 @@ class Sampler:
             t = th.ones_like(t) * (1 - t)
             with th.enable_grad():
                 x.requires_grad = True
-                grad = th.autograd.grad(
-                    th.sum(self.drift(x, t, model, **model_kwargs) * eps), x
-                )[0]
+                grad = th.autograd.grad(th.sum(self.drift(x, t, model, **model_kwargs) * eps), x)[0]
                 logp_grad = th.sum(grad * eps, dim=tuple(range(1, len(x.size()))))
                 drift = self.drift(x, t, model, **model_kwargs)
             return (-drift, logp_grad)

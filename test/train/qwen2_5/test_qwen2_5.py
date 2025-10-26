@@ -72,9 +72,7 @@ class TestQwen2_5(TestCase):
         """Test Qwen2.5 training with FSDP2 using torchrun subprocess."""
 
         # Path to the training script
-        script_path = os.path.join(
-            os.path.dirname(__file__), "train_qwen2_5_iterable.py"
-        )
+        script_path = os.path.join(os.path.dirname(__file__), "train_qwen2_5_iterable.py")
 
         # Launch training using torchrun
         result = launch_torchrun_training(

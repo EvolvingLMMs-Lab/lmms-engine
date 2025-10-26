@@ -33,9 +33,7 @@ class StepProfiler:
         self.end_step = self.profiler_config.get("end_step", 5)
         self.prof = torch_profiler.profile(
             activities=activities,
-            schedule=torch_profiler.schedule(
-                wait=self.start_step, warmup=1, active=self.end_step - self.start_step
-            ),
+            schedule=torch_profiler.schedule(wait=self.start_step, warmup=1, active=self.end_step - self.start_step),
             record_shapes=True,
             profile_memory=True,
             with_stack=True,

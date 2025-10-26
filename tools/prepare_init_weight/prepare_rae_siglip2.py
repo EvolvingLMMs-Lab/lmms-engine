@@ -10,9 +10,7 @@ from lmms_engine.models.rae_siglip.modeling_rae_siglip import RaeSiglipModel
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Prepare RAE SigLIP model weights aligned with the original Stage-1 architecture."
-    )
+    parser = argparse.ArgumentParser(description="Prepare RAE SigLIP model weights aligned with the original Stage-1 architecture.")
     parser.add_argument(
         "--checkpoint",
         type=str,
@@ -91,15 +89,9 @@ def main():
     print(f"Output path: {output_path}")
 
     # Load base model
-    base_model = AutoModel.from_pretrained(
-        args.checkpoint, device_map=args.device
-    ).eval()
+    base_model = AutoModel.from_pretrained(args.checkpoint, device_map=args.device).eval()
     siglip_config = base_model.config.vision_config
-    encoder_input_size = (
-        int(args.encoder_input_size)
-        if args.encoder_input_size is not None
-        else int(siglip_config.image_size)
-    )
+    encoder_input_size = int(args.encoder_input_size) if args.encoder_input_size is not None else int(siglip_config.image_size)
 
     if args.decoder_config is not None:
         # Use custom decoder config from HuggingFace or path
@@ -110,9 +102,7 @@ def main():
         decoder_config = AutoConfig.from_pretrained("facebook/vit-mae-base")
         decoder_config.decoder_hidden_size = 1152
         decoder_config.decoder_num_hidden_layers = 28
-        decoder_config.decoder_num_attention_heads = (
-            16  # Fixed: align with original RAE ViTXL config
-        )
+        decoder_config.decoder_num_attention_heads = 16  # Fixed: align with original RAE ViTXL config
         decoder_config.decoder_intermediate_size = 4096
         decoder_config.hidden_size = siglip_config.hidden_size
 
@@ -156,9 +146,7 @@ def main():
     if args.decoder_checkpoint is not None:
         print(f"Loading pretrained decoder weights from: {args.decoder_checkpoint}")
         decoder_state = torch.load(args.decoder_checkpoint, map_location="cpu")
-        decoder_missing, decoder_unexpected = rae_model.decoder.load_state_dict(
-            decoder_state, strict=False
-        )
+        decoder_missing, decoder_unexpected = rae_model.decoder.load_state_dict(decoder_state, strict=False)
         if decoder_missing:
             print(f"Missing decoder keys: {decoder_missing}")
         if decoder_unexpected:
@@ -196,18 +184,11 @@ def main():
 
     with torch.no_grad():
         outputs = loaded_model(**inputs)
-        output_shape = (
-            outputs.out_pixels.shape
-            if hasattr(outputs, "out_pixels")
-            else "No out_pixels attribute"
-        )
+        output_shape = outputs.out_pixels.shape if hasattr(outputs, "out_pixels") else "No out_pixels attribute"
         print(f"Verification successful! Output shape: {output_shape}")
 
     print(f"\n✓ RAE SigLIP model saved to: {output_path}")
-    print(
-        f"✓ Decoder image size: {loaded_config.decoder_config.image_size}, "
-        f"patch size: {loaded_config.decoder_config.patch_size}"
-    )
+    print(f"✓ Decoder image size: {loaded_config.decoder_config.image_size}, " f"patch size: {loaded_config.decoder_config.patch_size}")
 
 
 if __name__ == "__main__":

@@ -24,9 +24,7 @@ from lmms_engine.models.mistral3_audio.modeling_mistral3_audio import (
 
 
 def load_pretrained_vl_model(repo_id):
-    model = Mistral3ForConditionalGeneration.from_pretrained(
-        repo_id, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = Mistral3ForConditionalGeneration.from_pretrained(repo_id, torch_dtype="auto", device_map="cuda:0")
     return model
 
 
@@ -37,9 +35,7 @@ def load_image():
 
 
 def load_pretrained_audio_model(repo_id):
-    model = Qwen2AudioForConditionalGeneration.from_pretrained(
-        repo_id, torch_dtype="auto", device_map="cuda:1"
-    )
+    model = Qwen2AudioForConditionalGeneration.from_pretrained(repo_id, torch_dtype="auto", device_map="cuda:1")
     return model
 
 
@@ -61,12 +57,8 @@ def prepare_weights_for_kino(
         qwen2_5_audio_processor = load_processor(qwen2_5_audio_repo_id)
 
         tokenizer = mistral3_processor.tokenizer
-        tokenizer.add_tokens(
-            AddedToken("[AUDIO]", special=True, normalized=False), special_tokens=True
-        )
-        tokenizer.add_tokens(
-            AddedToken("[VIDEO]", special=True, normalized=False), special_tokens=True
-        )
+        tokenizer.add_tokens(AddedToken("[AUDIO]", special=True, normalized=False), special_tokens=True)
+        tokenizer.add_tokens(AddedToken("[VIDEO]", special=True, normalized=False), special_tokens=True)
 
         audio_token_id = tokenizer.convert_tokens_to_ids("[AUDIO]")
         video_token_id = tokenizer.convert_tokens_to_ids("[VIDEO]")
@@ -100,12 +92,8 @@ def prepare_weights_for_kino(
         pre_expansion_embeddings = model.language_model.model.embed_tokens.weight.data
         mu = torch.mean(pre_expansion_embeddings, dim=0).float()
         n = pre_expansion_embeddings.size()[0]
-        sigma = (
-            (pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)
-        ) / n
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
-            mu, covariance_matrix=1e-5 * sigma
-        )
+        sigma = ((pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)) / n
+        dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, covariance_matrix=1e-5 * sigma)
 
         # We add an audio token and a video token so we resize the model
         # Pad to 64 for performance reasons
@@ -114,27 +102,11 @@ def prepare_weights_for_kino(
         num_tokens = vocab_size + 2
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.model.embed_tokens.weight.data[
-                            vocab_size:
-                        ].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.lm_head.weight.data[vocab_size:].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.lm_head.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
 
@@ -146,9 +118,7 @@ def prepare_weights_for_kino(
         torch.cuda.empty_cache()
 
     processor = Mistral3AudioProcessor.from_pretrained(pytorch_dump_folder_path)
-    model = Mistral3AudioForConditionalGeneration.from_pretrained(
-        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = Mistral3AudioForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
 
     device = model.device
 
@@ -179,9 +149,7 @@ def prepare_weights_for_kino(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(
-        output_ids[:, inputs["input_ids"].shape[1] :], skip_special_tokens=False
-    )[0].strip()
+    generated_text = processor.batch_decode(output_ids[:, inputs["input_ids"].shape[1] :], skip_special_tokens=False)[0].strip()
 
     print("Generated text:", repr(generated_text))
 

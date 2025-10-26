@@ -78,41 +78,23 @@ class ViTMAEEmbeddings(nn.Module):
         super().__init__()
         image_size, patch_size = config.image_size, config.patch_size
         num_channels, hidden_size = config.num_channels, config.hidden_size
-        image_size = (
-            image_size
-            if isinstance(image_size, collections.abc.Iterable)
-            else (image_size, image_size)
-        )
-        patch_size = (
-            patch_size
-            if isinstance(patch_size, collections.abc.Iterable)
-            else (patch_size, patch_size)
-        )
-        num_patches = (image_size[1] // patch_size[1]) * (
-            image_size[0] // patch_size[0]
-        )
+        image_size = image_size if isinstance(image_size, collections.abc.Iterable) else (image_size, image_size)
+        patch_size = patch_size if isinstance(patch_size, collections.abc.Iterable) else (patch_size, patch_size)
+        num_patches = (image_size[1] // patch_size[1]) * (image_size[0] // patch_size[0])
         self.image_size = image_size
         self.patch_size = patch_size
         self.num_channels = num_channels
         self.num_patches = num_patches
 
-        self.projection = nn.Conv2d(
-            num_channels, hidden_size, kernel_size=patch_size, stride=patch_size
-        )
+        self.projection = nn.Conv2d(num_channels, hidden_size, kernel_size=patch_size, stride=patch_size)
 
     def forward(self, pixel_values, interpolate_pos_encoding: bool = False):
         batch_size, num_channels, height, width = pixel_values.shape
         if num_channels != self.num_channels:
-            raise ValueError(
-                "Make sure that the channel dimension of the pixel values match with the one set in the configuration."
-            )
+            raise ValueError("Make sure that the channel dimension of the pixel values match with the one set in the configuration.")
 
-        if not interpolate_pos_encoding and (
-            height != self.image_size[0] or width != self.image_size[1]
-        ):
-            raise ValueError(
-                f"Input image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]})."
-            )
+        if not interpolate_pos_encoding and (height != self.image_size[0] or width != self.image_size[1]):
+            raise ValueError(f"Input image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]}).")
         x = self.projection(pixel_values).flatten(2).transpose(1, 2)
         return x
 
@@ -120,27 +102,16 @@ class ViTMAEEmbeddings(nn.Module):
 class ViTMAESelfAttention(nn.Module):
     def __init__(self, config: ViTMAEConfig) -> None:
         super().__init__()
-        if config.hidden_size % config.num_attention_heads != 0 and not hasattr(
-            config, "embedding_size"
-        ):
-            raise ValueError(
-                f"The hidden size {config.hidden_size} is not a multiple of the number of attention "
-                f"heads {config.num_attention_heads}."
-            )
+        if config.hidden_size % config.num_attention_heads != 0 and not hasattr(config, "embedding_size"):
+            raise ValueError(f"The hidden size {config.hidden_size} is not a multiple of the number of attention " f"heads {config.num_attention_heads}.")
 
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(
-            config.hidden_size, self.all_head_size, bias=config.qkv_bias
-        )
-        self.key = nn.Linear(
-            config.hidden_size, self.all_head_size, bias=config.qkv_bias
-        )
-        self.value = nn.Linear(
-            config.hidden_size, self.all_head_size, bias=config.qkv_bias
-        )
+        self.query = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+        self.key = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size, bias=config.qkv_bias)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
@@ -178,9 +149,7 @@ class ViTMAESelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(new_context_layer_shape)
 
-        outputs = (
-            (context_layer, attention_probs) if output_attentions else (context_layer,)
-        )
+        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
         return outputs
 
 
@@ -224,9 +193,7 @@ class ViTMAESelfOutput(nn.Module):
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(
-        self, hidden_states: torch.Tensor, input_tensor: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         return hidden_states
@@ -271,9 +238,7 @@ class ViTMAEOutput(nn.Module):
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(
-        self, hidden_states: torch.Tensor, input_tensor: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = hidden_states + input_tensor
@@ -288,12 +253,8 @@ class ViTMAELayer(nn.Module):
         self.attention = ViTMAEAttention(config)
         self.intermediate = ViTMAEIntermediate(config)
         self.output = ViTMAEOutput(config)
-        self.layernorm_before = nn.LayerNorm(
-            config.hidden_size, eps=config.layer_norm_eps
-        )
-        self.layernorm_after = nn.LayerNorm(
-            config.hidden_size, eps=config.layer_norm_eps
-        )
+        self.layernorm_before = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.layernorm_after = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(
         self,
@@ -322,9 +283,7 @@ class ViTMAELayer(nn.Module):
 class GeneralDecoder(nn.Module):
     def __init__(self, config: ViTMAEConfig, num_patches: int):
         super().__init__()
-        self.decoder_embed = nn.Linear(
-            config.hidden_size, config.decoder_hidden_size, bias=True
-        )
+        self.decoder_embed = nn.Linear(config.hidden_size, config.decoder_hidden_size, bias=True)
         self.decoder_pos_embed = nn.Parameter(
             torch.zeros(1, num_patches + 1, config.decoder_hidden_size),
             requires_grad=False,
@@ -335,16 +294,9 @@ class GeneralDecoder(nn.Module):
         decoder_config.num_hidden_layers = config.decoder_num_hidden_layers
         decoder_config.num_attention_heads = config.decoder_num_attention_heads
         decoder_config.intermediate_size = config.decoder_intermediate_size
-        self.decoder_layers = nn.ModuleList(
-            [
-                ViTMAELayer(decoder_config)
-                for _ in range(config.decoder_num_hidden_layers)
-            ]
-        )
+        self.decoder_layers = nn.ModuleList([ViTMAELayer(decoder_config) for _ in range(config.decoder_num_hidden_layers)])
 
-        self.decoder_norm = nn.LayerNorm(
-            config.decoder_hidden_size, eps=config.layer_norm_eps
-        )
+        self.decoder_norm = nn.LayerNorm(config.decoder_hidden_size, eps=config.layer_norm_eps)
         self.decoder_pred = nn.Linear(
             config.decoder_hidden_size,
             config.patch_size**2 * config.num_channels,
@@ -359,11 +311,7 @@ class GeneralDecoder(nn.Module):
         self.set_trainable_cls_token()
 
     def set_trainable_cls_token(self, tensor: Optional[torch.Tensor] = None):
-        tensor = (
-            torch.zeros(1, 1, self.decoder_config.hidden_size)
-            if tensor is None
-            else tensor
-        )
+        tensor = torch.zeros(1, 1, self.decoder_config.hidden_size) if tensor is None else tensor
         self.trainable_cls_token = nn.Parameter(tensor)
 
     def interpolate_pos_encoding(self, embeddings: torch.Tensor) -> torch.Tensor:
@@ -394,9 +342,7 @@ class GeneralDecoder(nn.Module):
         x = x.reshape(b, h, w, c)
         x = x.permute(0, 3, 1, 2)
         target_size = (int(self.num_patches**0.5), int(self.num_patches**0.5))
-        x = nn.functional.interpolate(
-            x, size=target_size, mode="bilinear", align_corners=False
-        )
+        x = nn.functional.interpolate(x, size=target_size, mode="bilinear", align_corners=False)
         x = x.permute(0, 2, 3, 1).contiguous().view(b, self.num_patches, c)
         return x
 
@@ -406,9 +352,7 @@ class GeneralDecoder(nn.Module):
             int(num_patches**0.5),
             add_cls_token=True,
         )
-        self.decoder_pos_embed.data.copy_(
-            torch.from_numpy(decoder_pos_embed).float().unsqueeze(0)
-        )
+        self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
 
     def unpatchify(
         self,
@@ -416,19 +360,12 @@ class GeneralDecoder(nn.Module):
         original_image_size: Optional[Tuple[int, int]] = None,
     ):
         patch_size, num_channels = self.config.patch_size, self.config.num_channels
-        original_image_size = (
-            original_image_size
-            if original_image_size is not None
-            else (self.config.image_size, self.config.image_size)
-        )
+        original_image_size = original_image_size if original_image_size is not None else (self.config.image_size, self.config.image_size)
         original_height, original_width = original_image_size
         num_patches_h = original_height // patch_size
         num_patches_w = original_width // patch_size
         if num_patches_h * num_patches_w != patchified_pixel_values.shape[1]:
-            raise ValueError(
-                f"The number of patches in the patchified pixel values {patchified_pixel_values.shape[1]}, does not match "
-                f"the number of patches on original image {num_patches_h}*{num_patches_w}"
-            )
+            raise ValueError(f"The number of patches in the patchified pixel values {patchified_pixel_values.shape[1]}, does not match " f"the number of patches on original image {num_patches_h}*{num_patches_w}")
 
         batch_size = patchified_pixel_values.shape[0]
         patchified_pixel_values = patchified_pixel_values.reshape(
@@ -439,9 +376,7 @@ class GeneralDecoder(nn.Module):
             patch_size,
             num_channels,
         )
-        patchified_pixel_values = torch.einsum(
-            "nhwpqc->nchpwq", patchified_pixel_values
-        )
+        patchified_pixel_values = torch.einsum("nhwpqc->nchpwq", patchified_pixel_values)
         pixel_values = patchified_pixel_values.reshape(
             batch_size,
             num_channels,
@@ -469,9 +404,7 @@ class GeneralDecoder(nn.Module):
         x = torch.cat([cls_token, x_], dim=1)
 
         if interpolate_pos_encoding:
-            assert (
-                drop_cls_token
-            ), "interpolate_pos_encoding only works with drop_cls_token=True"
+            assert drop_cls_token, "interpolate_pos_encoding only works with drop_cls_token=True"
             decoder_pos_embed = self.interpolate_pos_encoding(x)
         else:
             decoder_pos_embed = self.decoder_pos_embed
@@ -491,9 +424,7 @@ class GeneralDecoder(nn.Module):
                     output_attentions,
                 )
             else:
-                layer_outputs = layer_module(
-                    hidden_states, head_mask=None, output_attentions=output_attentions
-                )
+                layer_outputs = layer_module(hidden_states, head_mask=None, output_attentions=output_attentions)
 
             hidden_states = layer_outputs[0]
 

@@ -22,11 +22,7 @@ class QwenOmniSFTDataset(VisionAudioSFTDataset):
             new_content = []
             for idx, content in enumerate(message["content"]):
                 if content["type"] == "image_url":
-                    images.append(
-                        self.load_image(
-                            content["image_url"]["url"], data_folder=data_folder
-                        )
-                    )
+                    images.append(self.load_image(content["image_url"]["url"], data_folder=data_folder))
                     new_content.append(content)
                 elif content["type"] == "audio_url":
                     audio_url = content["audio_url"]["url"]
@@ -46,11 +42,7 @@ class QwenOmniSFTDataset(VisionAudioSFTDataset):
                         len(loaded_audios),
                         MAX_AUDIO_LENGTH * self.processor.sampling_rate,
                     ):
-                        audio_splits.append(
-                            loaded_audios[
-                                i : i + MAX_AUDIO_LENGTH * self.processor.sampling_rate
-                            ]
-                        )
+                        audio_splits.append(loaded_audios[i : i + MAX_AUDIO_LENGTH * self.processor.sampling_rate])
                     for _ in range(len(audio_splits)):
                         new_content.append(content)
                     audios.extend(audio_splits)
@@ -69,17 +61,12 @@ class QwenOmniSFTDataset(VisionAudioSFTDataset):
                     kwargs["fps"] = sample_fps
 
                     # check if audio was extracted from video
-                    if (
-                        hasattr(self, "video_extracted_audio")
-                        and video_path in self.video_extracted_audio
-                    ):
+                    if hasattr(self, "video_extracted_audio") and video_path in self.video_extracted_audio:
                         extracted_audio = self.video_extracted_audio[video_path]
                         kwargs["use_audio_in_video"] = True
 
                         if hasattr(self.processor, "sampling_rate"):
-                            max_audio_samples = (
-                                MAX_AUDIO_LENGTH * self.processor.sampling_rate
-                            )
+                            max_audio_samples = MAX_AUDIO_LENGTH * self.processor.sampling_rate
                             # minimum audio length (2 seconds) to avoid pooling errors
                             min_audio_samples = 2 * self.processor.sampling_rate
 

@@ -62,9 +62,7 @@ class Qwen2VLDataProcessor:
 
         if image_grid_thw is not None:
             merge_length = self.processor.image_processor.merge_size**2
-            image_token_num = [
-                grid_thw.prod() // merge_length for grid_thw in image_grid_thw
-            ]
+            image_token_num = [grid_thw.prod() // merge_length for grid_thw in image_grid_thw]
         else:
             image_token_num = []
         # Get input_ids, labels (seq_len,)
@@ -81,24 +79,18 @@ class Qwen2VLDataProcessor:
         system_message: str = "You are a helpful assistant",
     ):
         special_tokens = self.processor.tokenizer.additional_special_tokens
-        unmask_tokens_idx = [
-            self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens
-        ]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
         input_id, target = [], []
 
         # Image start from 0
         start_from = 0
-        input_id += self.processor.tokenizer.apply_chat_template(
-            [{"role": "system", "content": system_message}]
-        )
+        input_id += self.processor.tokenizer.apply_chat_template([{"role": "system", "content": system_message}])
         target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]
             encode_id = self.processor.apply_chat_template([message], tokenize=True)
             if self.image_token_id in encode_id:
-                encode_id, used_images = self._expand_encode_id_image_tokens(
-                    encode_id, image_token_num, start_from
-                )
+                encode_id, used_images = self._expand_encode_id_image_tokens(encode_id, image_token_num, start_from)
                 start_from += used_images
             input_id += encode_id
             if role in ["user", "system"]:
@@ -121,9 +113,7 @@ class Qwen2VLDataProcessor:
 
     @property
     def image_token_id(self):
-        return self.processor.tokenizer.convert_tokens_to_ids(
-            self.processor.image_token
-        )
+        return self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
 
     @property
     def tokenizer(self):
@@ -142,9 +132,7 @@ class Qwen2VLDataProcessor:
             # Before image pos, no expand
             expanded_encode_id.extend(encode_id[prev:pos])
             # Image pos, expand
-            expanded_encode_id.extend(
-                [self.image_token_id] * image_token_num[idx + start_from]
-            )
+            expanded_encode_id.extend([self.image_token_id] * image_token_num[idx + start_from])
             prev = pos + 1
 
             if idx == len(image_pos) - 1:

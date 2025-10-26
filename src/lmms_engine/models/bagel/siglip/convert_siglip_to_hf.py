@@ -174,22 +174,14 @@ def create_rename_keys(config):
 def rename_key(dct, old, new, config):
     val = dct.pop(old)
 
-    if (
-        "out_proj" in new or "v_proj" in new or "k_proj" in new or "q_proj" in new
-    ) and "vision" in new:
+    if ("out_proj" in new or "v_proj" in new or "k_proj" in new or "q_proj" in new) and "vision" in new:
         val = val.reshape(-1, config.vision_config.hidden_size)
-    if (
-        "out_proj" in new or "v_proj" in new or "k_proj" in new or "q_proj" in new
-    ) and "text" in new:
+    if ("out_proj" in new or "v_proj" in new or "k_proj" in new or "q_proj" in new) and "text" in new:
         val = val.reshape(-1, config.text_config.hidden_size)
 
     if "patch_embedding.weight" in new:
         val = val.transpose(3, 2, 0, 1)
-    elif (
-        new.endswith("weight")
-        and "position_embedding" not in new
-        and "token_embedding" not in new
-    ):
+    elif new.endswith("weight") and "position_embedding" not in new and "token_embedding" not in new:
         val = val.T
 
     if "position_embedding" in new and "vision" in new:
@@ -205,42 +197,16 @@ def rename_key(dct, old, new, config):
 
 def read_in_q_k_v_head(state_dict, config):
     # read in individual input projection layers
-    key_proj_weight = (
-        state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/kernel")
-        .reshape(-1, config.vision_config.hidden_size)
-        .T
-    )
-    key_proj_bias = state_dict.pop(
-        "params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/bias"
-    ).reshape(-1)
-    value_proj_weight = (
-        state_dict.pop(
-            "params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/kernel"
-        )
-        .reshape(-1, config.vision_config.hidden_size)
-        .T
-    )
-    value_proj_bias = state_dict.pop(
-        "params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/bias"
-    ).reshape(-1)
-    query_proj_weight = (
-        state_dict.pop(
-            "params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/kernel"
-        )
-        .reshape(-1, config.vision_config.hidden_size)
-        .T
-    )
-    query_proj_bias = state_dict.pop(
-        "params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/bias"
-    ).reshape(-1)
+    key_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/kernel").reshape(-1, config.vision_config.hidden_size).T
+    key_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/bias").reshape(-1)
+    value_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/kernel").reshape(-1, config.vision_config.hidden_size).T
+    value_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/bias").reshape(-1)
+    query_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/kernel").reshape(-1, config.vision_config.hidden_size).T
+    query_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/bias").reshape(-1)
 
     # next, add them to the state dict as a single matrix + vector
-    state_dict["vision_model.head.attention.in_proj_weight"] = torch.from_numpy(
-        np.concatenate([query_proj_weight, key_proj_weight, value_proj_weight], axis=0)
-    )
-    state_dict["vision_model.head.attention.in_proj_bias"] = torch.from_numpy(
-        np.concatenate([query_proj_bias, key_proj_bias, value_proj_bias], axis=0)
-    )
+    state_dict["vision_model.head.attention.in_proj_weight"] = torch.from_numpy(np.concatenate([query_proj_weight, key_proj_weight, value_proj_weight], axis=0))
+    state_dict["vision_model.head.attention.in_proj_bias"] = torch.from_numpy(np.concatenate([query_proj_bias, key_proj_bias, value_proj_bias], axis=0))
 
 
 # We will verify our results on an image of cute cats
@@ -264,9 +230,7 @@ def flatten_nested_dict(params, parent_key="", sep="/"):
 
 
 @torch.no_grad()
-def convert_siglip_checkpoint(
-    model_name, pytorch_dump_folder_path, verify_logits=True, push_to_hub=False
-):
+def convert_siglip_checkpoint(model_name, pytorch_dump_folder_path, verify_logits=True, push_to_hub=False):
     """
     Copy/paste/tweak model's weights to our SigLIP structure.
     """
@@ -279,13 +243,9 @@ def convert_siglip_checkpoint(
 
     # get vocab file
     if "i18n" in model_name:
-        vocab_file = (
-            "/Users/nielsrogge/Documents/SigLIP/multilingual_vocab/sentencepiece.model"
-        )
+        vocab_file = "/Users/nielsrogge/Documents/SigLIP/multilingual_vocab/sentencepiece.model"
     else:
-        vocab_file = (
-            "/Users/nielsrogge/Documents/SigLIP/english_vocab/sentencepiece.model"
-        )
+        vocab_file = "/Users/nielsrogge/Documents/SigLIP/english_vocab/sentencepiece.model"
 
     # load original state dict
     data = load(checkpoint)
@@ -318,9 +278,7 @@ def convert_siglip_checkpoint(
     image_2 = Image.open(requests.get(url_2, stream=True).raw).convert("RGB")
     texts = ["an apple", "a picture of an apple"]
 
-    inputs = processor(
-        images=[image_1, image_2], text=texts, return_tensors="pt", padding="max_length"
-    )
+    inputs = processor(images=[image_1, image_2], text=texts, return_tensors="pt", padding="max_length")
 
     # verify input_ids against original ones
     if image_size == 224:
@@ -334,13 +292,9 @@ def convert_siglip_checkpoint(
     else:
         raise ValueError("Image size not supported")
 
-    filepath = hf_hub_download(
-        repo_id="nielsr/test-image", filename=filename, repo_type="dataset"
-    )
+    filepath = hf_hub_download(repo_id="nielsr/test-image", filename=filename, repo_type="dataset")
     original_pixel_values = torch.load(filepath)
-    filepath = hf_hub_download(
-        repo_id="nielsr/test-image", filename="siglip_input_ids.pt", repo_type="dataset"
-    )
+    filepath = hf_hub_download(repo_id="nielsr/test-image", filename="siglip_input_ids.pt", repo_type="dataset")
     original_input_ids = torch.load(filepath)
 
     if "i18n" not in model_name:
@@ -394,9 +348,7 @@ def convert_siglip_checkpoint(
                 [[-0.9064, 0.1073], [-0.0299, 0.5304]],
             )
 
-        assert torch.allclose(
-            outputs.logits_per_image[:3, :3], expected_slice, atol=1e-4
-        )
+        assert torch.allclose(outputs.logits_per_image[:3, :3], expected_slice, atol=1e-4)
         print("Looks ok!")
 
     if pytorch_dump_folder_path is not None:

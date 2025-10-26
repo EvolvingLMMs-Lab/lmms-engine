@@ -14,15 +14,9 @@ def parse_argument():
     parser.add_argument("--dataset-path", type=str, default="lmms-lab/LLaVA-NeXT-Data")
     parser.add_argument("--split", type=str, default="train")
     parser.add_argument("--output-folder", type=str, default="./data")
-    parser.add_argument(
-        "--output-name", type=str, default="lmms_engine.json", help="output file name"
-    )
-    parser.add_argument(
-        "--modalities", type=str, default="image", choices=["image", "audio"]
-    )
-    parser.add_argument(
-        "--index-column", type=str, default="id", help="The index column of the dataset"
-    )
+    parser.add_argument("--output-name", type=str, default="lmms_engine.json", help="output file name")
+    parser.add_argument("--modalities", type=str, default="image", choices=["image", "audio"])
+    parser.add_argument("--index-column", type=str, default="id", help="The index column of the dataset")
     parser.add_argument(
         "--media-column",
         type=str,
@@ -47,9 +41,7 @@ def convert_llava_to_openai(content, image_path: str):
             content = []
             if "<image>" in item["value"]:
                 content.append({"type": "image_url", "image_url": {"url": image_path}})
-            content.append(
-                {"type": "text", "text": item["value"].replace("<image>", "")}
-            )
+            content.append({"type": "text", "text": item["value"].replace("<image>", "")})
             messages.append({"role": "user", "content": content})
         elif item["from"] == "gpt":
             messages.append(
@@ -91,12 +83,8 @@ def handle_single_audio(data_dict):
     media_column = data_dict["media_column"]
     conv_column = data_dict["conv_column"]
     audio_path = os.path.join(args.output_folder, "audio", item[index_column] + ".wav")
-    save_audio(
-        audio_path, item[media_column]["array"], item[media_column]["sampling_rate"]
-    )
-    messages = construct_audio_messages(
-        item[conv_column].replace("Omni", "Kino"), audio_path
-    )
+    save_audio(audio_path, item[media_column]["array"], item[media_column]["sampling_rate"])
+    messages = construct_audio_messages(item[conv_column].replace("Omni", "Kino"), audio_path)
     return {"id": item[index_column], "messages": messages}
 
 
@@ -112,9 +100,7 @@ if __name__ == "__main__":
     pbar = tqdm(total=len(dataset), desc="Saving...")
     if args.modalities == "image":
         for item in dataset:
-            image_path = os.path.join(
-                args.output_folder, "image", item[index_column] + ".jpg"
-            )
+            image_path = os.path.join(args.output_folder, "image", item[index_column] + ".jpg")
             if item[media_column] is not None:
                 item[media_column].convert("RGB").save(image_path)
             messages = convert_llava_to_openai(item[conv_column], image_path)

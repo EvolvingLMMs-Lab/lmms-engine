@@ -24,9 +24,7 @@ if API_TYPE == "openai":
         "Content-Type": "application/json",
     }
 elif API_TYPE == "azure":
-    API_URL = os.getenv(
-        "AZURE_ENDPOINT", "https://api.cognitive.microsoft.com/sts/v1.0/issueToken"
-    )
+    API_URL = os.getenv("AZURE_ENDPOINT", "https://api.cognitive.microsoft.com/sts/v1.0/issueToken")
     API_KEY = os.getenv("AZURE_API_KEY", "YOUR_API_KEY")
     headers = {
         "api-key": API_KEY,
@@ -37,16 +35,12 @@ elif API_TYPE == "azure":
 def parse_argument():
     parser = argparse.ArgumentParser()
     parser.add_argument("--jsonl-file", "-j", type=str, help="path to your jsonl file")
-    parser.add_argument(
-        "--output-file", "-o", type=str, help="path to your output file"
-    )
+    parser.add_argument("--output-file", "-o", type=str, help="path to your output file")
     return parser.parse_args()
 
 
 def parse_output(response, audio_path):
-    pattern = (
-        r"\*\*(User|AI Assistant):\*\* (.*?)\n\n|\*\*(User|AI Assistant):\*\* (.*)"
-    )
+    pattern = r"\*\*(User|AI Assistant):\*\* (.*?)\n\n|\*\*(User|AI Assistant):\*\* (.*)"
     matches = re.findall(pattern, response, re.DOTALL)
 
     messages = []
@@ -70,9 +64,7 @@ def parse_output(response, audio_path):
             )
             first_one = False
         else:
-            messages.append(
-                {"role": speaker, "content": [{"type": "text", "text": answer}]}
-            )
+            messages.append({"role": speaker, "content": [{"type": "text", "text": answer}]})
 
     return messages
 
@@ -104,9 +96,7 @@ def get_response(max_tokens: int, content: str, retries: int = retries):
 
         except Exception as e:
             print(f"Attempt {attempt + 1} failed with error: {e}")
-            if (
-                attempt < retries
-            ):  # If we have retries left, sleep and then continue to next attempt
+            if attempt < retries:  # If we have retries left, sleep and then continue to next attempt
                 time.sleep(NUM_SECONDS_TO_SLEEP)
             else:  # If this was the last attempt, log and return empty
                 print(f"All {retries} attempts failed. Last error message: {e}")

@@ -14,16 +14,7 @@ def fp16_clamp(x):
 
 class GELU(nn.Module):
     def forward(self, x):
-        return (
-            0.5
-            * x
-            * (
-                1.0
-                + torch.tanh(
-                    math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))
-                )
-            )
-        )
+        return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
 
 class T5LayerNorm(nn.Module):
@@ -136,11 +127,7 @@ class T5SelfAttention(nn.Module):
         self.attn = T5Attention(dim, dim_attn, num_heads, dropout)
         self.norm2 = T5LayerNorm(dim)
         self.ffn = T5FeedForward(dim, dim_ffn, dropout)
-        self.pos_embedding = (
-            None
-            if shared_pos
-            else T5RelativeEmbedding(num_buckets, num_heads, bidirectional=True)
-        )
+        self.pos_embedding = None if shared_pos else T5RelativeEmbedding(num_buckets, num_heads, bidirectional=True)
 
     def forward(self, x, mask=None, pos_bias=None):
         e = pos_bias if self.shared_pos else self.pos_embedding(x.size(1), x.size(1))
@@ -164,9 +151,7 @@ class T5RelativeEmbedding(nn.Module):
         device = self.embedding.weight.device
         # rel_pos = torch.arange(lk).unsqueeze(0).to(device) - \
         #     torch.arange(lq).unsqueeze(1).to(device)
-        rel_pos = torch.arange(lk, device=device).unsqueeze(0) - torch.arange(
-            lq, device=device
-        ).unsqueeze(1)
+        rel_pos = torch.arange(lk, device=device).unsqueeze(0) - torch.arange(lq, device=device).unsqueeze(1)
         rel_pos = self._relative_position_bucket(rel_pos)
         rel_pos_embeds = self.embedding(rel_pos)
         rel_pos_embeds = rel_pos_embeds.permute(2, 0, 1).unsqueeze(0)  # [1, N, Lq, Lk]
@@ -185,17 +170,8 @@ class T5RelativeEmbedding(nn.Module):
 
         # embeddings for small and large positions
         max_exact = num_buckets // 2
-        rel_pos_large = (
-            max_exact
-            + (
-                torch.log(rel_pos.float() / max_exact)
-                / math.log(self.max_dist / max_exact)
-                * (num_buckets - max_exact)
-            ).long()
-        )
-        rel_pos_large = torch.min(
-            rel_pos_large, torch.full_like(rel_pos_large, num_buckets - 1)
-        )
+        rel_pos_large = max_exact + (torch.log(rel_pos.float() / max_exact) / math.log(self.max_dist / max_exact) * (num_buckets - max_exact)).long()
+        rel_pos_large = torch.min(rel_pos_large, torch.full_like(rel_pos_large, num_buckets - 1))
         rel_buckets += torch.where(rel_pos < max_exact, rel_pos, rel_pos_large)
         return rel_buckets
 
@@ -213,9 +189,7 @@ def init_weights(m):
         nn.init.normal_(m.v.weight, std=m.dim**-0.5)
         nn.init.normal_(m.o.weight, std=(m.num_heads * m.dim_attn) ** -0.5)
     elif isinstance(m, T5RelativeEmbedding):
-        nn.init.normal_(
-            m.embedding.weight, std=(2 * m.num_buckets * m.num_heads) ** -0.5
-        )
+        nn.init.normal_(m.embedding.weight, std=(2 * m.num_buckets * m.num_heads) ** -0.5)
 
 
 class WanTextEncoder(torch.nn.Module):
@@ -241,23 +215,10 @@ class WanTextEncoder(torch.nn.Module):
         self.shared_pos = shared_pos
 
         # layers
-        self.token_embedding = (
-            vocab if isinstance(vocab, nn.Embedding) else nn.Embedding(vocab, dim)
-        )
-        self.pos_embedding = (
-            T5RelativeEmbedding(num_buckets, num_heads, bidirectional=True)
-            if shared_pos
-            else None
-        )
+        self.token_embedding = vocab if isinstance(vocab, nn.Embedding) else nn.Embedding(vocab, dim)
+        self.pos_embedding = T5RelativeEmbedding(num_buckets, num_heads, bidirectional=True) if shared_pos else None
         self.dropout = nn.Dropout(dropout)
-        self.blocks = nn.ModuleList(
-            [
-                T5SelfAttention(
-                    dim, dim_attn, dim_ffn, num_heads, num_buckets, shared_pos, dropout
-                )
-                for _ in range(num_layers)
-            ]
-        )
+        self.blocks = nn.ModuleList([T5SelfAttention(dim, dim_attn, dim_ffn, num_heads, num_buckets, shared_pos, dropout) for _ in range(num_layers)])
         self.norm = T5LayerNorm(dim)
 
         # initialize weights

@@ -95,21 +95,15 @@ def mmt_kernel(
 def matmul_transpose_assign(d_in, d_out):
     assert d_in.is_cuda, "Input `d_in` must be a CUDA tensor"
     assert d_out.is_cuda, "Input `d_out` must be a CUDA tensor"
-    assert (
-        d_in.device == d_out.device
-    ), "Inputs `d_in` and `d_out` must be on the same CUDA device"
+    assert d_in.device == d_out.device, "Inputs `d_in` and `d_out` must be on the same CUDA device"
     assert d_in.dtype == d_out.dtype, "Inputs must have the same data type"
     assert d_in.ndim == 2, "Input `d_in` must be a 2D tensor"
     assert d_out.ndim == 2, "Input `d_out` must be a 2D tensor"
-    assert (
-        d_in.size(0) == d_out.size(0) == d_out.size(0)
-    ), "First dimension of `d_in` must match first and second dimension of `d_out`"
+    assert d_in.size(0) == d_out.size(0) == d_out.size(0), "First dimension of `d_in` must match first and second dimension of `d_out`"
 
     d_in = d_in.contiguous()
     M, K = d_in.shape
-    grid = lambda META: (
-        triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(M, META["BLOCK_SIZE_M"]),
-    )
+    grid = lambda META: (triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(M, META["BLOCK_SIZE_M"]),)
     with torch.cuda.device(d_in.device.index):
         mmt_kernel[grid](
             d_in,
@@ -237,9 +231,7 @@ class Fsdp1dWork:
 
         dest_rank = self.index % world_size
         if rank == dest_rank:
-            gather_lists = [
-                torch.zeros_like(input=grad.to_local()) for _ in range(world_size)
-            ]
+            gather_lists = [torch.zeros_like(input=grad.to_local()) for _ in range(world_size)]
             gather_handle = gather(
                 grad.to_local(),
                 gather_lists,
@@ -250,9 +242,7 @@ class Fsdp1dWork:
 
         else:
             gather_lists = None
-            gather_handle = gather(
-                grad.to_local(), None, group_dst=dest_rank, group=pg, async_op=True
-            )
+            gather_handle = gather(grad.to_local(), None, group_dst=dest_rank, group=pg, async_op=True)
 
         self._intermediate_state = [dest_rank, gather_handle, gather_lists]
 
@@ -337,32 +327,24 @@ class SingelDeviceWork:
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(
-        self, param_groups, defaults=dict(lr=0.02), is_deepspeed_enabled=False
-    ):
+    def __init__(self, param_groups, defaults=dict(lr=0.02), is_deepspeed_enabled=False):
         self.is_deepspeed_enabled = is_deepspeed_enabled
         for group in param_groups:
             assert "use_muon" in group
             if group["use_muon"]:
-                group["params"] = sorted(
-                    group["params"], key=lambda x: x.size(), reverse=True
-                )
+                group["params"] = sorted(group["params"], key=lambda x: x.size(), reverse=True)
                 # defaults
                 group["lr"] = group.get("lr", 0.02)
                 group["momentum"] = group.get("momentum", 0.95)
                 group["weight_decay"] = group.get("weight_decay", 0)
                 rms_scale = group.get("rms_scale", True)
                 if self.is_deepspeed_enabled and rms_scale:
-                    logger.warning(
-                        "rms_scale for Muon is not supported in deepspeed, setting rms_scale to False"
-                    )
+                    logger.warning("rms_scale for Muon is not supported in deepspeed, setting rms_scale to False")
                     rms_scale = False
                 group["rms_scale"] = rms_scale
                 nesterov = group.get("nesterov", True)
                 if self.is_deepspeed_enabled and not nesterov:
-                    logger.warning(
-                        "disabled nesterov for Muon is not supported in deepspeed, setting nesterov to True"
-                    )
+                    logger.warning("disabled nesterov for Muon is not supported in deepspeed, setting nesterov to True")
                     nesterov = False
                 group["nesterov"] = nesterov
                 group["ns_steps"] = group.get("ns_steps", 5)
@@ -384,9 +366,7 @@ class Muon(torch.optim.Optimizer):
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["eps"] = group.get("eps", 1e-10)
                 group["weight_decay"] = group.get("weight_decay", 0)
-                assert set(group.keys()) == set(
-                    ["params", "lr", "betas", "eps", "weight_decay", "use_muon"]
-                )
+                assert set(group.keys()) == set(["params", "lr", "betas", "eps", "weight_decay", "use_muon"])
         super().__init__(param_groups, defaults=defaults)
 
     def _get_work_class(self, p: torch.Tensor) -> tuple[type[Work], int]:

@@ -10,10 +10,7 @@ def get_timm_attention() -> Any:
 
         return Attention
     except ImportError as e:
-        raise ImportError(
-            "timm is required for SiT models.\n"
-            "Install with: pip install lmms_engine[sit]"
-        ) from e
+        raise ImportError("timm is required for SiT models.\n" "Install with: pip install lmms_engine[sit]") from e
 
 
 def get_timm_mlp() -> Any:
@@ -23,10 +20,7 @@ def get_timm_mlp() -> Any:
 
         return Mlp
     except ImportError as e:
-        raise ImportError(
-            "timm is required for SiT models.\n"
-            "Install with: pip install lmms_engine[sit]"
-        ) from e
+        raise ImportError("timm is required for SiT models.\n" "Install with: pip install lmms_engine[sit]") from e
 
 
 def get_timm_patch_embed() -> Any:
@@ -36,10 +30,7 @@ def get_timm_patch_embed() -> Any:
 
         return PatchEmbed
     except ImportError as e:
-        raise ImportError(
-            "timm is required for SiT models.\n"
-            "Install with: pip install lmms_engine[sit]"
-        ) from e
+        raise ImportError("timm is required for SiT models.\n" "Install with: pip install lmms_engine[sit]") from e
 
 
 def get_torchdiffeq_odeint() -> Any:
@@ -49,7 +40,4 @@ def get_torchdiffeq_odeint() -> Any:
 
         return odeint
     except ImportError as e:
-        raise ImportError(
-            "torchdiffeq is required for SiT models.\n"
-            "Install with: pip install lmms_engine[sit]"
-        ) from e
+        raise ImportError("torchdiffeq is required for SiT models.\n" "Install with: pip install lmms_engine[sit]") from e

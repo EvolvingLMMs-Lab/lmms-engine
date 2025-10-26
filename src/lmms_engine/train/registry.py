@@ -8,9 +8,7 @@ class TrainerRegister(dict):
             if not callable(value):
                 raise Exception(f"Error:{value} must be callable!")
             if key in self._dict:
-                print(
-                    f"\033[31mWarning:\033[0m {value.__name__} already exists and will be overwritten!"
-                )
+                print(f"\033[31mWarning:\033[0m {value.__name__} already exists and will be overwritten!")
             self[key] = value
             return value
 

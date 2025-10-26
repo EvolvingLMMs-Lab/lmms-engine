@@ -66,10 +66,7 @@ if __name__ == "__main__":
             data_list.extend(cur_data_dict)
             data_folder_list.extend([data_folder] * len(cur_data_dict))
 
-    data_dict = [
-        {"data_folder": data_folder, "data": data}
-        for data_folder, data in zip(data_folder_list, data_list)
-    ]
+    data_dict = [{"data_folder": data_folder, "data": data} for data_folder, data in zip(data_folder_list, data_list)]
     with Pool(32) as p:
         results = list(tqdm(p.imap(check_data_exists, data_dict), total=len(data_dict)))
     not_exists = []

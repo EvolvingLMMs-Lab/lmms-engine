@@ -100,9 +100,7 @@ class MultiModalDataLoadingMixin:
             audio = librosa.load(audio_path, sr=sr)[0]
         return audio
 
-    def load_videos(
-        self, video_path: str, data_folder=None, fps: int = 1
-    ) -> Tuple[np.ndarray, float]:
+    def load_videos(self, video_path: str, data_folder=None, fps: int = 1) -> Tuple[np.ndarray, float]:
         """
         Load video from file path or object storage.
 
@@ -163,21 +161,15 @@ class MultiModalDataLoadingMixin:
 
         total_frames, video_fps = len(vr), vr.get_avg_fps()
         if self.config.video_sampling_strategy == "fps":
-            nframes = DataUtilities.smart_nframes(
-                total_frames, video_fps=video_fps, fps=fps
-            )
+            nframes = DataUtilities.smart_nframes(total_frames, video_fps=video_fps, fps=fps)
         elif self.config.video_sampling_strategy == "frame_num":
             nframes = self.config.frame_num
         else:
-            raise ValueError(
-                f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
-            )
+            raise ValueError(f"Invalid video sampling strategy: {self.config.video_sampling_strategy}")
         uniform_sampled_frames = np.linspace(0, total_frames - 1, nframes, dtype=int)
         frame_idx = uniform_sampled_frames.tolist()
         spare_frames = vr.get_batch(frame_idx).asnumpy()
-        spare_frames = torch.tensor(spare_frames).permute(
-            0, 3, 1, 2
-        )  # Convert to TCHW format
+        spare_frames = torch.tensor(spare_frames).permute(0, 3, 1, 2)  # Convert to TCHW format
         sample_fps = nframes / max(total_frames, 1e-6) * video_fps
         return spare_frames, sample_fps  # (frames, height, width, channels)
 
@@ -221,9 +213,7 @@ class MultiModalDataLoadingMixin:
             frames = frames.numpy()
             return frames, sample_fps
         else:
-            raise ValueError(
-                f"Invalid video sampling strategy: {self.config.video_sampling_strategy}"
-            )
+            raise ValueError(f"Invalid video sampling strategy: {self.config.video_sampling_strategy}")
 
     def load_video_qwen_omni_utils(
         self,
@@ -251,9 +241,7 @@ class MultiModalDataLoadingMixin:
             }
         ]
         use_audio_in_video = self.config.extra_kwargs.get("use_audio_in_video", False)
-        audios, _, videos = process_mm_info(
-            messages, use_audio_in_video=use_audio_in_video
-        )
+        audios, _, videos = process_mm_info(messages, use_audio_in_video=use_audio_in_video)
 
         if use_audio_in_video and audios and len(audios) > 0:
             if not hasattr(self, "video_extracted_audio"):
@@ -268,9 +256,7 @@ class MultiModalDataLoadingMixin:
                 video_frames = np.array(video_frames)
             if self.config.video_sampling_strategy == "frame_num":
                 if len(video_frames) > self.config.frame_num:
-                    indices = np.linspace(
-                        0, len(video_frames) - 1, self.config.frame_num, dtype=int
-                    )
+                    indices = np.linspace(0, len(video_frames) - 1, self.config.frame_num, dtype=int)
                     video_frames = video_frames[indices]
                 sample_fps = fps
             else:

@@ -29,9 +29,7 @@ def convert_llava_to_openai(content):
             content = []
             if "<image>" in item["value"]:
                 content.append({"type": "image_url", "image_url": {"url": "<image>"}})
-            content.append(
-                {"type": "text", "text": item["value"].replace("<image>", "")}
-            )
+            content.append({"type": "text", "text": item["value"].replace("<image>", "")})
             messages.append({"role": "user", "content": content})
         elif item["from"] == "gpt":
             messages.append(

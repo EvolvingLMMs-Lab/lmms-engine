@@ -60,19 +60,13 @@ class RaeTrainer(FSDP2SFTTrainer):
 
         dino_ckpt_path = self.discriminator_config.get("dino_ckpt_path")
         if not dino_ckpt_path or not os.path.isfile(dino_ckpt_path):
-            raise FileNotFoundError(
-                f"DINO checkpoint not found at {dino_ckpt_path}. Please provide the pretrained discriminator weights."
-            )
+            raise FileNotFoundError(f"DINO checkpoint not found at {dino_ckpt_path}. Please provide the pretrained discriminator weights.")
         self.discriminator = ProjectedDiscriminator(
             dino_ckpt_path=dino_ckpt_path,
             ks=int(self.discriminator_config.get("ks", 9)),
-            key_depths=tuple(
-                self.discriminator_config.get("key_depths", (2, 5, 8, 11))
-            ),
+            key_depths=tuple(self.discriminator_config.get("key_depths", (2, 5, 8, 11))),
             norm_type=self.discriminator_config.get("norm_type", "bn"),
-            using_spec_norm=bool(
-                self.discriminator_config.get("using_spec_norm", True)
-            ),
+            using_spec_norm=bool(self.discriminator_config.get("using_spec_norm", True)),
             norm_eps=float(self.discriminator_config.get("norm_eps", 1e-6)),
             recipe=self.discriminator_config.get("recipe", "S_8"),
         )
@@ -82,9 +76,7 @@ class RaeTrainer(FSDP2SFTTrainer):
         cutout = float(augment_cfg.get("cutout", 0.0))
         self.diffaug = DiffAug(prob=prob, cutout=cutout) if prob > 0 else None
 
-        self.perceptual_weight = float(
-            self.discriminator_config.get("perceptual_weight", 1.0)
-        )
+        self.perceptual_weight = float(self.discriminator_config.get("perceptual_weight", 1.0))
         self.disc_weight = float(self.discriminator_config.get("disc_weight", 1.0))
         self.max_d_weight = float(self.discriminator_config.get("max_d_weight", 1e4))
         self.disc_updates = int(self.discriminator_config.get("disc_updates", 1))
@@ -120,9 +112,7 @@ class RaeTrainer(FSDP2SFTTrainer):
             self.last_layer_module = self.fsdp2_model.module.decoder.decoder_pred
         else:
             self.last_layer_module = self.fsdp2_model.decoder.decoder_pred
-        logger.info(
-            f"[RAE Trainer] Using last layer module: {type(self.last_layer_module)}"
-        )
+        logger.info(f"[RAE Trainer] Using last layer module: {type(self.last_layer_module)}")
 
         if self.ema_decay is not None and self.ema_decay > 0:
             self._init_ema_state()
@@ -154,15 +144,11 @@ class RaeTrainer(FSDP2SFTTrainer):
             cast_dtype = torch.float16
         loss_kwargs = {}
         self.discriminator.eval()
-        pixel_values = batch["pixel_values"].to(
-            next(self.fsdp2_model.parameters()).device
-        )
+        pixel_values = batch["pixel_values"].to(next(self.fsdp2_model.parameters()).device)
 
         # Debug: Log pixel value ranges periodically
         if self.global_step % 100 == 0 and dist.get_rank() == 0:
-            logger.info(
-                f"[Step {self.global_step}] Input pixels - min: {pixel_values.min().item():.4f}, max: {pixel_values.max().item():.4f}, mean: {pixel_values.mean().item():.4f}"
-            )
+            logger.info(f"[Step {self.global_step}] Input pixels - min: {pixel_values.min().item():.4f}, max: {pixel_values.max().item():.4f}, mean: {pixel_values.mean().item():.4f}")
 
         # Forward pass in mixed precision
         with torch.autocast(device_type="cuda", dtype=cast_dtype):
@@ -171,9 +157,7 @@ class RaeTrainer(FSDP2SFTTrainer):
 
         # Debug: Log reconstruction value ranges periodically
         if self.global_step % 100 == 0 and dist.get_rank() == 0:
-            logger.info(
-                f"[Step {self.global_step}] Recon pixels - min: {recon.min().item():.4f}, max: {recon.max().item():.4f}, mean: {recon.mean().item():.4f}"
-            )
+            logger.info(f"[Step {self.global_step}] Recon pixels - min: {recon.min().item():.4f}, max: {recon.max().item():.4f}, mean: {recon.mean().item():.4f}")
 
         # Compute losses in float32 for numerical stability
         rec_loss = F.l1_loss(recon.float(), pixel_values.float())
@@ -201,9 +185,7 @@ class RaeTrainer(FSDP2SFTTrainer):
 
         # Debug: Log loss components periodically
         if self.global_step % 100 == 0 and dist.get_rank() == 0:
-            logger.info(
-                f"[Step {self.global_step}] Losses - L1: {rec_loss.item():.6f}, LPIPS: {lpips_loss.item():.6f}, GAN: {gan_loss.item():.6f}, AdaptiveW: {adaptive_weight.item():.6f}"
-            )
+            logger.info(f"[Step {self.global_step}] Losses - L1: {rec_loss.item():.6f}, LPIPS: {lpips_loss.item():.6f}, GAN: {gan_loss.item():.6f}, AdaptiveW: {adaptive_weight.item():.6f}")
 
         loss_kwargs["l1_loss"] = rec_loss.detach().item()
         loss_kwargs["lpips_loss"] = lpips_loss.detach().item()
@@ -238,12 +220,8 @@ class RaeTrainer(FSDP2SFTTrainer):
 
     def prepare_optimizer(self):
         super().prepare_optimizer()
-        discriminator_lr = self.discriminator_config.get(
-            "discriminator_lr", self.args.learning_rate
-        )
-        discriminator_weight_decay = self.discriminator_config.get(
-            "discriminator_weight_decay", self.args.weight_decay
-        )
+        discriminator_lr = self.discriminator_config.get("discriminator_lr", self.args.learning_rate)
+        discriminator_weight_decay = self.discriminator_config.get("discriminator_weight_decay", self.args.weight_decay)
         # Use same betas as generator (matching original RAE config: [0.5, 0.9])
         self.discriminator_optimizer = torch.optim.AdamW(
             self.discriminator.parameters(),
@@ -258,41 +236,24 @@ class RaeTrainer(FSDP2SFTTrainer):
         total_epochs = max(int(getattr(self.args, "num_train_epochs", 1)), 1)
         self.steps_per_epoch = max(num_training_steps // total_epochs, 1)
 
-        discriminator_start_ratio = self.discriminator_config.get(
-            "discriminator_start_ratio"
-        )
-        discriminator_loss_start_ratio = self.discriminator_config.get(
-            "discriminator_loss_start_ratio"
-        )
+        discriminator_start_ratio = self.discriminator_config.get("discriminator_start_ratio")
+        discriminator_loss_start_ratio = self.discriminator_config.get("discriminator_loss_start_ratio")
 
         if "discriminator_start" in self.discriminator_config:
-            self.discriminator_start_step = int(
-                self.discriminator_config["discriminator_start"] * self.steps_per_epoch
-            )
+            self.discriminator_start_step = int(self.discriminator_config["discriminator_start"] * self.steps_per_epoch)
         elif "discriminator_start_step" in self.discriminator_config:
-            self.discriminator_start_step = int(
-                self.discriminator_config["discriminator_start_step"]
-            )
+            self.discriminator_start_step = int(self.discriminator_config["discriminator_start_step"])
         elif discriminator_start_ratio is not None:
-            self.discriminator_start_step = int(
-                num_training_steps * discriminator_start_ratio
-            )
+            self.discriminator_start_step = int(num_training_steps * discriminator_start_ratio)
         else:
             self.discriminator_start_step = 0
 
         if "discriminator_loss_start" in self.discriminator_config:
-            self.discriminator_loss_start = int(
-                self.discriminator_config["discriminator_loss_start"]
-                * self.steps_per_epoch
-            )
+            self.discriminator_loss_start = int(self.discriminator_config["discriminator_loss_start"] * self.steps_per_epoch)
         elif "discriminator_loss_start_step" in self.discriminator_config:
-            self.discriminator_loss_start = int(
-                self.discriminator_config["discriminator_loss_start_step"]
-            )
+            self.discriminator_loss_start = int(self.discriminator_config["discriminator_loss_start_step"])
         elif discriminator_loss_start_ratio is not None:
-            self.discriminator_loss_start = int(
-                num_training_steps * discriminator_loss_start_ratio
-            )
+            self.discriminator_loss_start = int(num_training_steps * discriminator_loss_start_ratio)
         else:
             self.discriminator_loss_start = 0
 
@@ -307,25 +268,15 @@ class RaeTrainer(FSDP2SFTTrainer):
         logger.info(f"  - Steps per epoch: {self.steps_per_epoch}")
         logger.info(f"  - LPIPS start step: {self.lpips_start_step}")
         logger.info(f"  - Discriminator start step: {self.discriminator_start_step}")
-        logger.info(
-            f"  - Discriminator loss start step: {self.discriminator_loss_start}"
-        )
+        logger.info(f"  - Discriminator loss start step: {self.discriminator_loss_start}")
 
-        self.discriminator_training_steps = max(
-            num_training_steps - self.discriminator_start_step, 1
-        )
+        self.discriminator_training_steps = max(num_training_steps - self.discriminator_start_step, 1)
 
-        discriminator_warmup_ratio = self.discriminator_config.get(
-            "discriminator_warmup_ratio", 0.1
-        )
-        self.discriminator_warmup_steps = int(
-            self.discriminator_training_steps * discriminator_warmup_ratio
-        )
+        discriminator_warmup_ratio = self.discriminator_config.get("discriminator_warmup_ratio", 0.1)
+        self.discriminator_warmup_steps = int(self.discriminator_training_steps * discriminator_warmup_ratio)
 
         # Get discriminator scheduler type
-        discriminator_lr_scheduler_type = self.discriminator_config.get(
-            "discriminator_lr_scheduler_type", self.args.lr_scheduler_type
-        )
+        discriminator_lr_scheduler_type = self.discriminator_config.get("discriminator_lr_scheduler_type", self.args.lr_scheduler_type)
 
         if discriminator_lr_scheduler_type == "cosine":
             self.discriminator_scheduler = get_cosine_schedule_with_warmup(
@@ -348,9 +299,7 @@ class RaeTrainer(FSDP2SFTTrainer):
                 **self.args.lr_scheduler_kwargs,
             )
         else:
-            raise ValueError(
-                f"Unsupported discriminator_lr_scheduler_type: {discriminator_lr_scheduler_type}"
-            )
+            raise ValueError(f"Unsupported discriminator_lr_scheduler_type: {discriminator_lr_scheduler_type}")
 
     def training_step(self, batch):
         # Train generator
@@ -361,21 +310,15 @@ class RaeTrainer(FSDP2SFTTrainer):
             loss = loss.mean()
         loss_item = loss.item()
         loss.backward()
-        grad_norm = fsdp2_clip_grad_norm_(
-            self.fsdp2_model.parameters(), self.args.max_grad_norm
-        )
+        grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
 
         # Debug: Log gradient norm periodically
         if self.global_step % 100 == 0 and dist.get_rank() == 0:
-            logger.info(
-                f"[Step {self.global_step}] Generator grad_norm: {grad_norm.item():.6f}"
-            )
+            logger.info(f"[Step {self.global_step}] Generator grad_norm: {grad_norm.item():.6f}")
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
-            logger.warning(
-                f"[Step {self.global_step}] WARN: grad_norm is not finite: {grad_norm}"
-            )
+            logger.warning(f"[Step {self.global_step}] WARN: grad_norm is not finite: {grad_norm}")
             self.optimizer.zero_grad()
         else:
             self.optimizer.step()
@@ -410,20 +353,14 @@ class RaeTrainer(FSDP2SFTTrainer):
             else:
                 discriminator_lr = self.discriminator_optimizer.param_groups[0]["lr"]
 
-            loss_discriminator_tensor = torch.tensor(
-                loss_discriminator_item, device=self.args.device
-            )
-            torch.distributed.all_reduce(
-                loss_discriminator_tensor, op=torch.distributed.ReduceOp.AVG
-            )
+            loss_discriminator_tensor = torch.tensor(loss_discriminator_item, device=self.args.device)
+            torch.distributed.all_reduce(loss_discriminator_tensor, op=torch.distributed.ReduceOp.AVG)
             loss_discriminator_item = loss_discriminator_tensor.item()
 
         for k, v in loss_kwargs.items():
             if not isinstance(v, torch.Tensor):
                 loss_kwargs[k] = torch.tensor(v, device=self.args.device)
-            torch.distributed.all_reduce(
-                loss_kwargs[k], op=torch.distributed.ReduceOp.AVG
-            )
+            torch.distributed.all_reduce(loss_kwargs[k], op=torch.distributed.ReduceOp.AVG)
             loss_kwargs[k] = loss_kwargs[k].item()
 
         result = {
@@ -494,37 +431,25 @@ class RaeTrainer(FSDP2SFTTrainer):
         else:
             logger.warning(f"[RAE Trainer] EMA state file not found at {ema_path}")
 
-    def _calculate_adaptive_weight(
-        self, recon_loss: torch.Tensor, gan_loss: torch.Tensor
-    ) -> torch.Tensor:
+    def _calculate_adaptive_weight(self, recon_loss: torch.Tensor, gan_loss: torch.Tensor) -> torch.Tensor:
         if gan_loss.requires_grad is False:
             if self.global_step % 100 == 0 and dist.get_rank() == 0:
-                logger.warning(
-                    f"[Step {self.global_step}] GAN loss has no gradient, returning zero adaptive weight"
-                )
+                logger.warning(f"[Step {self.global_step}] GAN loss has no gradient, returning zero adaptive weight")
             return torch.zeros_like(recon_loss)
 
         # Get the weight parameter from the last layer module
         last_layer_weight = self.last_layer_module.weight
         if last_layer_weight is None:
             if self.global_step % 100 == 0 and dist.get_rank() == 0:
-                logger.warning(
-                    f"[Step {self.global_step}] Last layer weight is None, returning zero adaptive weight"
-                )
+                logger.warning(f"[Step {self.global_step}] Last layer weight is None, returning zero adaptive weight")
             return torch.zeros_like(recon_loss)
 
-        grad_recon = torch.autograd.grad(
-            recon_loss, last_layer_weight, retain_graph=True, allow_unused=True
-        )[0]
-        grad_gan = torch.autograd.grad(
-            gan_loss, last_layer_weight, retain_graph=True, allow_unused=True
-        )[0]
+        grad_recon = torch.autograd.grad(recon_loss, last_layer_weight, retain_graph=True, allow_unused=True)[0]
+        grad_gan = torch.autograd.grad(gan_loss, last_layer_weight, retain_graph=True, allow_unused=True)[0]
 
         if grad_recon is None or grad_gan is None:
             if self.global_step % 100 == 0 and dist.get_rank() == 0:
-                logger.warning(
-                    f"[Step {self.global_step}] Gradients are None - grad_recon: {grad_recon is not None}, grad_gan: {grad_gan is not None}"
-                )
+                logger.warning(f"[Step {self.global_step}] Gradients are None - grad_recon: {grad_recon is not None}, grad_gan: {grad_gan is not None}")
             return torch.zeros_like(recon_loss)
 
         grad_recon_norm = torch.norm(grad_recon)
@@ -534,8 +459,6 @@ class RaeTrainer(FSDP2SFTTrainer):
 
         # Debug: Log gradient norms and adaptive weight periodically
         if self.global_step % 100 == 0 and dist.get_rank() == 0:
-            logger.info(
-                f"[Step {self.global_step}] Adaptive weight calc - grad_recon_norm: {grad_recon_norm.item():.6f}, grad_gan_norm: {grad_gan_norm.item():.6f}, d_weight: {d_weight.item():.6f}"
-            )
+            logger.info(f"[Step {self.global_step}] Adaptive weight calc - grad_recon_norm: {grad_recon_norm.item():.6f}, grad_gan_norm: {grad_gan_norm.item():.6f}, d_weight: {d_weight.item():.6f}")
 
         return d_weight.detach()

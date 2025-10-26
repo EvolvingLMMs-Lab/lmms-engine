@@ -29,9 +29,7 @@ class TestVisionDataset(unittest.TestCase):
         dataset = DatasetFactory.create_dataset(dataset_config)
         dataset.build()
         collator = dataset.get_collator()
-        dataLoader = DataLoader(
-            dataset, batch_size=4, shuffle=False, collate_fn=collator
-        )
+        dataLoader = DataLoader(dataset, batch_size=4, shuffle=False, collate_fn=collator)
         for data in dataLoader:
             # TrainUtilities.sanity_check_labels(dataset.processor.processor, data["input_ids"], data["labels"])
             print([f"{key}: {value.shape}" for key, value in data.items()])
@@ -54,9 +52,7 @@ class TestVisionDataset(unittest.TestCase):
         dataset = DatasetFactory.create_dataset(dataset_config)
         dataset.build()
         collator = dataset.get_collator()
-        dataLoader = DataLoader(
-            dataset, batch_size=4, shuffle=False, collate_fn=collator
-        )
+        dataLoader = DataLoader(dataset, batch_size=4, shuffle=False, collate_fn=collator)
         for data in dataLoader:
             # TrainUtilities.sanity_check_labels(dataset.processor.processor, data["input_ids"], data["labels"])
             print([f"{key}: {value.shape}" for key, value in data.items()])

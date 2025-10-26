@@ -18,9 +18,7 @@ from loguru import logger
 try:
     import fla
 except ImportError as e:
-    logger.warning(
-        f"Failed to import the lib 'fla'. If you do not need it, you can ignore this warning."
-    )
+    logger.warning(f"Failed to import the lib 'fla'. If you do not need it, you can ignore this warning.")
 
 
 # A decorator class to register processors
@@ -57,9 +55,7 @@ def register_model(
     model_type: str,
     model_config: PretrainedConfig,
     model_class: PreTrainedModel,
-    model_general_type: Literal[
-        "causal_lm", "masked_lm", "image_text_to_text", "general"
-    ] = "causal_lm",
+    model_general_type: Literal["causal_lm", "masked_lm", "image_text_to_text", "general"] = "causal_lm",
 ):
     AutoConfig.register(model_type, model_config, exist_ok=True)
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)

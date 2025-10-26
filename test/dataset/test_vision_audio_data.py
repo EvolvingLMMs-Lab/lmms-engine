@@ -16,9 +16,7 @@ class TestVisionDataset(unittest.TestCase):
         config = {
             "dataset_type": "vision_audio",
             "dataset_format": "jsonl",
-            "dataset_path": os.path.join(
-                str(data_folder), "voice_assis", "voice_assis.jsonl"
-            ),
+            "dataset_path": os.path.join(str(data_folder), "voice_assis", "voice_assis.jsonl"),
             "processor_config": {
                 "processor_name": "Evo-LMM/kino-7b-init",
                 "processor_modality": "vision_audio",
@@ -30,9 +28,7 @@ class TestVisionDataset(unittest.TestCase):
         dataset = DatasetFactory.create_dataset(dataset_config)
         dataset.build()
         collator = dataset.get_collator()
-        outputs = dataset.load_from_json(
-            dataset.data_list[0], data_folder=str(current_dir.parent.parent)
-        )
+        outputs = dataset.load_from_json(dataset.data_list[0], data_folder=str(current_dir.parent.parent))
         # dataLoader = DataLoader(
         # dataset, batch_size=4, shuffle=False, collate_fn=collator
         # )
@@ -45,9 +41,7 @@ class TestVisionDataset(unittest.TestCase):
         config = {
             "dataset_type": "vision_audio",
             "dataset_format": "jsonl",
-            "dataset_path": os.path.join(
-                str(data_folder), "voice_assis", "voice_assis.jsonl"
-            ),
+            "dataset_path": os.path.join(str(data_folder), "voice_assis", "voice_assis.jsonl"),
             "processor_config": {
                 "processor_name": "Evo-LMM/kino_qwen2_5_vl_init",
                 "processor_modality": "vision_audio",
@@ -59,9 +53,7 @@ class TestVisionDataset(unittest.TestCase):
         dataset = DatasetFactory.create_dataset(dataset_config)
         dataset.build()
         collator = dataset.get_collator()
-        outputs = dataset.load_from_json(
-            dataset.data_list[0], data_folder=str(current_dir.parent.parent)
-        )
+        outputs = dataset.load_from_json(dataset.data_list[0], data_folder=str(current_dir.parent.parent))
 
 
 if __name__ == "__main__":

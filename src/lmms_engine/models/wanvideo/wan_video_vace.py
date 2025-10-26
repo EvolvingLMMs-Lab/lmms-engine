@@ -44,19 +44,10 @@ class VaceWanModel(torch.nn.Module):
         self.vace_layers_mapping = {i: n for n, i in enumerate(self.vace_layers)}
 
         # vace blocks
-        self.vace_blocks = torch.nn.ModuleList(
-            [
-                VaceWanAttentionBlock(
-                    has_image_input, dim, num_heads, ffn_dim, eps, block_id=i
-                )
-                for i in self.vace_layers
-            ]
-        )
+        self.vace_blocks = torch.nn.ModuleList([VaceWanAttentionBlock(has_image_input, dim, num_heads, ffn_dim, eps, block_id=i) for i in self.vace_layers])
 
         # vace patch embeddings
-        self.vace_patch_embedding = torch.nn.Conv3d(
-            vace_in_dim, dim, kernel_size=patch_size, stride=patch_size
-        )
+        self.vace_patch_embedding = torch.nn.Conv3d(vace_in_dim, dim, kernel_size=patch_size, stride=patch_size)
 
     def forward(
         self,
@@ -70,12 +61,7 @@ class VaceWanModel(torch.nn.Module):
     ):
         c = [self.vace_patch_embedding(u.unsqueeze(0)) for u in vace_context]
         c = [u.flatten(2).transpose(1, 2) for u in c]
-        c = torch.cat(
-            [
-                torch.cat([u, u.new_zeros(1, x.shape[1] - u.size(1), u.size(2))], dim=1)
-                for u in c
-            ]
-        )
+        c = torch.cat([torch.cat([u, u.new_zeros(1, x.shape[1] - u.size(1), u.size(2))], dim=1) for u in c])
 
         def create_custom_forward(module):
             def custom_forward(*inputs):
@@ -120,12 +106,8 @@ class VaceWanModelDictConverter:
         pass
 
     def from_civitai(self, state_dict):
-        state_dict_ = {
-            name: param for name, param in state_dict.items() if name.startswith("vace")
-        }
-        if (
-            hash_state_dict_keys(state_dict_) == "3b2726384e4f64837bdf216eea3f310d"
-        ):  # vace 14B
+        state_dict_ = {name: param for name, param in state_dict.items() if name.startswith("vace")}
+        if hash_state_dict_keys(state_dict_) == "3b2726384e4f64837bdf216eea3f310d":  # vace 14B
             config = {
                 "vace_layers": (0, 5, 10, 15, 20, 25, 30, 35),
                 "vace_in_dim": 96,

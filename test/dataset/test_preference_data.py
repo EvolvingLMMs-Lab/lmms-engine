@@ -26,9 +26,7 @@ class TestPreferenceData(unittest.TestCase):
         dataset = VisionPreferenceDataset(config)
         dataset.build()
         collator = PreferenceCollator(pad_token_id=0)
-        inputs = dataset.load_from_json(
-            dataset.data_list[0], data_folder=str(data_folder / "image")
-        )
+        inputs = dataset.load_from_json(dataset.data_list[0], data_folder=str(data_folder / "image"))
 
 
 if __name__ == "__main__":

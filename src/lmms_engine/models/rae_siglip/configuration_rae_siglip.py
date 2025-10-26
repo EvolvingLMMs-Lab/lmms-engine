@@ -37,11 +37,7 @@ class RaeSiglipConfig(PretrainedConfig):
         self.encoder_config = encoder_config
         self.encoder_processor_path = encoder_processor_path
         self.noise_tau = noise_tau
-        self.encoder_input_size = (
-            int(encoder_input_size)
-            if encoder_input_size is not None
-            else int(self.decoder_config.image_size)
-        )
+        self.encoder_input_size = int(encoder_input_size) if encoder_input_size is not None else int(self.decoder_config.image_size)
         self.reshape_to_2d = bool(reshape_to_2d)
         self.latent_mean = latent_mean
         self.latent_var = latent_var

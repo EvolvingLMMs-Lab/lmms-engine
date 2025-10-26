@@ -55,9 +55,7 @@ class RandomWindowCrop:
         cols_min = math.ceil(self.W / self.crop)
         n_min = rows_min * cols_min
         if num_windows < n_min:
-            raise ValueError(
-                f"num_windows={num_windows} too small to cover {(self.H, self.W)} with crop {self.crop}"
-            )
+            raise ValueError(f"num_windows={num_windows} too small to cover {(self.H, self.W)} with crop {self.crop}")
 
         t_rows = _gen_positions_1d(self.H, self.crop, rows_min)
         l_cols = _gen_positions_1d(self.W, self.crop, cols_min)
@@ -65,9 +63,7 @@ class RandomWindowCrop:
 
         offsets = list(base_offsets)
         if num_windows > len(offsets):
-            rows_t = max(
-                rows_min, int(math.floor(math.sqrt(num_windows * self.H / self.W)))
-            )
+            rows_t = max(rows_min, int(math.floor(math.sqrt(num_windows * self.H / self.W))))
             cols_t = max(cols_min, int(math.ceil(num_windows / rows_t)))
             while rows_t * cols_t < num_windows:
                 cols_t += 1
@@ -93,10 +89,7 @@ class RandomWindowCrop:
         self.num_windows = len(self.offsets)
 
     def __repr__(self) -> str:
-        return (
-            f"RandomWindowCrop(input={(self.H, self.W)}, crop={self.crop}, "
-            f"windows={self.num_windows}, per_sample={self.per_sample})"
-        )
+        return f"RandomWindowCrop(input={(self.H, self.W)}, crop={self.crop}, " f"windows={self.num_windows}, per_sample={self.per_sample})"
 
     def _rand_idx(self) -> int:
         return torch.randint(0, self.num_windows, (1,)).item()
@@ -124,11 +117,7 @@ def slow_attn(query, key, value, scale: float, attn_mask=None, dropout_p: float 
     if attn_mask is not None:
         attn.add_(attn_mask)
 
-    return (
-        F.dropout(attn.softmax(dim=-1), p=dropout_p, inplace=True)
-        if dropout_p > 0
-        else attn.softmax(dim=-1)
-    ) @ value
+    return (F.dropout(attn.softmax(dim=-1), p=dropout_p, inplace=True) if dropout_p > 0 else attn.softmax(dim=-1)) @ value
 
 
 class MLPNoDrop(nn.Module):
@@ -172,11 +161,7 @@ class SelfAttentionNoDrop(nn.Module):
         B, L, C = x.shape
         qkv = self.qkv(x).view(B, L, 3, self.num_heads, self.head_dim)
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(dim=0)
-        oup = (
-            slow_attn(query=q, key=k, value=v, scale=self.scale)
-            .transpose(1, 2)
-            .reshape(B, L, C)
-        )
+        oup = slow_attn(query=q, key=k, value=v, scale=self.scale).transpose(1, 2).reshape(B, L, C)
         return self.proj(oup)
 
 
@@ -184,13 +169,9 @@ class SABlockNoDrop(nn.Module):
     def __init__(self, block_idx, embed_dim, num_heads, mlp_ratio, norm_eps):
         super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim, eps=norm_eps)
-        self.attn = SelfAttentionNoDrop(
-            block_idx=block_idx, embed_dim=embed_dim, num_heads=num_heads
-        )
+        self.attn = SelfAttentionNoDrop(block_idx=block_idx, embed_dim=embed_dim, num_heads=num_heads)
         self.norm2 = nn.LayerNorm(embed_dim, eps=norm_eps)
-        self.mlp = MLPNoDrop(
-            in_features=embed_dim, hidden_features=round(embed_dim * mlp_ratio)
-        )
+        self.mlp = MLPNoDrop(in_features=embed_dim, hidden_features=round(embed_dim * mlp_ratio))
 
     def forward(self, x):
         x = x + self.attn(self.norm1(x))
@@ -295,9 +276,7 @@ def make_block(
     if norm_type == "bn":
         norm = BatchNormLocal(channels, eps=norm_eps)
     elif norm_type == "gn":
-        norm = nn.GroupNorm(
-            num_groups=32, num_channels=channels, eps=norm_eps, affine=True
-        )
+        norm = nn.GroupNorm(num_groups=32, num_channels=channels, eps=norm_eps, affine=True)
     else:
         raise NotImplementedError(f"Unknown norm_type '{norm_type}'")
 
@@ -340,9 +319,7 @@ class DinoDisc(nn.Module):
         recipe_cfg.update({"key_depths": key_depths, "norm_eps": norm_eps})
         dino = FrozenDINONoDrop(**recipe_cfg)
         missing, unexpected = dino.load_state_dict(state, strict=False)
-        missing = [
-            m for m in missing if all(x not in m for x in {"x_scale", "x_shift"})
-        ]
+        missing = [m for m in missing if all(x not in m for x in {"x_scale", "x_shift"})]
         if missing:
             raise RuntimeError(f"DINO checkpoint missing keys: {missing}")
         if unexpected:
@@ -369,9 +346,7 @@ class DinoDisc(nn.Module):
                             using_spec_norm=using_spec_norm,
                         )
                     ),
-                    (SpectralConv1d if using_spec_norm else nn.Conv1d)(
-                        dino_C, 1, kernel_size=1, padding=0
-                    ),
+                    (SpectralConv1d if using_spec_norm else nn.Conv1d)(dino_C, 1, kernel_size=1, padding=0),
                 )
                 for _ in range(len(key_depths) + 1)
             ]
@@ -390,9 +365,7 @@ class DinoDisc(nn.Module):
 
     def forward(self, x_in_pm1: torch.Tensor, grad_ckpt: bool = False) -> torch.Tensor:
         if grad_ckpt and x_in_pm1.requires_grad:
-            raise RuntimeError(
-                "DINO discriminator does not support grad checkpointing."
-            )
+            raise RuntimeError("DINO discriminator does not support grad checkpointing.")
         activations: List[torch.Tensor] = self.dino_proxy[0](x_in_pm1, grad_ckpt=False)
         batch = x_in_pm1.shape[0]
         outputs = []
@@ -404,16 +377,12 @@ class DinoDisc(nn.Module):
 
 
 class PatchEmbed(nn.Module):
-    def __init__(
-        self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, norm_layer=None
-    ):
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768, norm_layer=None):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2
-        self.proj = nn.Conv2d(
-            in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
-        )
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
     def forward(self, x):
@@ -441,9 +410,7 @@ class FrozenDINONoDrop(nn.Module):
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim
         self.img_size = 224
-        self.original_input_size = (
-            original_input_size if original_input_size is not None else self.img_size
-        )
+        self.original_input_size = original_input_size if original_input_size is not None else self.img_size
         self.patch_embed = PatchEmbed(
             img_size=self.img_size,
             patch_size=patch_size,
@@ -460,9 +427,7 @@ class FrozenDINONoDrop(nn.Module):
         self.crop = RandomWindowCrop(self.original_input_size, self.img_size, 9, False)
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(
-            torch.zeros(1, self.patch_nums * self.patch_nums + 1, embed_dim)
-        )
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_nums * self.patch_nums + 1, embed_dim))
 
         self.key_depths = set(d for d in key_depths if d < depth)
         self.blocks = nn.Sequential(
@@ -488,15 +453,9 @@ class FrozenDINONoDrop(nn.Module):
         if patch_nums[0] == self.patch_nums and patch_nums[1] == self.patch_nums:
             return self.pos_embed
         pe_cls, pe_grid = self.pos_embed[:, :1], self.pos_embed[0, 1:]
-        pe_grid = pe_grid.reshape(1, self.patch_nums, self.patch_nums, -1).permute(
-            0, 3, 1, 2
-        )
-        pe_grid = F.interpolate(
-            pe_grid, size=patch_nums, mode="bilinear", align_corners=False
-        )
-        pe_grid = pe_grid.permute(0, 2, 3, 1).reshape(
-            1, patch_nums[0] * patch_nums[1], -1
-        )
+        pe_grid = pe_grid.reshape(1, self.patch_nums, self.patch_nums, -1).permute(0, 3, 1, 2)
+        pe_grid = F.interpolate(pe_grid, size=patch_nums, mode="bilinear", align_corners=False)
+        pe_grid = pe_grid.permute(0, 2, 3, 1).reshape(1, patch_nums[0] * patch_nums[1], -1)
         return torch.cat([pe_cls, pe_grid], dim=1)
 
     def forward(self, x, grad_ckpt=False):

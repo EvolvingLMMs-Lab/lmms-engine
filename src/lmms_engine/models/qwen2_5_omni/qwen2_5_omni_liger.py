@@ -22,9 +22,7 @@ if is_flash_attn_2_available():
         from einops import rearrange
         from flash_attn.bert_padding import index_first_axis
     except:
-        raise ModuleNotFoundError(
-            "flash_attn is not available. Please install it via `pip install flash_attn`."
-        )
+        raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
@@ -60,35 +58,13 @@ def lce_forward(
     use_rmpad: Optional[bool] = False,
     **kwargs,
 ) -> Union[Tuple, Qwen2_5OmniThinkerCausalLMOutputWithPast]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
     tokens_count = attention_mask.sum().item()
-    n_image_tokens = (
-        (input_ids == self.config.image_token_id).sum().item()
-        if hasattr(self.config, "image_token_id")
-        else 0
-    )
-    n_video_tokens = (
-        (input_ids == self.config.video_token_id).sum().item()
-        if hasattr(self.config, "video_token_id")
-        else 0
-    )
-    n_audio_tokens = (
-        (input_ids == self.config.audio_token_id).sum().item()
-        if hasattr(self.config, "audio_token_id")
-        else 0
-    )
+    n_image_tokens = (input_ids == self.config.image_token_id).sum().item() if hasattr(self.config, "image_token_id") else 0
+    n_video_tokens = (input_ids == self.config.video_token_id).sum().item() if hasattr(self.config, "video_token_id") else 0
+    n_audio_tokens = (input_ids == self.config.audio_token_id).sum().item() if hasattr(self.config, "audio_token_id") else 0
     visual_tokens = n_image_tokens + n_video_tokens
 
     cu_seq_lens = None
@@ -98,15 +74,9 @@ def lce_forward(
         # input_ids is 2D [batch, seq_len]
         original_input_ids = input_ids
         # unpad input_ids: 2D [batch, seq_len] -> 1D [total_non_pad_tokens]
-        input_ids, indices, cu_seq_lens, _ = _unpad_input(
-            input_ids, attention_mask=attention_mask
-        )
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(input_ids, attention_mask=attention_mask)
         if attention_mask is not None and position_ids is None:
-            if (
-                cache_position is None
-                or (cache_position is not None and cache_position[0] == 0)
-                or self.rope_deltas is None
-            ):
+            if cache_position is None or (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
                 batch_size, seq_length = original_input_ids.shape
                 delta0 = (1 - attention_mask).sum(dim=-1).unsqueeze(1)
                 # get_rope_index expects RAW audio feature lengths before any downsampling.
@@ -131,25 +101,13 @@ def lce_forward(
                 self.rope_deltas = rope_deltas
             else:
                 batch_size, seq_length = original_input_ids.shape
-                delta = (
-                    cache_position[0] + self.rope_deltas
-                    if cache_position is not None
-                    else 0
-                )
-                position_ids = torch.arange(
-                    seq_length, device=original_input_ids.device
-                )
+                delta = cache_position[0] + self.rope_deltas if cache_position is not None else 0
+                position_ids = torch.arange(seq_length, device=original_input_ids.device)
                 position_ids = position_ids.view(1, -1).expand(batch_size, -1)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-        position_ids = (
-            index_first_axis(
-                rearrange(position_ids, "c b s ... -> (b s) c ..."), indices
-            )
-            .transpose(0, 1)
-            .unsqueeze(1)
-        )
+        position_ids = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
 
         if get_ulysses_sequence_parallel_world_size() > 1:
             sp_size = get_ulysses_sequence_parallel_world_size()
@@ -179,17 +137,8 @@ def lce_forward(
         n_audio_tokens_check = (input_ids == self.config.audio_token_id).sum().item()
         n_audio_features = audio_features.shape[0]
         if n_audio_tokens_check != n_audio_features:
-            raise ValueError(
-                f"Audio features and audio tokens do not match: "
-                f"tokens: {n_audio_tokens_check}, features {n_audio_features}. "
-                f"This indicates a mismatch between the audio encoder output and placeholder tokens."
-            )
-        audio_mask = (
-            (input_ids == self.config.audio_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
-        )
+            raise ValueError(f"Audio features and audio tokens do not match: " f"tokens: {n_audio_tokens_check}, features {n_audio_features}. " f"This indicates a mismatch between the audio encoder output and placeholder tokens.")
+        audio_mask = (input_ids == self.config.audio_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
 
     if pixel_values is not None:
@@ -198,16 +147,9 @@ def lce_forward(
         n_image_tokens_check = (input_ids == self.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
         if n_image_tokens_check != n_image_features:
-            raise ValueError(
-                f"Image features and image tokens do not match: tokens: {n_image_tokens_check}, features {n_image_features}"
-            )
+            raise ValueError(f"Image features and image tokens do not match: tokens: {n_image_tokens_check}, features {n_image_features}")
 
-        image_mask = (
-            (input_ids == self.config.image_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
-        )
+        image_mask = (input_ids == self.config.image_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
     if pixel_values_videos is not None:
@@ -217,16 +159,9 @@ def lce_forward(
         n_video_tokens_check = (input_ids == self.config.video_token_id).sum().item()
         n_video_features = video_embeds.shape[0]
         if n_video_tokens_check != n_video_features:
-            raise ValueError(
-                f"Video features and video tokens do not match: tokens: {n_video_tokens_check}, features {n_video_features}"
-            )
+            raise ValueError(f"Video features and video tokens do not match: tokens: {n_video_tokens_check}, features {n_video_features}")
 
-        video_mask = (
-            (input_ids == self.config.video_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
-        )
+        video_mask = (input_ids == self.config.video_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
     outputs = self.model(
         input_ids=None,
@@ -253,11 +188,7 @@ def lce_forward(
     logits = None
     labels_unpad = labels.view(-1)[word_idx.long()]
     if get_ulysses_sequence_parallel_world_size() > 1:
-        seq_lens = (
-            calculate_seq_len_per_rank(seq_lens.tolist())
-            if seq_lens is not None
-            else None
-        )
+        seq_lens = calculate_seq_len_per_rank(seq_lens.tolist()) if seq_lens is not None else None
         labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
     labels = labels_unpad
     if labels is not None:
@@ -277,11 +208,7 @@ def lce_forward(
             shift_hidden_states = hidden_states[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
 
-        hidden_size = (
-            self.config.text_config.hidden_size
-            if hasattr(self.config, "text_config")
-            else self.config.hidden_size
-        )
+        hidden_size = self.config.text_config.hidden_size if hasattr(self.config, "text_config") else self.config.hidden_size
         shift_hidden_states = shift_hidden_states.view(-1, hidden_size)
         shift_labels = shift_labels.view(-1)
 

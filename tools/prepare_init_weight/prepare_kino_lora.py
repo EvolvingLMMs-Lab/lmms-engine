@@ -23,9 +23,7 @@ from lmms_engine.models.qwen2_5_vl_audio import (
 
 
 def load_pretrained_weights(repo_id):
-    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(
-        repo_id, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(repo_id, torch_dtype="auto", device_map="cuda:0")
     return model
 
 
@@ -70,15 +68,9 @@ def prepare_weights_for_kino(
             task_type="CAUSAL_LM",
         )
 
-        vision_adapter = get_peft_model(
-            kino_model.model, peft_config=vision_lora, adapter_name="vision"
-        )
-        audio_adapter = get_peft_model(
-            kino_model.model, peft_config=audio_lora, adapter_name="audio"
-        )
-        text_adapter = get_peft_model(
-            kino_model.model, peft_config=text_lora, adapter_name="text"
-        )
+        vision_adapter = get_peft_model(kino_model.model, peft_config=vision_lora, adapter_name="vision")
+        audio_adapter = get_peft_model(kino_model.model, peft_config=audio_lora, adapter_name="audio")
+        text_adapter = get_peft_model(kino_model.model, peft_config=text_lora, adapter_name="text")
         config = kino_model.config
         config.vision_lora = vision_lora.to_dict()
         config.audio_lora = audio_lora.to_dict()
@@ -93,9 +85,7 @@ def prepare_weights_for_kino(
         gc.collect()
         torch.cuda.empty_cache()
 
-    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(
-        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
     processor = KinoQwen2_5_VLProcessor.from_pretrained(pytorch_dump_folder_path)
 
     device = model.device
@@ -114,9 +104,7 @@ def prepare_weights_for_kino(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[
-        0
-    ].strip()
+    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
     print("Generated text:", repr(generated_text))
 

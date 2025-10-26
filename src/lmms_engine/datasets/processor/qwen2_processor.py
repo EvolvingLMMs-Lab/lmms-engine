@@ -62,9 +62,7 @@ class Qwen2DataProcessor(BaseQwen2_5_DataProcessor):
     ):
         special_tokens = self.processor.additional_special_tokens
         special_tokens.extend(["<|im_start|>", "<|im_end|>"])
-        unmask_tokens_idx = [
-            self.processor.convert_tokens_to_ids(t) for t in special_tokens
-        ]
+        unmask_tokens_idx = [self.processor.convert_tokens_to_ids(t) for t in special_tokens]
         input_id, target = [], []
         if add_system_prompt and hf_messages[0]["role"] != "system":
             input_id += self.processor.apply_chat_template(

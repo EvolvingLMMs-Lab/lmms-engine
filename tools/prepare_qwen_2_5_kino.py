@@ -24,9 +24,7 @@ from lmms_engine.models.qwen2_5_vl_audio.modeling_qwen2_5_vl import (
 
 
 def load_pretrained_vl_model(repo_id):
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        repo_id, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(repo_id, torch_dtype="auto", device_map="cuda:0")
     return model
 
 
@@ -37,9 +35,7 @@ def load_image():
 
 
 def load_pretrained_audio_model(repo_id):
-    model = Qwen2AudioForConditionalGeneration.from_pretrained(
-        repo_id, torch_dtype="auto", device_map="cuda:1"
-    )
+    model = Qwen2AudioForConditionalGeneration.from_pretrained(repo_id, torch_dtype="auto", device_map="cuda:1")
     return model
 
 
@@ -61,9 +57,7 @@ def prepare_weights_for_kino(
         qwen2_5_audio_processor = load_processor(qwen2_5_audio_repo_id)
 
         tokenizer = qwen2_5_processor.tokenizer
-        tokenizer.add_tokens(
-            AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True
-        )
+        tokenizer.add_tokens(AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True)
 
         audio_token_id = tokenizer.convert_tokens_to_ids("<|AUDIO|>")
         config = KinoQwen2_5_VLConfig(
@@ -94,12 +88,8 @@ def prepare_weights_for_kino(
         pre_expansion_embeddings = model.model.embed_tokens.weight.data
         mu = torch.mean(pre_expansion_embeddings, dim=0).float()
         n = pre_expansion_embeddings.size()[0]
-        sigma = (
-            (pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)
-        ) / n
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
-            mu, covariance_matrix=1e-5 * sigma
-        )
+        sigma = ((pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)) / n
+        dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, covariance_matrix=1e-5 * sigma)
 
         # We add an audio token so we resize the model
         # Pad to 64 for performance reasons
@@ -108,23 +98,11 @@ def prepare_weights_for_kino(
         num_tokens = vocab_size + 1
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.model.embed_tokens.weight.data[vocab_size:].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
         model.lm_head.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(model.lm_head.weight.data[vocab_size:].shape[0])
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.lm_head.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
 
@@ -133,9 +111,7 @@ def prepare_weights_for_kino(
         model.save_pretrained(pytorch_dump_folder_path)
         processor.save_pretrained(pytorch_dump_folder_path)
 
-    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(
-        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
-    )
+    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
     processor = KinoQwen2_5_VLProcessor.from_pretrained(pytorch_dump_folder_path)
 
     device = model.device
@@ -153,9 +129,7 @@ def prepare_weights_for_kino(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[
-        0
-    ].strip()
+    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
     print("Generated text:", repr(generated_text))
 

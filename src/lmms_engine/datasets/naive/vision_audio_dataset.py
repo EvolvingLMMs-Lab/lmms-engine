@@ -24,11 +24,7 @@ class VisionAudioSFTDataset(VisionSFTDataset):
             new_content = []
             for idx, content in enumerate(message["content"]):
                 if content["type"] == "image_url":
-                    images.append(
-                        self.load_image(
-                            content["image_url"]["url"], data_folder=data_folder
-                        )
-                    )
+                    images.append(self.load_image(content["image_url"]["url"], data_folder=data_folder))
                     new_content.append(content)
                 elif content["type"] == "audio_url":
                     loaded_audios = self.load_audio(
@@ -43,11 +39,7 @@ class VisionAudioSFTDataset(VisionSFTDataset):
                         len(loaded_audios),
                         MAX_AUDIO_LENGTH * self.processor.sampling_rate,
                     ):
-                        audio_splits.append(
-                            loaded_audios[
-                                i : i + MAX_AUDIO_LENGTH * self.processor.sampling_rate
-                            ]
-                        )
+                        audio_splits.append(loaded_audios[i : i + MAX_AUDIO_LENGTH * self.processor.sampling_rate])
                     for _ in range(len(audio_splits)):
                         new_content.append(content)
                     audios.extend(audio_splits)

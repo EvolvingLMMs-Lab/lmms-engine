@@ -116,12 +116,7 @@ class XLMRoberta(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # blocks
-        self.blocks = nn.ModuleList(
-            [
-                AttentionBlock(dim, num_heads, post_norm, dropout, eps)
-                for _ in range(num_layers)
-            ]
-        )
+        self.blocks = nn.ModuleList([AttentionBlock(dim, num_heads, post_norm, dropout, eps) for _ in range(num_layers)])
 
         # norm layer
         self.norm = nn.LayerNorm(dim, eps=eps)
@@ -134,11 +129,7 @@ class XLMRoberta(nn.Module):
         mask = ids.ne(self.pad_id).long()
 
         # embeddings
-        x = (
-            self.token_embedding(ids)
-            + self.type_embedding(torch.zeros_like(ids))
-            + self.pos_embedding(self.pad_id + torch.cumsum(mask, dim=1) * mask)
-        )
+        x = self.token_embedding(ids) + self.type_embedding(torch.zeros_like(ids)) + self.pos_embedding(self.pad_id + torch.cumsum(mask, dim=1) * mask)
         if self.post_norm:
             x = self.norm(x)
         x = self.dropout(x)
@@ -198,9 +189,7 @@ def xlm_roberta_large(pretrained=False, return_tokenizer=False, device="cpu", **
     if return_tokenizer:
         from sora.data import HuggingfaceTokenizer
 
-        tokenizer = HuggingfaceTokenizer(
-            name="xlm-roberta-large", seq_len=model.text_len, clean="whitespace"
-        )
+        tokenizer = HuggingfaceTokenizer(name="xlm-roberta-large", seq_len=model.text_len, clean="whitespace")
         return model, tokenizer
     else:
         return model
@@ -217,10 +206,7 @@ def pos_interpolate(pos, seq_len):
             [
                 pos[:, :n],
                 F.interpolate(
-                    pos[:, n:]
-                    .float()
-                    .reshape(1, src_grid, src_grid, -1)
-                    .permute(0, 3, 1, 2),
+                    pos[:, n:].float().reshape(1, src_grid, src_grid, -1).permute(0, 3, 1, 2),
                     size=(tar_grid, tar_grid),
                     mode="bicubic",
                     align_corners=False,
@@ -243,9 +229,7 @@ class LayerNorm(nn.LayerNorm):
 
 
 class SelfAttention(nn.Module):
-    def __init__(
-        self, dim, num_heads, causal=False, attn_dropout=0.0, proj_dropout=0.0
-    ):
+    def __init__(self, dim, num_heads, causal=False, attn_dropout=0.0, proj_dropout=0.0):
         assert dim % num_heads == 0
         super().__init__()
         self.dim = dim
@@ -432,9 +416,7 @@ class VisionTransformer(nn.Module):
 
         # embeddings
         gain = 1.0 / math.sqrt(dim)
-        self.patch_embedding = nn.Conv2d(
-            3, dim, kernel_size=patch_size, stride=patch_size, bias=not pre_norm
-        )
+        self.patch_embedding = nn.Conv2d(3, dim, kernel_size=patch_size, stride=patch_size, bias=not pre_norm)
         if pool_type in ("token", "token_fc"):
             self.cls_embedding = nn.Parameter(gain * torch.randn(1, 1, dim))
         self.pos_embedding = nn.Parameter(
@@ -473,9 +455,7 @@ class VisionTransformer(nn.Module):
         elif pool_type == "token_fc":
             self.head = nn.Linear(dim, out_dim)
         elif pool_type == "attn_pool":
-            self.head = AttentionPool(
-                dim, mlp_ratio, num_heads, activation, proj_dropout, norm_eps
-            )
+            self.head = AttentionPool(dim, mlp_ratio, num_heads, activation, proj_dropout, norm_eps)
 
     def forward(self, x, interpolation=False, use_31_block=False):
         b = x.size(0)
@@ -485,9 +465,7 @@ class VisionTransformer(nn.Module):
         if self.pool_type in ("token", "token_fc"):
             x = torch.cat(
                 [
-                    self.cls_embedding.expand(b, -1, -1).to(
-                        dtype=x.dtype, device=x.device
-                    ),
+                    self.cls_embedding.expand(b, -1, -1).to(dtype=x.dtype, device=x.device),
                     x,
                 ],
                 dim=1,
@@ -635,20 +613,10 @@ class CLIP(nn.Module):
     def param_groups(self):
         groups = [
             {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if "norm" in n or n.endswith("bias")
-                ],
+                "params": [p for n, p in self.named_parameters() if "norm" in n or n.endswith("bias")],
                 "weight_decay": 0.0,
             },
-            {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if not ("norm" in n or n.endswith("bias"))
-                ]
-            },
+            {"params": [p for n, p in self.named_parameters() if not ("norm" in n or n.endswith("bias"))]},
         ]
         return groups
 
@@ -764,20 +732,10 @@ class XLMRobertaCLIP(nn.Module):
     def param_groups(self):
         groups = [
             {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if "norm" in n or n.endswith("bias")
-                ],
+                "params": [p for n, p in self.named_parameters() if "norm" in n or n.endswith("bias")],
                 "weight_decay": 0.0,
             },
-            {
-                "params": [
-                    p
-                    for n, p in self.named_parameters()
-                    if not ("norm" in n or n.endswith("bias"))
-                ]
-            },
+            {"params": [p for n, p in self.named_parameters() if not ("norm" in n or n.endswith("bias"))]},
         ]
         return groups
 
@@ -868,9 +826,7 @@ def _clip(
                 clean="whitespace",
             )
         else:
-            tokenizer = data.CLIPTokenizer(
-                seq_len=model.text_len, padding=tokenizer_padding
-            )
+            tokenizer = data.CLIPTokenizer(seq_len=model.text_len, padding=tokenizer_padding)
         output += (tokenizer,)
     return output[0] if len(output) == 1 else output
 
@@ -922,12 +878,7 @@ class WanImageEncoder(torch.nn.Module):
     def encode_image(self, videos):
         # preprocess
         size = (self.model.image_size,) * 2
-        videos = torch.cat(
-            [
-                F.interpolate(u, size=size, mode="bicubic", align_corners=False)
-                for u in videos
-            ]
-        )
+        videos = torch.cat([F.interpolate(u, size=size, mode="bicubic", align_corners=False) for u in videos])
         videos = self.transforms.transforms[-1](videos.mul_(0.5).add_(0.5))
 
         # forward

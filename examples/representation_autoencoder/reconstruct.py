@@ -98,9 +98,7 @@ def load_model_and_processor(model_path: str, use_ema: bool = False):
 
     except Exception as e:
         print(f"Error loading model or processor: {e}")
-        print(
-            f"Make sure the model path '{model_path}' is correct and contains the required files."
-        )
+        print(f"Make sure the model path '{model_path}' is correct and contains the required files.")
         exit(1)
 
 

@@ -40,17 +40,9 @@ class DLLMTrainer(HFTrainer):
                 kwargs["num_items_in_batch"] = num_items_in_batch
             inputs = {**inputs, **kwargs}
 
-        zero_config = (
-            getattr(model.config, "zero_optimization", None)
-            if hasattr(model, "config")
-            else None
-        )
+        zero_config = getattr(model.config, "zero_optimization", None) if hasattr(model, "config") else None
         if zero_config:
-            zero_stage = (
-                zero_config.get("stage", None)
-                if isinstance(zero_config, dict)
-                else getattr(zero_config, "stage", None)
-            )
+            zero_stage = zero_config.get("stage", None) if isinstance(zero_config, dict) else getattr(zero_config, "stage", None)
             inputs["zero_stage"] = zero_stage
 
         if self.state.global_step == 0 or getattr(self, "cur_time", None) is None:
@@ -58,24 +50,14 @@ class DLLMTrainer(HFTrainer):
             self.mfu = 0.0
             self.total_seq_len = []
 
-        self.total_seq_len.extend(
-            inputs.get("attention_mask", torch.tensor(0))
-            .sum(dim=1)
-            .detach()
-            .cpu()
-            .tolist()
-        )
+        self.total_seq_len.extend(inputs.get("attention_mask", torch.tensor(0)).sum(dim=1).detach().cpu().tolist())
 
         self.step += 1
         do_log_nll_step = (self.step + 1) % self.args.gradient_accumulation_steps == 0
         outputs = model(**inputs)
         d_loss, nll = outputs.loss, outputs.nll
 
-        if (
-            self.args.average_tokens_across_devices
-            and (self.model_accepts_loss_kwargs or self.compute_loss_func)
-            and num_items_in_batch is not None
-        ):
+        if self.args.average_tokens_across_devices and (self.model_accepts_loss_kwargs or self.compute_loss_func) and num_items_in_batch is not None:
             d_loss *= self.accelerator.num_processes
             nll *= self.accelerator.num_processes
 
@@ -94,10 +76,7 @@ class DLLMTrainer(HFTrainer):
         start_time,
         learning_rate=None,
     ):
-        if (
-            self.control.should_log
-            and self.state.global_step > self._globalstep_last_logged
-        ):
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
             if is_torch_xla_available():
                 xm.mark_step()
 
@@ -108,8 +87,7 @@ class DLLMTrainer(HFTrainer):
             self.tr_nll -= self.tr_nll
 
             logs["loss"] = round(
-                tr_loss_scalar
-                / (self.state.global_step - self._globalstep_last_logged),
+                tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged),
                 4,
             )
             logs["nll"] = round(
@@ -121,13 +99,9 @@ class DLLMTrainer(HFTrainer):
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
 
-            flops, promised_flops = model_utils.flops_counter.estimate_flops(
-                self.total_seq_len, delta_time=self.cur_time - prev_time
-            )
+            flops, promised_flops = model_utils.flops_counter.estimate_flops(self.total_seq_len, delta_time=self.cur_time - prev_time)
             flops_tensor = torch.tensor(flops, device=device)
-            torch.distributed.all_reduce(
-                flops_tensor, op=torch.distributed.ReduceOp.SUM
-            )
+            torch.distributed.all_reduce(flops_tensor, op=torch.distributed.ReduceOp.SUM)
             sp_size = pgm.process_group_manager.cp_world_size
             mfu = flops_tensor.item() / self.args.world_size / sp_size / promised_flops
             logs["mfu"] = round(mfu, 2)
@@ -135,11 +109,7 @@ class DLLMTrainer(HFTrainer):
             self.total_seq_len.clear()
 
             if grad_norm is not None:
-                logs["grad_norm"] = (
-                    grad_norm.item()
-                    if isinstance(grad_norm, torch.Tensor)
-                    else grad_norm
-                )
+                logs["grad_norm"] = grad_norm.item() if isinstance(grad_norm, torch.Tensor) else grad_norm
             if learning_rate is not None:
                 logs["learning_rate"] = learning_rate
             else:

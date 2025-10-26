@@ -13,10 +13,7 @@ try:
         COMPRESS_TYPE_TO_WEIGHT,
     )
 except ImportError:
-    logger.warning(
-        "native_sparse_attention is not installed, please install with"
-        " `uv pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
-    )
+    logger.warning("native_sparse_attention is not installed, please install with" " `uv pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`")
 
 
 def add_g_proj_to_attention_layers(model: Bagel, nsa_config: dict):
@@ -64,16 +61,12 @@ def add_g_proj_to_attention_layers(model: Bagel, nsa_config: dict):
                 setattr(attn_layer.config, key, value)
 
             for key, value in parameters.items():
-                if isinstance(value, torch.nn.Module) or isinstance(
-                    value, torch.nn.Parameter
-                ):
+                if isinstance(value, torch.nn.Module) or isinstance(value, torch.nn.Parameter):
                     value = value.to(dtype=model.dtype)
                 if isinstance(value, torch.nn.Parameter):
                     attn_layer.register_parameter(key, value)
                 elif isinstance(value, torch.Tensor):
-                    attn_layer.register_parameter(
-                        key, torch.nn.Parameter(value, requires_grad=True)
-                    )
+                    attn_layer.register_parameter(key, torch.nn.Parameter(value, requires_grad=True))
                 else:
                     setattr(attn_layer, key, value)
 
@@ -110,9 +103,7 @@ def apply_nsa_to_bagel(
     }
     Logging.info("Patch g_proj to bagel model")
     add_g_proj_to_attention_layers(model, nsa_config)
-    Logging.info(
-        f"NSA applied to bagel model, Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B"
-    )
+    Logging.info(f"NSA applied to bagel model, Model size: {sum(p.numel() for p in model.parameters()) / 1e9} B")
     model.config.nsa_config = nsa_config
 
     from .nsa_op import forward_train as nsa_forward_train

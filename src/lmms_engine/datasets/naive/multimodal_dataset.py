@@ -45,9 +45,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             self.storage_client = Client()
             self.bucket_name = self.config.bucket_name
         elif self.config.object_storage == "azure":
-            self.storage_client = BlobServiceClient(
-                account_url=SAS_URL, retry_policy=RETRY_POLICY
-            )
+            self.storage_client = BlobServiceClient(account_url=SAS_URL, retry_policy=RETRY_POLICY)
             self.bucket_name = self.config.bucket_name
 
     def filter_overlong(self):
@@ -56,34 +54,22 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             if not self.config.packing and self.config.max_length is None:
                 # If not packing and max length is not specified, we don't need to filter overlong
                 return
-            max_length = (
-                self.config.max_length
-                if self.config.max_length is not None
-                else self.config.packing_length
-            )
+            max_length = self.config.max_length if self.config.max_length is not None else self.config.packing_length
             logger.info(f"Filter overlong data, max length: {max_length}")
             original_length = len(self.data_list)
             seq_len = max_length
-            overlong_indices = [
-                i for i, length in enumerate(self.data_lengths) if length > seq_len
-            ]
+            overlong_indices = [i for i, length in enumerate(self.data_lengths) if length > seq_len]
             overlong_indices = set(overlong_indices)
             total_indices = set(range(len(self.data_list)))
             select_indices = total_indices - overlong_indices
             if isinstance(self.data_list, HFDataset):
                 self.data_list = self.data_list.select(select_indices)
             else:
-                self.data_list = [
-                    self.data_list[i]
-                    for i in range(len(self.data_list))
-                    if i not in overlong_indices
-                ]
+                self.data_list = [self.data_list[i] for i in range(len(self.data_list)) if i not in overlong_indices]
             if getattr(self, "data_folder", None) is not None:
                 self.data_folder = [self.data_folder[i] for i in select_indices]
             self.data_lengths = [self.data_lengths[i] for i in select_indices]
-            logger.info(
-                f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}"
-            )
+            logger.info(f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}")
 
     def _build_from_config(self):
         """Load and prepare data from the configuration."""
@@ -103,18 +89,12 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             # Handle both external YAML files and inline datasets
             if self.config.datasets is not None:
                 # Use inline datasets defined in the config
-                self.data_list, self.data_folder = DataUtilities.load_inline_datasets(
-                    self.config.datasets
-                )
+                self.data_list, self.data_folder = DataUtilities.load_inline_datasets(self.config.datasets)
             elif self.config.dataset_path is not None:
                 # Load from external YAML file
-                self.data_list, self.data_folder = DataUtilities.load_yaml(
-                    self.config.dataset_path
-                )
+                self.data_list, self.data_folder = DataUtilities.load_yaml(self.config.dataset_path)
             else:
-                raise ValueError(
-                    "For yaml format, either 'datasets' or 'dataset_path' must be provided"
-                )
+                raise ValueError("For yaml format, either 'datasets' or 'dataset_path' must be provided")
         else:
             raise NotImplementedError
 
@@ -137,11 +117,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             self.data_lengths = self.data_lengths.to_list()
             self.data_lengths = [da["length"] for da in self.data_lengths]
         else:
-            self.data_lengths = (
-                self._estimate_data_tokens(self.data_list)
-                if self.config.dataset_format != "hf_dataset"
-                else self.data_list_no_image
-            )
+            self.data_lengths = self._estimate_data_tokens(self.data_list) if self.config.dataset_format != "hf_dataset" else self.data_list_no_image
         self.filter_overlong()
 
         if self.config.packing:
@@ -149,19 +125,13 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
                 raise ValueError("Packing strategy is not specified.")
             packing_length = self.config.packing_length
             if self.config.packing_strategy == "first_fit":
-                self.packing_index = self._pack_by_first_fit(
-                    self.data_lengths, packing_length
-                )
+                self.packing_index = self._pack_by_first_fit(self.data_lengths, packing_length)
             elif "window" in self.config.packing_strategy:
                 window_size = int(self.config.packing_strategy.split("_")[1])
-                self.packing_index = self._pack_by_window(
-                    self.data_lengths, packing_length, window_size
-                )
+                self.packing_index = self._pack_by_window(self.data_lengths, packing_length, window_size)
             else:
                 raise NotImplementedError
-            logger.info(
-                f"Before packing : {len(self.data_list)}, After packing : {len(self.packing_index)}"
-            )
+            logger.info(f"Before packing : {len(self.data_list)}, After packing : {len(self.packing_index)}")
 
     def estimate_data_tokens_per_row(self, row):
         """
@@ -296,11 +266,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             next_window = {}
             for j in cur_window.keys():
                 cur_length = cur_window[j]
-                if (
-                    cur_length + current_concatenated_length
-                ) * control_threshold <= max_length and (
-                    max_size == -1 or len(current_list) < max_size
-                ):
+                if (cur_length + current_concatenated_length) * control_threshold <= max_length and (max_size == -1 or len(current_list) < max_size):
                     current_concatenated_length += cur_length
                     current_list.append(int(j))
                 else:
@@ -363,16 +329,10 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             data_dict_list = self.load_from_packing(index_group)
             return data_dict_list
 
-        if (
-            self.config.dataset_format == "json"
-            or self.config.dataset_format == "jsonl"
-            or self.config.dataset_format == "arrow"
-        ):
+        if self.config.dataset_format == "json" or self.config.dataset_format == "jsonl" or self.config.dataset_format == "arrow":
             data_dict = self.load_from_json(self.data_list[index])
         elif self.config.dataset_format == "yaml":
-            data_dict = self.load_from_json(
-                self.data_list[index], self.data_folder[index]
-            )
+            data_dict = self.load_from_json(self.data_list[index], self.data_folder[index])
         elif self.config.dataset_format == "hf_dataset":
             data_dict = self.load_from_hf(self.data_list[index])
         else:
@@ -389,22 +349,12 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
         Returns:
             List of loaded data dictionaries
         """
-        if (
-            self.config.dataset_format == "json"
-            or self.config.dataset_format == "jsonl"
-        ):
-            data_dict_list = [
-                self.load_from_json(self.data_list[index]) for index in index_group
-            ]
+        if self.config.dataset_format == "json" or self.config.dataset_format == "jsonl":
+            data_dict_list = [self.load_from_json(self.data_list[index]) for index in index_group]
         elif self.config.dataset_format == "yaml":
-            data_dict_list = [
-                self.load_from_json(self.data_list[index], self.data_folder[index])
-                for index in index_group
-            ]
+            data_dict_list = [self.load_from_json(self.data_list[index], self.data_folder[index]) for index in index_group]
         elif self.config.dataset_format == "hf_dataset":
-            data_dict_list = [
-                self.load_from_hf(self.data_list[index]) for index in index_group
-            ]
+            data_dict_list = [self.load_from_hf(self.data_list[index]) for index in index_group]
         else:
             raise NotImplementedError
         return data_dict_list

@@ -14,9 +14,7 @@ from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
 AUDIO_TOKENS_PER_SECOND = 25  # 750 / 30
-VIDEO_TOKENS_PER_FRAMES = (360 * 420) / (
-    14 * 14 * 4
-)  # 360x420 image, 14x14 per patch, 4 patches per token
+VIDEO_TOKENS_PER_FRAMES = (360 * 420) / (14 * 14 * 4)  # 360x420 image, 14x14 per patch, 4 patches per token
 
 
 def parse_argument():
@@ -41,9 +39,7 @@ def calculate_image_tokens(image_path):
     try:
         image = Image.open(image_path)
         width, height = image.size
-        num_tokens = (
-            width * height // (14 * 14 * 4)
-        )  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
+        num_tokens = width * height // (14 * 14 * 4)  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
     except Exception as e:
         print(f"Error: {str(e)} when loading {image_path}")
         num_tokens = 500 * 500 // (14 * 14 * 4)  # Default to 500x500 image
@@ -101,10 +97,7 @@ def check_single_dataset(info):
                 data.append(d)
 
     data_folder = [data_folder] * len(data)
-    data_dict = [
-        {"data_folder": data_folder, "data": d}
-        for data_folder, d in zip(data_folder, data)
-    ]
+    data_dict = [{"data_folder": data_folder, "data": d} for data_folder, d in zip(data_folder, data)]
 
     with ThreadPool(32) as p:
         results = list(
@@ -117,9 +110,7 @@ def check_single_dataset(info):
 
     tokens_in_millions = sum(results) / 1e6
 
-    print(
-        f"\n\nDataset {data_path}, \n Estimated Total tokens: {tokens_in_millions:.2f}M\n\n"
-    )
+    print(f"\n\nDataset {data_path}, \n Estimated Total tokens: {tokens_in_millions:.2f}M\n\n")
 
     return results
 
@@ -135,12 +126,7 @@ if __name__ == "__main__":
         data_folders = [dataset.get("data_folder") for dataset in datasets]
         data_types = [dataset.get("data_type") for dataset in datasets]
 
-    info = [
-        (data_path, data_folder, data_type)
-        for data_path, data_folder, data_type in zip(
-            data_paths, data_folders, data_types
-        )
-    ]
+    info = [(data_path, data_folder, data_type) for data_path, data_folder, data_type in zip(data_paths, data_folders, data_types)]
     with Pool(32) as p:
         results = list(tqdm(p.imap(check_single_dataset, info), total=len(info)))
 

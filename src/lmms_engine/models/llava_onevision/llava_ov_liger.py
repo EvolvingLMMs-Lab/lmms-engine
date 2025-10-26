@@ -84,34 +84,12 @@ def forward(
     >>> processor.batch_decode(output, skip_special_tokens=True)[0]
     "user\n\nWhat is shown in this image?\nassistant\ncat"
     ```"""
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
-    vision_feature_layer = (
-        vision_feature_layer
-        if vision_feature_layer is not None
-        else self.config.vision_feature_layer
-    )
-    vision_feature_select_strategy = (
-        vision_feature_select_strategy
-        if vision_feature_select_strategy is not None
-        else self.config.vision_feature_select_strategy
-    )
-    vision_aspect_ratio = (
-        vision_aspect_ratio
-        if vision_aspect_ratio is not None
-        else self.config.vision_aspect_ratio
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+    vision_feature_layer = vision_feature_layer if vision_feature_layer is not None else self.config.vision_feature_layer
+    vision_feature_select_strategy = vision_feature_select_strategy if vision_feature_select_strategy is not None else self.config.vision_feature_select_strategy
+    vision_aspect_ratio = vision_aspect_ratio if vision_aspect_ratio is not None else self.config.vision_aspect_ratio
 
     outputs = self.model(
         input_ids=input_ids,
@@ -136,9 +114,7 @@ def forward(
         **kwargs,
     )
     if use_rmpad:
-        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
-            input_ids, attention_mask
-        )
+        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(input_ids, attention_mask)
         word_idx = indices.long()
         seq_lens = cu_seq_lens.long()
 
@@ -170,9 +146,7 @@ def forward(
             shift_labels = labels[..., 1:].contiguous()
 
         # flatten tokens
-        shift_hidden_states = shift_hidden_states.view(
-            -1, self.language_model.config.hidden_size
-        )
+        shift_hidden_states = shift_hidden_states.view(-1, self.language_model.config.hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"

@@ -38,30 +38,18 @@ class FlowMatchScheduler:
     ):
         if shift is not None:
             self.shift = shift
-        sigma_start = (
-            self.sigma_min + (self.sigma_max - self.sigma_min) * denoising_strength
-        )
+        sigma_start = self.sigma_min + (self.sigma_max - self.sigma_min) * denoising_strength
         if self.extra_one_step:
-            self.sigmas = torch.linspace(
-                sigma_start, self.sigma_min, num_inference_steps + 1
-            )[:-1]
+            self.sigmas = torch.linspace(sigma_start, self.sigma_min, num_inference_steps + 1)[:-1]
         else:
-            self.sigmas = torch.linspace(
-                sigma_start, self.sigma_min, num_inference_steps
-            )
+            self.sigmas = torch.linspace(sigma_start, self.sigma_min, num_inference_steps)
         if self.inverse_timesteps:
             self.sigmas = torch.flip(self.sigmas, dims=[0])
         if self.exponential_shift:
-            mu = (
-                self.calculate_shift(dynamic_shift_len)
-                if dynamic_shift_len is not None
-                else self.exponential_shift_mu
-            )
+            mu = self.calculate_shift(dynamic_shift_len) if dynamic_shift_len is not None else self.exponential_shift_mu
             self.sigmas = math.exp(mu) / (math.exp(mu) + (1 / self.sigmas - 1))
         else:
-            self.sigmas = (
-                self.shift * self.sigmas / (1 + (self.shift - 1) * self.sigmas)
-            )
+            self.sigmas = self.shift * self.sigmas / (1 + (self.shift - 1) * self.sigmas)
         if self.shift_terminal is not None:
             one_minus_z = 1 - self.sigmas
             scale_factor = one_minus_z[-1] / (1 - self.shift_terminal)
@@ -71,9 +59,7 @@ class FlowMatchScheduler:
         self.timesteps = self.sigmas * self.num_train_timesteps
         if training:
             x = self.timesteps
-            y = torch.exp(
-                -2 * ((x - num_inference_steps / 2) / num_inference_steps) ** 2
-            )
+            y = torch.exp(-2 * ((x - num_inference_steps / 2) / num_inference_steps) ** 2)
             y_shifted = y - y.min()
             bsmntw_weighing = y_shifted * (num_inference_steps / y_shifted.sum())
             self.linear_timesteps_weights = bsmntw_weighing
@@ -114,9 +100,7 @@ class FlowMatchScheduler:
         return target
 
     def training_weight(self, timestep):
-        timestep_id = torch.argmin(
-            (self.timesteps - timestep.to(self.timesteps.device)).abs()
-        )
+        timestep_id = torch.argmin((self.timesteps - timestep.to(self.timesteps.device)).abs())
         weights = self.linear_timesteps_weights[timestep_id]
         return weights
 

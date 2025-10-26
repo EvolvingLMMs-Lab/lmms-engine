@@ -22,37 +22,24 @@ def apply_fsdp2(model, fsdp_kwargs, fsdp_transformer_layer_cls_to_wrap=None):
     """model: AutoModelForCausalLM"""
 
     default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
-    fsdp_transformer_layer_cls_to_wrap = (
-        default_transformer_cls_names_to_wrap
-        if fsdp_transformer_layer_cls_to_wrap is None
-        else fsdp_transformer_layer_cls_to_wrap
-    )
+    fsdp_transformer_layer_cls_to_wrap = default_transformer_cls_names_to_wrap if fsdp_transformer_layer_cls_to_wrap is None else fsdp_transformer_layer_cls_to_wrap
 
     if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
         fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
 
-    assert (
-        len(fsdp_transformer_layer_cls_to_wrap) > 0
-        and fsdp_transformer_layer_cls_to_wrap[0] is not None
-    )
+    assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
 
     modules = []
     for name, module in model.named_modules():
-        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
-            isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
-        ):
+        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
             modules.append(module)
 
     for idx, module in enumerate(modules):
         fully_shard(module, **fsdp_kwargs)
-    fully_shard(
-        model, **fsdp_kwargs
-    )  # fsdp2 will not reshard_after_forward for root module
+    fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
 
 
-def fsdp2_load_full_state_dict(
-    model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None
-):
+def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_mesh=None, cpu_offload=None):
     """
     Loads the full state dict (could be only on rank 0) into the sharded model. This is done by broadcasting the
     parameters from rank 0 to all other ranks. This function modifies the model in-place.
@@ -73,9 +60,7 @@ def fsdp2_load_full_state_dict(
         model = model.to_empty(device=torch.cuda.current_device())
 
     cpu_offload = cpu_offload is not None
-    options = StateDictOptions(
-        full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True
-    )
+    options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
     set_model_state_dict(model, full_state, options=options)
 
     # rotary_emb is not in state_dict, so we need to broadcast it manually
@@ -129,12 +114,8 @@ def get_cosine_schedule_with_warmup(
 
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
-            return min_lr_ratio + (1.0 - min_lr_ratio) * (
-                float(current_step) / float(max(1, num_warmup_steps))
-            )
-        progress = float(current_step - num_warmup_steps) / float(
-            max(1, num_training_steps - num_warmup_steps)
-        )
+            return min_lr_ratio + (1.0 - min_lr_ratio) * (float(current_step) / float(max(1, num_warmup_steps)))
+        progress = float(current_step - num_warmup_steps) / float(max(1, num_training_steps - num_warmup_steps))
         x = math.cos(math.pi * float(num_cycles) * 2.0 * progress)
         return max(min_lr_ratio, x * coef + intercept)
 
@@ -188,9 +169,7 @@ def get_wsd_schedule_with_warmup(
         if current_step < num_warmup_steps + num_stable_steps:
             return 1.0
         if current_step < num_training_steps:
-            progress = float(
-                current_step - num_warmup_steps - num_stable_steps
-            ) / float(max(1, num_decay_steps))
+            progress = float(current_step - num_warmup_steps - num_stable_steps) / float(max(1, num_decay_steps))
             value = max(
                 0.0,
                 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress)),
@@ -215,9 +194,7 @@ def get_constant_schedule(
     )
 
 
-def fsdp2_clip_grad_norm_(
-    parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None
-):
+def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
     """torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor"""
     from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 

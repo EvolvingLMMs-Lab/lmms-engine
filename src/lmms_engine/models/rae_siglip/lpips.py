@@ -11,21 +11,15 @@ from .lpips_utils import get_ckpt_path
 class ScalingLayer(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.register_buffer(
-            "shift", torch.tensor([-0.030, -0.088, -0.188])[None, :, None, None]
-        )
-        self.register_buffer(
-            "scale", torch.tensor([0.458, 0.448, 0.450])[None, :, None, None]
-        )
+        self.register_buffer("shift", torch.tensor([-0.030, -0.088, -0.188])[None, :, None, None])
+        self.register_buffer("scale", torch.tensor([0.458, 0.448, 0.450])[None, :, None, None])
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         return (tensor - self.shift) / self.scale
 
 
 class NetLinLayer(nn.Module):
-    def __init__(
-        self, chn_in: int, chn_out: int = 1, use_dropout: bool = False
-    ) -> None:
+    def __init__(self, chn_in: int, chn_out: int = 1, use_dropout: bool = False) -> None:
         super().__init__()
         layers = [nn.Dropout()] if use_dropout else []
         layers.append(nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False))
@@ -56,9 +50,7 @@ class VGG16FeatureExtractor(nn.Module):
         h_relu4_3 = h
         h = self.slice5(h)
         h_relu5_3 = h
-        outputs = namedtuple(
-            "VggOutputs", ["relu1_2", "relu2_2", "relu3_3", "relu4_3", "relu5_3"]
-        )
+        outputs = namedtuple("VggOutputs", ["relu1_2", "relu2_2", "relu3_3", "relu4_3", "relu5_3"])
         return outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3, h_relu5_3)
 
 
@@ -92,12 +84,8 @@ class LPIPS(nn.Module):
         self.load_state_dict(state, strict=False)
         print(f"[LPIPS] Loaded pretrained weights from {ckpt}")
 
-    def forward(
-        self, input: torch.Tensor, target: torch.Tensor, reduction: str = "mean"
-    ) -> torch.Tensor:
-        input_scaled, target_scaled = self.scaling_layer(input), self.scaling_layer(
-            target
-        )
+    def forward(self, input: torch.Tensor, target: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
+        input_scaled, target_scaled = self.scaling_layer(input), self.scaling_layer(target)
         feats_input = self.net(input_scaled)
         feats_target = self.net(target_scaled)
         diffs = []

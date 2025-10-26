@@ -36,9 +36,7 @@ class AeroConfig(PretrainedConfig):
         self.audio_token_index = audio_token_index
 
         if isinstance(text_config, dict):
-            text_config["model_type"] = (
-                text_config["model_type"] if "model_type" in text_config else "qwen2"
-            )
+            text_config["model_type"] = text_config["model_type"] if "model_type" in text_config else "qwen2"
             text_config = CONFIG_MAPPING[text_config["model_type"]](**text_config)
         elif text_config is None:
             text_config = AutoConfig.from_pretrained("Qwen/Qwen2.5-1.5B-Instruct")
@@ -46,11 +44,7 @@ class AeroConfig(PretrainedConfig):
         self.text_config = text_config
 
         if isinstance(audio_config, dict):
-            audio_config["model_type"] = (
-                audio_config["model_type"]
-                if "model_type" in audio_config
-                else "qwen2_audio_encoder"
-            )
+            audio_config["model_type"] = audio_config["model_type"] if "model_type" in audio_config else "qwen2_audio_encoder"
             audio_config = CONFIG_MAPPING[audio_config["model_type"]](**audio_config)
         elif audio_config is None:
             audio_config = CONFIG_MAPPING["qwen2_audio_encoder"](

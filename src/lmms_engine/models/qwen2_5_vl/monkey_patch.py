@@ -14,9 +14,7 @@ try:
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
-    print(
-        "liger kernel not installed, please install it with `pip install liger-kernel`"
-    )
+    print("liger kernel not installed, please install it with `pip install liger-kernel`")
 
 import transformers
 from transformers import (
@@ -65,9 +63,7 @@ def apply_liger_kernel_to_qwen2_5_vl(
         model (PreTrainedModel): The model instance to apply Liger kernels to, if the model has already been
         loaded. Default is None.
     """
-    assert not (
-        cross_entropy and fused_linear_cross_entropy
-    ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
+    assert not (cross_entropy and fused_linear_cross_entropy), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
@@ -86,17 +82,13 @@ def apply_liger_kernel_to_qwen2_5_vl(
         qwen2_5_vl_lce_forward = wrap_forward(qwen2_5_vl_lce_forward)
 
     if rope:
-        modeling_qwen2_5_vl.apply_multimodal_rotary_pos_emb = (
-            liger_multimodal_rotary_pos_emb
-        )
+        modeling_qwen2_5_vl.apply_multimodal_rotary_pos_emb = liger_multimodal_rotary_pos_emb
     if rms_norm:
         modeling_qwen2_5_vl.Qwen2RMSNorm = LigerRMSNorm
     if cross_entropy:
         modeling_qwen2_5_vl.CrossEntropyLoss = LigerCrossEntropyLoss
     if fused_linear_cross_entropy:
-        modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.forward = (
-            qwen2_5_vl_lce_forward
-        )
+        modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.forward = qwen2_5_vl_lce_forward
     if swiglu:
         modeling_qwen2_5_vl.Qwen2MLP = LigerSwiGLUMLP
 
@@ -110,9 +102,7 @@ def apply_liger_kernel_to_qwen2_5_vl(
 
         modeling_qwen2_5_vl.Qwen2_5_VLModel.forward = qwen2_ops_vl_model_forward
         modeling_qwen2_5_vl.Qwen2_5_VLTextModel.forward = qwen2_ops_text_model_forward
-        modeling_qwen2_5_vl.Qwen2_5_VLDecoderLayer.forward = (
-            qwen2_ops_decoder_layer_forward
-        )
+        modeling_qwen2_5_vl.Qwen2_5_VLDecoderLayer.forward = qwen2_ops_decoder_layer_forward
         modeling_qwen2_5_vl.Qwen2_5_VLAttention.forward = qwen2_ops_attn_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
@@ -135,9 +125,7 @@ def apply_liger_kernel_to_qwen2_5_vl(
             vision_model = None
         else:
             # Note: Currently there's no support for patching vision model only. Feel free to raise an issue if needed.
-            raise TypeError(
-                f"Unsupported Qwen2VL model type. `model` must be `Qwen2VLForConditionalGeneration`, `Qwen2VLModel` or `Qwen2VLTextModel`. Got: {type(model)}"
-            )
+            raise TypeError(f"Unsupported Qwen2VL model type. `model` must be `Qwen2VLForConditionalGeneration`, `Qwen2VLModel` or `Qwen2VLTextModel`. Got: {type(model)}")
 
         if vision_model is not None:
             # Patch Qwen2_5_VisionTransformerPretrainedModel

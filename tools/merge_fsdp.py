@@ -14,9 +14,7 @@ from lmms_engine.models import *
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Merge FSDP shards into a single checkpoint."
-    )
+    parser = argparse.ArgumentParser(description="Merge FSDP shards into a single checkpoint.")
     parser.add_argument(
         "--input_dir",
         type=str,
@@ -43,9 +41,7 @@ def merge_hf_fsdp_checkpoint(input_dir: Path, model_path: str, merge: bool = Fal
         raise ValueError(f"No checkpoint found in {args.input_dir}")
     checkpoint_folder.sort(key=lambda x: int(x.name.split("-")[-1]))
     if args.step is not None:
-        checkpoint_folder = [
-            x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step
-        ]
+        checkpoint_folder = [x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step]
     latest_checkpoint = checkpoint_folder[-1]
     print(f"Using latest checkpoint: {latest_checkpoint}")
     shard_state_dict = latest_checkpoint / "pytorch_model_fsdp_0"
@@ -75,18 +71,13 @@ def load_one_checkpoint(checkpoint_path: Path):
     model_state_dict_lst = [None] * total_shards
 
     def process_one_shard(rank: int, model_state_dict_lst: list):
-        model_path = (
-            shard_state_dict / f"model_world_size_{total_shards}_rank_{rank}.pt"
-        )
+        model_path = shard_state_dict / f"model_world_size_{total_shards}_rank_{rank}.pt"
         state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
         model_state_dict_lst[rank] = state_dict
         return state_dict
 
     with ThreadPoolExecutor(max_workers=min(total_shards, os.cpu_count())) as executor:
-        futures = [
-            executor.submit(process_one_shard, rank, model_state_dict_lst)
-            for rank in range(total_shards)
-        ]
+        futures = [executor.submit(process_one_shard, rank, model_state_dict_lst) for rank in range(total_shards)]
         for future in tqdm(futures, desc="Loading shards"):
             future.result()
 
@@ -119,9 +110,7 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
         raise ValueError(f"No checkpoint found in {args.input_dir}")
     checkpoint_folder.sort(key=lambda x: int(x.name.split("-")[-1]))
     if args.step is not None:
-        checkpoint_folder = [
-            x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step
-        ]
+        checkpoint_folder = [x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step]
 
     if args.output_dir is not None:
         output_dir = args.output_dir
@@ -137,14 +126,9 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
         model_state_dict_lsts = [load_one_checkpoint(latest_checkpoint)]
     else:
         print(f"Merging {len(checkpoint_folder)} checkpoints")
-        model_state_dict_lsts = [
-            load_one_checkpoint(checkpoint) for checkpoint in checkpoint_folder
-        ]
+        model_state_dict_lsts = [load_one_checkpoint(checkpoint) for checkpoint in checkpoint_folder]
 
-    full_state_dict_lst = [
-        prepare_full_sd(model_state_dict_lst)
-        for model_state_dict_lst in model_state_dict_lsts
-    ]
+    full_state_dict_lst = [prepare_full_sd(model_state_dict_lst) for model_state_dict_lst in model_state_dict_lsts]
     state_dict = full_state_dict_lst[0]
     for full_state_dict in full_state_dict_lst[1:]:
         for key in state_dict:

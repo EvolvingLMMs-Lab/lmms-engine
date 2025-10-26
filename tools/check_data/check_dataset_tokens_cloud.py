@@ -16,9 +16,7 @@ from PIL import Image, PngImagePlugin
 from tqdm import tqdm
 
 AUDIO_TOKENS_PER_SECOND = 25  # 750 / 30
-VIDEO_TOKENS_PER_FRAMES = (360 * 420) / (
-    14 * 14 * 4
-)  # 360x420 image, 14x14 per patch, 4 patches per token
+VIDEO_TOKENS_PER_FRAMES = (360 * 420) / (14 * 14 * 4)  # 360x420 image, 14x14 per patch, 4 patches per token
 LARGE_ENOUGH_NUMBER = 1000
 PngImagePlugin.MAX_TEXT_CHUNK = LARGE_ENOUGH_NUMBER * (1024**2)
 
@@ -45,9 +43,7 @@ elif CLOUD_SOURCE == "azure":
 
         RETRY_POLICY = LinearRetry(backoff=10, retry_total=5, random_jitter_range=0)
         SAS_URL = os.environ.get("AZURE_STORAGE_SAS_URL", "YOUR_SAS_URL")
-        storage_client = BlobServiceClient(
-            account_url=SAS_URL, retry_policy=RETRY_POLICY
-        )
+        storage_client = BlobServiceClient(account_url=SAS_URL, retry_policy=RETRY_POLICY)
     except ImportError:
         print("Azure SDK not installed. Skipping import.")
 
@@ -67,9 +63,7 @@ def download_blob_to_stream(
                 blob = bucket.blob(source_blob_name)
                 blob.download_to_file(file_obj)
             elif storage_type == "azure":
-                blob_client = storage_client.get_blob_client(
-                    container=bucket_name, blob=source_blob_name
-                )
+                blob_client = storage_client.get_blob_client(container=bucket_name, blob=source_blob_name)
                 blob_client.download_blob().readinto(file_obj)
             break
         except Exception as e:
@@ -121,9 +115,7 @@ def calculate_image_tokens(image_path):
     try:
         image = Image.open(file_obj)
         width, height = image.size
-        num_tokens = (
-            width * height // (14 * 14 * 4)
-        )  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
+        num_tokens = width * height // (14 * 14 * 4)  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
     except Exception as e:
         print(f"Error: {str(e)} when loading {image_path}")
         num_tokens = 500 * 500 // (14 * 14 * 4)  # Default to 500x500 image
@@ -182,10 +174,7 @@ def check_single_dataset(info):
                 data.append(d)
 
     data_folder = [data_folder] * len(data)
-    data_dict = [
-        {"data_folder": data_folder, "data": d}
-        for data_folder, d in zip(data_folder, data)
-    ]
+    data_dict = [{"data_folder": data_folder, "data": d} for data_folder, d in zip(data_folder, data)]
 
     with ThreadPool(32) as p:
         results = list(
@@ -198,9 +187,7 @@ def check_single_dataset(info):
 
     tokens_in_millions = sum(results) / 1e6
 
-    print(
-        f"\n\nDataset {data_path}, \n Estimated Total tokens: {tokens_in_millions:.2f}M\n\n"
-    )
+    print(f"\n\nDataset {data_path}, \n Estimated Total tokens: {tokens_in_millions:.2f}M\n\n")
 
     return results
 
@@ -216,12 +203,7 @@ if __name__ == "__main__":
         data_folders = [dataset.get("data_folder") for dataset in datasets]
         data_types = [dataset.get("data_type") for dataset in datasets]
 
-    info = [
-        (data_path, data_folder, data_type)
-        for data_path, data_folder, data_type in zip(
-            data_paths, data_folders, data_types
-        )
-    ]
+    info = [(data_path, data_folder, data_type) for data_path, data_folder, data_type in zip(data_paths, data_folders, data_types)]
     with Pool(32) as p:
         results = list(tqdm(p.imap(check_single_dataset, info), total=len(info)))
 

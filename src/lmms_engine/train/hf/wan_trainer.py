@@ -15,9 +15,7 @@ from lmms_engine.train.registry import TRAINER_REGISTER
 class WanVideoCallback(TrainerCallback):
     def on_train_begin(self, args, state, control, model=None, logs=None, **kwargs):
         model.freeze_except()
-        logger.info(
-            f"Trainable_modules: {model.trainable_modules}. Freezing other modules."
-        )
+        logger.info(f"Trainable_modules: {model.trainable_modules}. Freezing other modules.")
 
 
 @TRAINER_REGISTER.register("wan_trainer")
@@ -27,9 +25,7 @@ class WanVideoTrainer(HFTrainer):
         super().__init__(*args, **kwargs)
         self.scheduler = FlowMatchScheduler(shift=5, sigma_min=0.0, extra_one_step=True)
         self.scheduler.set_timesteps(1000, training=True)
-        logger.info(
-            f"Setting timesteps for diffusion training: {len(self.scheduler.timesteps)} steps"
-        )
+        logger.info(f"Setting timesteps for diffusion training: {len(self.scheduler.timesteps)} steps")
 
     def compute_loss(
         self,
@@ -91,14 +87,10 @@ class WanVideoTrainer(HFTrainer):
             vace_context=pre_precessed_inputs.get("vace_context", None),
             vace_scale=pre_precessed_inputs.get("vace_scale", 1.0),
             motion_bucket_id=pre_precessed_inputs.get("motion_bucket_id", None),
-            control_camera_latents_input=pre_precessed_inputs.get(
-                "control_camera_latents_input", None
-            ),
+            control_camera_latents_input=pre_precessed_inputs.get("control_camera_latents_input", None),
         )
         noise_pred = output.noise_pred
-        loss = torch.nn.functional.mse_loss(
-            noise_pred.float(), training_target.float(), reduction="mean"
-        )
+        loss = torch.nn.functional.mse_loss(noise_pred.float(), training_target.float(), reduction="mean")
         loss = loss * self.scheduler.training_weight(timestep)
 
         return loss

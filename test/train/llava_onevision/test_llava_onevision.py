@@ -12,9 +12,7 @@ class Test_LLaVAOnevision(TestCase):
         """Test Qwen3-VL training with FSDP2 using torchrun subprocess."""
 
         # Path to the training script
-        script_path = os.path.join(
-            os.path.dirname(__file__), "train_llava_onevision.py"
-        )
+        script_path = os.path.join(os.path.dirname(__file__), "train_llava_onevision.py")
 
         # Launch training using torchrun
         result = launch_torchrun_training(

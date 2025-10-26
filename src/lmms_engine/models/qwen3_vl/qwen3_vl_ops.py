@@ -92,20 +92,14 @@ def _aggregate_visual_masks_and_embeds(
     # Distribute deepstack embeds for this rank based on original masks
     deepstack_visual_embeds = []
     if sp_size > 1:
-        deepstack_image_embeds = _distribute_deepstack_embeds_for_rank(
-            deepstack_image_embeds, original_image_mask, sp_size
-        )
-        deepstack_video_embeds = _distribute_deepstack_embeds_for_rank(
-            deepstack_video_embeds, original_video_mask, sp_size
-        )
+        deepstack_image_embeds = _distribute_deepstack_embeds_for_rank(deepstack_image_embeds, original_image_mask, sp_size)
+        deepstack_video_embeds = _distribute_deepstack_embeds_for_rank(deepstack_video_embeds, original_video_mask, sp_size)
 
     # Merge image and video embeddings
     image_mask_joint = image_mask[visual_pos_masks]
     video_mask_joint = video_mask[visual_pos_masks]
     for img_embed, vid_embed in zip(deepstack_image_embeds, deepstack_video_embeds):
-        embed_joint = img_embed.new_zeros(
-            visual_pos_masks.sum(), img_embed.shape[-1]
-        ).to(img_embed.device)
+        embed_joint = img_embed.new_zeros(visual_pos_masks.sum(), img_embed.shape[-1]).to(img_embed.device)
         embed_joint[image_mask_joint, :] = img_embed
         embed_joint[video_mask_joint, :] = vid_embed
         deepstack_visual_embeds.append(embed_joint)
@@ -131,9 +125,7 @@ def _process_single_visual_modality(mask, deepstack_embeds, original_mask, sp_si
 
     # Distribute deepstack embeds for this rank based on original mask
     if sp_size > 1:
-        deepstack_embeds = _distribute_deepstack_embeds_for_rank(
-            deepstack_embeds, original_mask, sp_size
-        )
+        deepstack_embeds = _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size)
 
     return visual_pos_masks, deepstack_embeds
 
@@ -174,50 +166,30 @@ def model_forward(
 
     if input_ids is not None:
         original_input_ids = input_ids
-        input_ids, indices, cu_seq_lens, _ = _unpad_input(
-            input_ids, attention_mask=attention_mask
-        )
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(input_ids, attention_mask=attention_mask)
         batch_size, seq_length = original_input_ids.shape
     elif inputs_embeds is not None:
         original_inputs_embeds = inputs_embeds
-        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(
-            inputs_embeds, attention_mask=attention_mask
-        )
+        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(inputs_embeds, attention_mask=attention_mask)
         batch_size, seq_length, _ = original_inputs_embeds.shape
 
     # Get and split pos ids and input_ids first, then prepare the embeddings
     if position_ids is None:
-        attention_mask_tensor = (
-            attention_mask
-            if not isinstance(attention_mask, dict)
-            else attention_mask["full_attention"]
-        )
+        attention_mask_tensor = attention_mask if not isinstance(attention_mask, dict) else attention_mask["full_attention"]
         if attention_mask_tensor is not None and attention_mask_tensor.ndim == 4:
-            attention_mask_tensor = torch.diagonal(
-                attention_mask_tensor[:, 0], dim1=1, dim2=2
-            )
+            attention_mask_tensor = torch.diagonal(attention_mask_tensor[:, 0], dim1=1, dim2=2)
             # Only apply conversion for floating point tensors (inverted masks)
             if attention_mask_tensor.dtype.is_floating_point:
-                attention_mask_tensor = (
-                    attention_mask_tensor / torch.finfo(attention_mask_tensor.dtype).min
-                )
+                attention_mask_tensor = attention_mask_tensor / torch.finfo(attention_mask_tensor.dtype).min
                 attention_mask_tensor = (1.0 - attention_mask_tensor).int()
 
         # Calculate RoPE index once per generation in the pre-fill stage only.
         # When compiling, we can't check tensor values thus we check only input length
         # It is safe to assume that `length!=1` means we're in pre-fill because compiled
         # models currently cannot do asssisted decoding
-        prefill_compiled_stage = is_torchdynamo_compiling() and (
-            (original_input_ids is not None and original_input_ids.shape[1] != 1)
-            or (inputs_embeds is not None and inputs_embeds.shape[1] != 1)
-        )
-        prefill_noncompiled_stage = not is_torchdynamo_compiling() and (
-            (cache_position is not None and cache_position[0] == 0)
-            or (past_key_values is None or past_key_values.get_seq_length() == 0)
-        )
-        if (
-            prefill_compiled_stage or prefill_noncompiled_stage
-        ) or self.rope_deltas is None:
+        prefill_compiled_stage = is_torchdynamo_compiling() and ((original_input_ids is not None and original_input_ids.shape[1] != 1) or (inputs_embeds is not None and inputs_embeds.shape[1] != 1))
+        prefill_noncompiled_stage = not is_torchdynamo_compiling() and ((cache_position is not None and cache_position[0] == 0) or (past_key_values is None or past_key_values.get_seq_length() == 0))
+        if (prefill_compiled_stage or prefill_noncompiled_stage) or self.rope_deltas is None:
             position_ids, rope_deltas = self.get_rope_index(
                 original_input_ids,
                 image_grid_thw,
@@ -228,11 +200,7 @@ def model_forward(
         # then use the prev pre-calculated rope-deltas to get the correct position ids
         else:
             # batch_size, seq_length = original_input_ids.shape
-            delta = (
-                (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
-                if cache_position is not None
-                else 0
-            )
+            delta = (cache_position[0] + self.rope_deltas).to(inputs_embeds.device) if cache_position is not None else 0
             position_ids = torch.arange(seq_length, device=inputs_embeds.device)
             position_ids = position_ids.view(1, -1).expand(batch_size, -1)
             if cache_position is not None:  # otherwise `deltas` is an int `0`
@@ -240,11 +208,7 @@ def model_forward(
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-    position_ids = (
-        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-        .transpose(0, 1)
-        .unsqueeze(1)
-    )
+    position_ids = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
     if get_ulysses_sequence_parallel_world_size() > 1:
         # Pad the input ids and position ids if the sequence parallelism is used
         input_ids, position_ids, pad_size = ulysses_pad(
@@ -260,27 +224,15 @@ def model_forward(
     video_mask = None
 
     if pixel_values is not None:
-        image_embeds, deepstack_image_embeds = self.get_image_features(
-            pixel_values, image_grid_thw
-        )
-        image_embeds = torch.cat(image_embeds, dim=0).to(
-            inputs_embeds.device, inputs_embeds.dtype
-        )
-        image_mask, _ = self.get_placeholder_mask(
-            input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds
-        )
+        image_embeds, deepstack_image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+        image_mask, _ = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds)
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
     if pixel_values_videos is not None:
-        video_embeds, deepstack_video_embeds = self.get_video_features(
-            pixel_values_videos, video_grid_thw
-        )
-        video_embeds = torch.cat(video_embeds, dim=0).to(
-            inputs_embeds.device, inputs_embeds.dtype
-        )
-        _, video_mask = self.get_placeholder_mask(
-            input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds
-        )
+        video_embeds, deepstack_video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_embeds = torch.cat(video_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+        _, video_mask = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
 
     # Store original masks before rank-specific masking for visual embed distribution
@@ -387,9 +339,7 @@ def text_model_forward(
         inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
-        past_seen_tokens = (
-            past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + inputs_embeds.shape[1],
@@ -398,9 +348,7 @@ def text_model_forward(
 
     # the hard coded `3` is for temporal, height and width.
     if position_ids is None:
-        position_ids = cache_position.view(1, 1, -1).expand(
-            3, inputs_embeds.shape[0], -1
-        )
+        position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
     elif position_ids.ndim == 2:
         position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
 
@@ -440,9 +388,7 @@ def text_model_forward(
         hidden_states = layer_outputs
 
         # add visual features to the hidden states of first several layers
-        if deepstack_visual_embeds is not None and layer_idx in range(
-            len(deepstack_visual_embeds)
-        ):
+        if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
             hidden_states = self._deepstack_process(
                 hidden_states,
                 visual_pos_masks,
@@ -518,10 +464,7 @@ def attn_forward(
     cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        assert position_ids is not None, (
-            f"position_ids is required for Ulysses sequence parallelism "
-            f"(sp_size={ulysses_sp_size}). Got None."
-        )
+        assert position_ids is not None, f"position_ids is required for Ulysses sequence parallelism " f"(sp_size={ulysses_sp_size}). Got None."
 
         # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
         # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
@@ -557,9 +500,7 @@ def attn_forward(
     if past_key_values is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-        key_states, value_states = past_key_values.update(
-            key_states, value_states, self.layer_idx, cache_kwargs
-        )
+        key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
     # Compute max sequence length for flash attention
     # The .item() call is necessary as flash_attn API requires a Python int

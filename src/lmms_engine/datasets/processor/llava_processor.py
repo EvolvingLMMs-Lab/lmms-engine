@@ -42,20 +42,13 @@ class LLaVADataProcessor:
         video_inputs = {}
 
         if images is not None:
-            image_inputs = self.processor.image_processor(
-                images, return_tensors="pt", **output_kwargs["images_kwargs"]
-            )
+            image_inputs = self.processor.image_processor(images, return_tensors="pt", **output_kwargs["images_kwargs"])
 
             image_sizes = iter(image_inputs["image_sizes"])
             height = image_inputs["pixel_values"].shape[-2]
             width = image_inputs["pixel_values"].shape[-1]
             image_sizes = image_inputs["image_sizes"]
-            num_image_tokens = [
-                self.processor._get_number_of_features(
-                    image_size[0], image_size[1], height, width
-                )
-                for image_size in image_sizes
-            ]
+            num_image_tokens = [self.processor._get_number_of_features(image_size[0], image_size[1], height, width) for image_size in image_sizes]
         else:
             num_image_tokens = None
 
@@ -67,13 +60,9 @@ class LLaVADataProcessor:
         return inputs
 
     def get_qwen_template_labels(self, hf_messages, num_image_tokens: List[int]):
-        image_token_index = self.processor.tokenizer.convert_tokens_to_ids(
-            self.processor.image_token
-        )
+        image_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
         special_tokens = self.processor.tokenizer.additional_special_tokens
-        unmask_tokens_idx = [
-            self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens
-        ]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
         input_id, target = [], []
         start_from = 0
         for message in hf_messages:
@@ -82,9 +71,7 @@ class LLaVADataProcessor:
             # If num image tokens is not None, it means we have images in the batch
             # otherwise something like <image> tag in html is used
             if image_token_index in encode_id and num_image_tokens is not None:
-                encode_id, used_images = self._expand_encode_id_image_tokens(
-                    encode_id, num_image_tokens, start_from
-                )
+                encode_id, used_images = self._expand_encode_id_image_tokens(encode_id, num_image_tokens, start_from)
                 start_from += used_images
             input_id += encode_id
             if role in ["user", "system"]:
@@ -124,9 +111,7 @@ class LLaVADataProcessor:
             # Before image pos, no expand
             expanded_encode_id.extend(encode_id[prev:pos])
             # Image pos, expand
-            expanded_encode_id.extend(
-                [self.image_token_id] * image_token_num[idx + start_from]
-            )
+            expanded_encode_id.extend([self.image_token_id] * image_token_num[idx + start_from])
             prev = pos + 1
 
             if idx == len(image_pos) - 1:
@@ -137,9 +122,7 @@ class LLaVADataProcessor:
 
     @property
     def image_token_id(self):
-        return self.processor.tokenizer.convert_tokens_to_ids(
-            self.processor.image_token
-        )
+        return self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
 
     @property
     def tokenizer(self):

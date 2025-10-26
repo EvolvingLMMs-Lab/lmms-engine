@@ -84,9 +84,7 @@ class MaxLongEdgeMinShortEdgeResize(torch.nn.Module):
             scale = self.max_size / max(new_width, new_height)
             new_width, new_height = self._apply_scale(new_width, new_height, scale)
 
-        return F.resize(
-            img, (new_height, new_width), self.interpolation, antialias=self.antialias
-        )
+        return F.resize(img, (new_height, new_width), self.interpolation, antialias=self.antialias)
 
 
 class ImageTransform:
@@ -108,9 +106,7 @@ class ImageTransform:
             max_pixels=max_pixels,
         )
         self.to_tensor_transform = transforms.ToTensor()
-        self.normalize_transform = transforms.Normalize(
-            mean=image_mean, std=image_std, inplace=True
-        )
+        self.normalize_transform = transforms.Normalize(mean=image_mean, std=image_std, inplace=True)
 
     def __call__(self, img, img_num=1):
         img = self.resize_transform(img, img_num=img_num)
@@ -121,11 +117,7 @@ class ImageTransform:
 
 def decolorization(image):
     gray_image = image.convert("L")
-    return (
-        Image.merge(image.mode, [gray_image] * 3)
-        if image.mode in ("RGB", "L")
-        else gray_image
-    )
+    return Image.merge(image.mode, [gray_image] * 3) if image.mode in ("RGB", "L") else gray_image
 
 
 def downscale(image, scale_factor):
@@ -172,9 +164,7 @@ def motion_blur_opencv(image, kernel_size=15, angle=0):
         # 对于彩色图像，各通道独立卷积
         blurred = np.zeros_like(img)
         for c in range(img.shape[2]):
-            blurred[..., c] = cv2.filter2D(
-                img[..., c], -1, rotated_kernel, borderType=cv2.BORDER_REFLECT
-            )
+            blurred[..., c] = cv2.filter2D(img[..., c], -1, rotated_kernel, borderType=cv2.BORDER_REFLECT)
 
     return Image.fromarray(blurred.astype(np.uint8))
 
@@ -199,9 +189,7 @@ def shuffle_patch(image, num_splits, gap_size=2):
         patch_h = patch_heights[i]
         for j in range(w_splits):
             patch_w = patch_widths[j]
-            patch = image.crop(
-                (current_x, current_y, current_x + patch_w, current_y + patch_h)
-            )
+            patch = image.crop((current_x, current_y, current_x + patch_w, current_y + patch_h))
             patches.append(patch)
             current_x += patch_w
         current_y += patch_h
@@ -210,9 +198,7 @@ def shuffle_patch(image, num_splits, gap_size=2):
 
     total_width = sum(patch_widths) + (w_splits - 1) * gap_size
     total_height = sum(patch_heights) + (h_splits - 1) * gap_size
-    new_image = Image.new(
-        image.mode, (total_width, total_height), color=(255, 255, 255)
-    )
+    new_image = Image.new(image.mode, (total_width, total_height), color=(255, 255, 255))
 
     current_y = 0  # 当前行的起始 Y 坐标
     patch_idx = 0  # 当前处理的块索引
@@ -266,9 +252,7 @@ def inpainting(image, num_splits, blank_ratio=0.3, blank_color=(255, 255, 255)):
         patch_h = patch_heights[i]
         for j in range(w_splits):
             patch_w = patch_widths[j]
-            patch = image.crop(
-                (current_x, current_y, current_x + patch_w, current_y + patch_h)
-            )
+            patch = image.crop((current_x, current_y, current_x + patch_w, current_y + patch_h))
             patches.append(patch)
             current_x += patch_w
         current_y += patch_h

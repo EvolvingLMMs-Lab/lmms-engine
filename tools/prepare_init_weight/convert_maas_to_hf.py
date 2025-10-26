@@ -74,9 +74,7 @@ def load_original_state_dict(model_id):
 
     # tied wieghts so lm.head is not saved. Let's clone to load state dict
     if "lm_head.weight" not in original_state_dict:
-        original_state_dict["lm_head.weight"] = original_state_dict[
-            "model.embed_tokens.weight"
-        ].clone()
+        original_state_dict["lm_head.weight"] = original_state_dict["model.embed_tokens.weight"].clone()
 
     return original_state_dict
 
@@ -106,9 +104,7 @@ def load_image():
     return image
 
 
-def convert_llava_to_hf(
-    model_id, pytorch_dump_folder_path, repo_id, push_to_hub=False, with_out_init=False
-):
+def convert_llava_to_hf(model_id, pytorch_dump_folder_path, repo_id, push_to_hub=False, with_out_init=False):
     if not with_out_init:
         # load original config
         filepath = os.path.join(model_id, "config.json")
@@ -124,15 +120,9 @@ def convert_llava_to_hf(
         text_config = AutoConfig.from_pretrained(text_model_id)
 
         tokenizer = AutoTokenizer.from_pretrained(text_model_id, use_fast=True)
-        tokenizer.add_tokens(
-            AddedToken("<image>", special=True, normalized=False), special_tokens=True
-        )
-        tokenizer.add_tokens(
-            AddedToken("<video>", special=True, normalized=False), special_tokens=True
-        )
-        tokenizer.add_tokens(
-            AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True
-        )
+        tokenizer.add_tokens(AddedToken("<image>", special=True, normalized=False), special_tokens=True)
+        tokenizer.add_tokens(AddedToken("<video>", special=True, normalized=False), special_tokens=True)
+        tokenizer.add_tokens(AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True)
         image_token_id = tokenizer.convert_tokens_to_ids("<image>")
         video_token_id = tokenizer.convert_tokens_to_ids("<video>")
         audio_token_id = tokenizer.convert_tokens_to_ids("<|AUDIO|>")
@@ -147,9 +137,7 @@ def convert_llava_to_hf(
             num_image_tokens=None,
             vision_feature_select_strategy="navit",
         )
-        vision_config = AutoConfig.from_pretrained(
-            "Qwen/Qwen2-VL-7B-Instruct"
-        ).vision_config
+        vision_config = AutoConfig.from_pretrained("Qwen/Qwen2-VL-7B-Instruct").vision_config
 
         config = KinoConfig(
             vision_config=vision_config,
@@ -176,11 +164,7 @@ def convert_llava_to_hf(
         keys_in_new_models = set([k for k in model.state_dict().keys()])
         model.load_state_dict(state_dict, assign=True, strict=False)
         audio_modal_projector = LlavaOnevisionAudioMultiModalProjector(config)
-        std = (
-            config.initializer_range
-            if hasattr(config, "initializer_range")
-            else config.text_config.initializer_range
-        )
+        std = config.initializer_range if hasattr(config, "initializer_range") else config.text_config.initializer_range
         audio_modal_projector.linear.weight.data.normal_(mean=0.0, std=std)
         audio_modal_projector.linear.bias.data.zero_()
         model.audio_modal_projector = audio_modal_projector
@@ -190,12 +174,8 @@ def convert_llava_to_hf(
         pre_expansion_embeddings = model.language_model.model.embed_tokens.weight.data
         mu = torch.mean(pre_expansion_embeddings, dim=0).float()
         n = pre_expansion_embeddings.size()[0]
-        sigma = (
-            (pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)
-        ) / n
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
-            mu, covariance_matrix=1e-5 * sigma
-        )
+        sigma = ((pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)) / n
+        dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, covariance_matrix=1e-5 * sigma)
 
         # We add an image token so we resize the model
         # Pad to 64 for performance reasons
@@ -205,33 +185,15 @@ def convert_llava_to_hf(
         num_tokens = vocab_size + 3
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.model.embed_tokens.weight.data[
-                            vocab_size:
-                        ].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.lm_head.weight.data[vocab_size:].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.lm_head.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
 
-        print(
-            f"Saving model and processor for {model_id} to {pytorch_dump_folder_path}"
-        )
+        print(f"Saving model and processor for {model_id} to {pytorch_dump_folder_path}")
         Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
         model.save_pretrained(pytorch_dump_folder_path)
         processor.save_pretrained(pytorch_dump_folder_path)
@@ -245,9 +207,7 @@ def convert_llava_to_hf(
 
     # Load everything back for inference tests in float32 because prev script was written as that
     # Though it's mostly loaded in fp16 as original weights are in fp16
-    model = KinoForConditionalGeneration.from_pretrained(
-        pytorch_dump_folder_path, torch_dtype="float16", device_map="cuda:0"
-    )
+    model = KinoForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="float16", device_map="cuda:0")
     processor = KinoProcessor.from_pretrained(pytorch_dump_folder_path)
     device = model.device
 
@@ -264,9 +224,7 @@ def convert_llava_to_hf(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[
-        0
-    ].strip()
+    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
     print("Generated text:", repr(generated_text))
 

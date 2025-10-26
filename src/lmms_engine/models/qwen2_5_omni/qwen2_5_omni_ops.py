@@ -54,13 +54,9 @@ if is_flash_attn_2_available():
             unpad_input,
         )
 
-        _flash_supports_window_size = "window_size" in list(
-            inspect.signature(flash_attn_func).parameters
-        )
+        _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
     except:
-        raise ModuleNotFoundError(
-            "flash_attn is not available. Please install it via `pip install flash_attn`."
-        )
+        raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 
 @dataclass
@@ -85,28 +81,16 @@ def text_model_forward(
     indices: Optional[torch.IntTensor] = None,
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     use_cache = use_cache if use_cache is not None else self.config.use_cache
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
     if self.gradient_checkpointing and self.training:
         if use_cache:
-            Logging.warning(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-            )
+            Logging.warning("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
             use_cache = False
 
     if use_cache and past_key_values is None:
@@ -115,15 +99,11 @@ def text_model_forward(
         inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
-        past_seen_tokens = (
-            past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         if cu_seq_lens is not None and indices is not None:
             seq_len_for_cache = inputs_embeds.shape[0]  # 1D case, total unpadded tokens
         else:
-            seq_len_for_cache = inputs_embeds.shape[
-                1
-            ]  # 2D case, sequence length dimension
+            seq_len_for_cache = inputs_embeds.shape[1]  # 2D case, sequence length dimension
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seq_len_for_cache,
@@ -137,9 +117,7 @@ def text_model_forward(
             # but lce_forward already provides position_ids
             position_ids = cache_position.view(1, 1, -1).expand(3, 1, -1)
         else:
-            position_ids = cache_position.view(1, 1, -1).expand(
-                3, inputs_embeds.shape[0], -1
-            )
+            position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
     elif position_ids.dim() == 2:
         # if position_ids is provided but only 2D [batch, seq_len], expand to 3D [3, batch, seq_len]
         # by adding the TMRoPE dimension at the front
@@ -193,11 +171,7 @@ def text_model_forward(
         all_hidden_states += (hidden_states,)
 
     if not return_dict:
-        return tuple(
-            v
-            for v in [hidden_states, past_key_values, all_hidden_states, all_attentions]
-            if v is not None
-        )
+        return tuple(v for v in [hidden_states, past_key_values, all_hidden_states, all_attentions] if v is not None)
 
     return BaseModelOutputWithPastAndRmpad(
         last_hidden_state=hidden_states,
@@ -274,24 +248,14 @@ def attn_forward(
     if cu_seq_lens is not None:
         q_len = (cu_seq_lens[1:] - cu_seq_lens[:-1]).max().item()
     else:
-        q_len = (
-            hidden_states.shape[0]
-            if hidden_states.ndim == 2
-            else hidden_states.shape[1]
-        )
+        q_len = hidden_states.shape[0] if hidden_states.ndim == 2 else hidden_states.shape[1]
     kv_seq_len = q_len
     query_states = self.q_proj(hidden_states).view(-1, self.num_heads, self.head_dim)
-    key_states = self.k_proj(hidden_states).view(
-        -1, self.num_key_value_heads, self.head_dim
-    )
-    value_states = self.v_proj(hidden_states).view(
-        -1, self.num_key_value_heads, self.head_dim
-    )
+    key_states = self.k_proj(hidden_states).view(-1, self.num_key_value_heads, self.head_dim)
+    value_states = self.v_proj(hidden_states).view(-1, self.num_key_value_heads, self.head_dim)
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        assert (
-            position_ids is not None
-        ), "position_ids is required for Ulysses sequence parallelism"
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
         repeats = max(ulysses_sp_size // key_states.size(1), 1)
         key_states = repeat_kv(key_states, repeats)
         value_states = repeat_kv(value_states, repeats)
@@ -314,9 +278,7 @@ def attn_forward(
         self.rope_scaling["mrope_section"],
     )
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
 
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)

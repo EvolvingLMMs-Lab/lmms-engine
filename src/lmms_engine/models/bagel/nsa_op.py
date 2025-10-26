@@ -11,10 +11,7 @@ try:
         topk_sparse_attention,
     )
 except ImportError:
-    logger.warning(
-        "native_sparse_attention is not installed, please install with"
-        " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
-    )
+    logger.warning("native_sparse_attention is not installed, please install with" " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`")
 
 from transformers.utils import is_flash_attn_2_available
 
@@ -31,77 +28,45 @@ def forward_train(
     packed_und_token_indexes: torch.LongTensor,
     packed_gen_token_indexes: torch.LongTensor,
 ):
-    packed_query_states = packed_sequence.new_zeros(
-        (packed_sequence.shape[0], self.num_heads * self.head_dim)
-    )
-    packed_key_states = packed_sequence.new_zeros(
-        (packed_sequence.shape[0], self.num_key_value_heads * self.head_dim)
-    )
-    packed_value_states = packed_sequence.new_zeros(
-        (packed_sequence.shape[0], self.num_key_value_heads * self.head_dim)
-    )
+    packed_query_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_heads * self.head_dim))
+    packed_key_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
+    packed_value_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
 
     packed_sequence_und = packed_sequence[packed_und_token_indexes]
     packed_sequence_gen = packed_sequence[packed_gen_token_indexes]
 
     packed_query_states[packed_und_token_indexes] = self.q_proj(packed_sequence_und)
-    packed_query_states[packed_gen_token_indexes] = self.q_proj_moe_gen(
-        packed_sequence_gen
-    )
+    packed_query_states[packed_gen_token_indexes] = self.q_proj_moe_gen(packed_sequence_gen)
 
     packed_key_states[packed_und_token_indexes] = self.k_proj(packed_sequence_und)
-    packed_key_states[packed_gen_token_indexes] = self.k_proj_moe_gen(
-        packed_sequence_gen
-    )
+    packed_key_states[packed_gen_token_indexes] = self.k_proj_moe_gen(packed_sequence_gen)
 
     packed_value_states[packed_und_token_indexes] = self.v_proj(packed_sequence_und)
-    packed_value_states[packed_gen_token_indexes] = self.v_proj_moe_gen(
-        packed_sequence_gen
-    )
+    packed_value_states[packed_gen_token_indexes] = self.v_proj_moe_gen(packed_sequence_gen)
 
     g = self.g_proj(packed_sequence)
     g = g.view(1, packed_sequence.shape[0], self.num_heads, 3)
     g_cmp, g_slc, g_swa = g.sigmoid().unbind(-1)
 
     packed_query_states = packed_query_states.view(-1, self.num_heads, self.head_dim)
-    packed_key_states = packed_key_states.view(
-        -1, self.num_key_value_heads, self.head_dim
-    )
-    packed_value_states = packed_value_states.view(
-        -1, self.num_key_value_heads, self.head_dim
-    )
+    packed_key_states = packed_key_states.view(-1, self.num_key_value_heads, self.head_dim)
+    packed_value_states = packed_value_states.view(-1, self.num_key_value_heads, self.head_dim)
     if self.config.freeze_und:
-        packed_value_states[packed_und_token_indexes] = packed_value_states[
-            packed_und_token_indexes
-        ].detach()
+        packed_value_states[packed_und_token_indexes] = packed_value_states[packed_und_token_indexes].detach()
 
     packed_query_states_ = packed_query_states.new_zeros(packed_query_states.shape)
     packed_key_states_ = packed_key_states.new_zeros(packed_key_states.shape)
 
-    packed_query_states_[packed_und_token_indexes] = self.q_norm(
-        packed_query_states[packed_und_token_indexes]
-    )
+    packed_query_states_[packed_und_token_indexes] = self.q_norm(packed_query_states[packed_und_token_indexes])
     if self.config.freeze_und:
-        packed_query_states_[packed_und_token_indexes] = packed_query_states_[
-            packed_und_token_indexes
-        ].detach()
-    packed_query_states_[packed_gen_token_indexes] = self.q_norm_moe_gen(
-        packed_query_states[packed_gen_token_indexes]
-    )
+        packed_query_states_[packed_und_token_indexes] = packed_query_states_[packed_und_token_indexes].detach()
+    packed_query_states_[packed_gen_token_indexes] = self.q_norm_moe_gen(packed_query_states[packed_gen_token_indexes])
 
-    packed_key_states_[packed_und_token_indexes] = self.k_norm(
-        packed_key_states[packed_und_token_indexes]
-    )
+    packed_key_states_[packed_und_token_indexes] = self.k_norm(packed_key_states[packed_und_token_indexes])
     if self.config.freeze_und:
-        packed_key_states_[packed_und_token_indexes] = packed_key_states_[
-            packed_und_token_indexes
-        ].detach()
-    packed_key_states_[packed_gen_token_indexes] = self.k_norm_moe_gen(
-        packed_key_states[packed_gen_token_indexes]
-    )
-    cu_seqlens = torch.tensor(
-        [0] + sample_lens, dtype=torch.int32, device=packed_query_states_.device
-    )
+        packed_key_states_[packed_und_token_indexes] = packed_key_states_[packed_und_token_indexes].detach()
+    packed_key_states_[packed_gen_token_indexes] = self.k_norm_moe_gen(packed_key_states[packed_gen_token_indexes])
+    cu_seqlens = torch.tensor([0] + sample_lens, dtype=torch.int32, device=packed_query_states_.device)
 
     # 1. key value compression
     compressed_key, compressed_cu_seqlens = self.compress_func(
@@ -173,23 +138,13 @@ def forward_train(
         window_size=(self.window_size, -1),
     )
 
-    attn_output = (
-        compressed_attn_output * g_cmp.unsqueeze(-1)
-        + sparse_attn_output * g_swa.unsqueeze(-1)
-        + sliding_attn_output * g_slc.unsqueeze(-1)
-    )
+    attn_output = compressed_attn_output * g_cmp.unsqueeze(-1) + sparse_attn_output * g_swa.unsqueeze(-1) + sliding_attn_output * g_slc.unsqueeze(-1)
 
     packed_attn_output = attn_output.squeeze(0)
 
-    packed_attn_output = packed_attn_output.transpose(0, 1).reshape(
-        -1, self.num_heads * self.head_dim
-    )
+    packed_attn_output = packed_attn_output.transpose(0, 1).reshape(-1, self.num_heads * self.head_dim)
     packed_attn_output_ = packed_attn_output.new_zeros(packed_attn_output.shape)
-    packed_attn_output_[packed_und_token_indexes] = self.o_proj(
-        packed_attn_output[packed_und_token_indexes]
-    )
-    packed_attn_output_[packed_gen_token_indexes] = self.o_proj_moe_gen(
-        packed_attn_output[packed_gen_token_indexes]
-    )
+    packed_attn_output_[packed_und_token_indexes] = self.o_proj(packed_attn_output[packed_und_token_indexes])
+    packed_attn_output_[packed_gen_token_indexes] = self.o_proj_moe_gen(packed_attn_output[packed_gen_token_indexes])
 
     return packed_attn_output_

@@ -17,9 +17,7 @@ class DiffAug:
         self.last_blur_kernel_w = None
 
     def __str__(self) -> str:
-        return (
-            f"DiffAug(p={self.prob}, cutout={self.cutout if self.using_cutout else 0})"
-        )
+        return f"DiffAug(p={self.prob}, cutout={self.cutout if self.using_cutout else 0})"
 
     def get_grids(self, batch: int, height: int, width: int, device):
         key = (batch, height, width)
@@ -33,9 +31,7 @@ class DiffAug:
         )
         return self.grids[key]
 
-    def aug(
-        self, tensor: torch.Tensor, warmup_blur_schedule: float = 0.0
-    ) -> torch.Tensor:
+    def aug(self, tensor: torch.Tensor, warmup_blur_schedule: float = 0.0) -> torch.Tensor:
         input_dtype = tensor.dtype
         if tensor.dtype != torch.float32:
             tensor = tensor.float()
@@ -58,12 +54,8 @@ class DiffAug:
                     gaussian.div_(gaussian.sum())
                     kernel_h = gaussian.view(1, 1, 2 * blur_radius + 1, 1)
                     kernel_w = gaussian.view(1, 1, 1, 2 * blur_radius + 1)
-                    self.last_blur_kernel_h = kernel_h.repeat(
-                        self.img_channels, 1, 1, 1
-                    ).contiguous()
-                    self.last_blur_kernel_w = kernel_w.repeat(
-                        self.img_channels, 1, 1, 1
-                    ).contiguous()
+                    self.last_blur_kernel_h = kernel_h.repeat(self.img_channels, 1, 1, 1).contiguous()
+                    self.last_blur_kernel_w = kernel_w.repeat(self.img_channels, 1, 1, 1).contiguous()
                 tensor = F.pad(
                     tensor,
                     [blur_radius, blur_radius, blur_radius, blur_radius],
@@ -87,43 +79,28 @@ class DiffAug:
 
         apply_trans, apply_color, apply_cut = (torch.rand(3) <= self.prob).tolist()
         batch, device = tensor.shape[0], tensor.device
-        rand_vals = (
-            torch.rand(7, batch, 1, 1, device=device)
-            if (apply_trans or apply_color or apply_cut)
-            else None
-        )
+        rand_vals = torch.rand(7, batch, 1, 1, device=device) if (apply_trans or apply_color or apply_cut) else None
 
         height, width = tensor.shape[-2:]
         if apply_trans:
             ratio = 0.125
             delta_h = round(height * ratio)
             delta_w = round(width * ratio)
-            translation_h = (
-                rand_vals[0].mul(delta_h + delta_h + 1).floor().long() - delta_h
-            )
-            translation_w = (
-                rand_vals[1].mul(delta_w + delta_w + 1).floor().long() - delta_w
-            )
+            translation_h = rand_vals[0].mul(delta_h + delta_h + 1).floor().long() - delta_h
+            translation_w = rand_vals[1].mul(delta_w + delta_w + 1).floor().long() - delta_w
 
             grid_b, grid_h, grid_w = self.get_grids(batch, height, width, device)
             grid_h = (grid_h + translation_h).add_(1).clamp_(0, height + 1)
             grid_w = (grid_w + translation_w).add_(1).clamp_(0, width + 1)
             padded = F.pad(tensor, [1, 1, 1, 1, 0, 0, 0, 0])
-            tensor = (
-                padded.permute(0, 2, 3, 1)
-                .contiguous()[grid_b, grid_h, grid_w]
-                .permute(0, 3, 1, 2)
-                .contiguous()
-            )
+            tensor = padded.permute(0, 2, 3, 1).contiguous()[grid_b, grid_h, grid_w].permute(0, 3, 1, 2).contiguous()
 
         if apply_color:
             tensor = tensor.add(rand_vals[2].unsqueeze(-1).sub(0.5))
             mean = tensor.mean(dim=1, keepdim=True)
             tensor = tensor.sub(mean).mul(rand_vals[3].unsqueeze(-1).mul(2)).add_(mean)
             mean = tensor.mean(dim=(1, 2, 3), keepdim=True)
-            tensor = (
-                tensor.sub(mean).mul(rand_vals[4].unsqueeze(-1).add(0.5)).add_(mean)
-            )
+            tensor = tensor.sub(mean).mul(rand_vals[4].unsqueeze(-1).add(0.5)).add_(mean)
 
         if self.using_cutout and apply_cut:
             ratio = self.cutout
@@ -133,12 +110,8 @@ class DiffAug:
             offset_w = rand_vals[6].mul(width + (1 - cutout_w % 2)).floor().long()
 
             grid_b, grid_h, grid_w = self.get_grids(batch, cutout_h, cutout_w, device)
-            grid_h = (
-                (grid_h + offset_h).sub_(cutout_h // 2).clamp_(min=0, max=height - 1)
-            )
-            grid_w = (
-                (grid_w + offset_w).sub_(cutout_w // 2).clamp_(min=0, max=width - 1)
-            )
+            grid_h = (grid_h + offset_h).sub_(cutout_h // 2).clamp_(min=0, max=height - 1)
+            grid_w = (grid_w + offset_w).sub_(cutout_w // 2).clamp_(min=0, max=width - 1)
             mask = torch.ones(batch, height, width, dtype=tensor.dtype, device=device)
             mask[grid_b, grid_h, grid_w] = 0
             tensor = tensor.mul(mask.unsqueeze(1))

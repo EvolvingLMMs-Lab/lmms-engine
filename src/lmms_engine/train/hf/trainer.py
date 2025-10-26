@@ -71,13 +71,9 @@ class Trainer(HFTrainer):
                     "output_dtype": torch_dtype,
                 },
                 auto_wrap_policy="transformer_based_wrap",
-                transformer_cls_names_to_wrap=self.args.fsdp_config.get(
-                    "transformer_layer_cls_to_wrap", []
-                ),
+                transformer_cls_names_to_wrap=self.args.fsdp_config.get("transformer_layer_cls_to_wrap", []),
                 activation_checkpointing=self.args.gradient_checkpointing,
-                reshard_after_forward=self.args.fsdp_config.get(
-                    "reshard_after_forward", True
-                ),
+                reshard_after_forward=self.args.fsdp_config.get("reshard_after_forward", True),
             )
             accelerator_config = self.args.accelerator_config.to_dict()
             dataloader_params = [
@@ -86,15 +82,11 @@ class Trainer(HFTrainer):
                 "even_batches",
                 "use_seedable_sampler",
             ]
-            dataloader_config = DataLoaderConfiguration(
-                **{param: accelerator_config.pop(param) for param in dataloader_params}
-            )
+            dataloader_config = DataLoaderConfiguration(**{param: accelerator_config.pop(param) for param in dataloader_params})
             dataloader_config.data_seed = self.args.data_seed
             non_blocking = accelerator_config.pop("non_blocking")
             if non_blocking and not self.args.dataloader_pin_memory:
-                logger.warning(
-                    "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
-                )
+                logger.warning("`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both.")
             dataloader_config.non_blocking = non_blocking
             # this would have been updated above, no need for it anymore
             accelerator_config.pop("gradient_accumulation_kwargs")
@@ -106,54 +98,26 @@ class Trainer(HFTrainer):
             # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
             self.gather_function = self.accelerator.gather_for_metrics
 
-            if (
-                "use_gather_object"
-                in inspect.signature(self.gather_function).parameters.keys()
-            ):
+            if "use_gather_object" in inspect.signature(self.gather_function).parameters.keys():
                 self.gather_function = functools.partial(
                     self.gather_function,
                     use_gather_object=self.args.eval_use_gather_object,
                 )
 
-            self.is_deepspeed_enabled = (
-                getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
-            )
-            self.is_fsdp_enabled = (
-                getattr(self.accelerator.state, "fsdp_plugin", None) is not None
-            )
-            self.is_tp_enabled = (
-                getattr(self.accelerator.state, "torch_tp_plugin", None) is not None
-            )
+            self.is_deepspeed_enabled = getattr(self.accelerator.state, "deepspeed_plugin", None) is not None
+            self.is_fsdp_enabled = getattr(self.accelerator.state, "fsdp_plugin", None) is not None
+            self.is_tp_enabled = getattr(self.accelerator.state, "torch_tp_plugin", None) is not None
 
             # `save_only_model` can't be used with DeepSpeed/FSDP along with `load_best_model_at_end`
-            if (
-                self.args.save_only_model
-                and (self.is_deepspeed_enabled or self.is_fsdp_enabled)
-                and self.args.load_best_model_at_end
-            ):
+            if self.args.save_only_model and (self.is_deepspeed_enabled or self.is_fsdp_enabled) and self.args.load_best_model_at_end:
                 wrapper = "DeepSpeed" if self.is_deepspeed_enabled else "FSDP"
-                raise ValueError(
-                    f"{wrapper} can't be used with `save_only_model` along with `load_best_model_at_end`."
-                )
+                raise ValueError(f"{wrapper} can't be used with `save_only_model` along with `load_best_model_at_end`.")
 
             # `auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3
-            if (
-                self.is_deepspeed_enabled
-                and self.accelerator.state.deepspeed_plugin.zero_stage == 3
-                and self.args.auto_find_batch_size
-            ):
-                raise ValueError(
-                    "`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP"
-                )
-            if (
-                self.args.save_only_model
-                and self.is_fsdp_enabled
-                and "SHARDED_STATE_DICT"
-                in str(self.accelerator.state.fsdp_plugin.state_dict_type)
-            ):
-                raise ValueError(
-                    "save_only_model option is not compatible with FSDP state dict type 'SHARDED_STATE_DICT'"
-                )
+            if self.is_deepspeed_enabled and self.accelerator.state.deepspeed_plugin.zero_stage == 3 and self.args.auto_find_batch_size:
+                raise ValueError("`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP")
+            if self.args.save_only_model and self.is_fsdp_enabled and "SHARDED_STATE_DICT" in str(self.accelerator.state.fsdp_plugin.state_dict_type):
+                raise ValueError("save_only_model option is not compatible with FSDP state dict type 'SHARDED_STATE_DICT'")
         else:
             return super().create_accelerator_and_postprocess()
 
@@ -163,14 +127,8 @@ class Trainer(HFTrainer):
 
         # Build the sampler.
         if self.args.group_by_length:
-            if is_datasets_available() and isinstance(
-                self.train_dataset, datasets.Dataset
-            ):
-                lengths = (
-                    self.train_dataset[self.args.length_column_name]
-                    if self.args.length_column_name in self.train_dataset.column_names
-                    else None
-                )
+            if is_datasets_available() and isinstance(self.train_dataset, datasets.Dataset):
+                lengths = self.train_dataset[self.args.length_column_name] if self.args.length_column_name in self.train_dataset.column_names else None
             else:
                 lengths = None
             # Hard code here because we use our own processing class
@@ -214,9 +172,7 @@ class Trainer(HFTrainer):
         if is_datasets_available() and isinstance(dataset, datasets.Dataset):
             dataset = self._remove_unused_columns(dataset, description=description)
         else:
-            data_collator = self._get_collator_with_removed_columns(
-                self.data_collator, description=description
-            )
+            data_collator = self._get_collator_with_removed_columns(self.data_collator, description=description)
 
         dataloader_params = {
             "batch_size": batch_size,
@@ -290,17 +246,13 @@ class Trainer(HFTrainer):
             if count_num_items_in_batch:
                 # For now we don't support object detection
                 try:
-                    num_items_in_batch = sum(
-                        [(batch["labels"].ne(-100)).sum() for batch in batch_samples]
-                    )
+                    num_items_in_batch = sum([(batch["labels"].ne(-100)).sum() for batch in batch_samples])
                 except (TypeError, AttributeError):
                     pass
 
             if num_items_in_batch is not None:
                 if self.args.average_tokens_across_devices:
-                    num_items_in_batch = self.accelerator.gather(
-                        num_items_in_batch
-                    ).sum()
+                    num_items_in_batch = self.accelerator.gather(num_items_in_batch).sum()
 
                 if torch.is_tensor(num_items_in_batch):
                     num_items_in_batch = num_items_in_batch.to(device)
@@ -336,15 +288,11 @@ class Trainer(HFTrainer):
             # Only save Adapter
             keys_to_match = ["multi_modal_projector", "audio_modal_projector"]
 
-            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(
-                self.model.named_parameters(), keys_to_match
-            )
+            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(self.model.named_parameters(), keys_to_match)
 
             if self.args.local_rank == 0 or self.args.local_rank == -1:
                 self.model.config.save_pretrained(output_dir)
-                torch.save(
-                    weight_to_save, os.path.join(output_dir, f"mm_projector.bin")
-                )
+                torch.save(weight_to_save, os.path.join(output_dir, f"mm_projector.bin"))
         else:
             if self.args.fsdp2:
                 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
@@ -356,9 +304,7 @@ class Trainer(HFTrainer):
                     self.processing_class.save_pretrained(output_dir)
             super(Trainer, self)._save_checkpoint(model, trial)
 
-    def compute_loss(
-        self, model, inputs, return_outputs=False, num_items_in_batch=None
-    ):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if self.state.global_step == 0 or getattr(self, "cur_time", None) is None:
             self.cur_time = time.perf_counter()
             self.mfu = 0.0
@@ -367,31 +313,19 @@ class Trainer(HFTrainer):
             prev_time = self.cur_time
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
-            flops, promised_flops = model_utils.flops_counter.estimate_flops(
-                self.total_seq_len, delta_time=self.cur_time - prev_time
-            )
+            flops, promised_flops = model_utils.flops_counter.estimate_flops(self.total_seq_len, delta_time=self.cur_time - prev_time)
             flops_tensor = torch.tensor(flops, device=device)
-            torch.distributed.all_reduce(
-                flops_tensor, op=torch.distributed.ReduceOp.SUM
-            )
+            torch.distributed.all_reduce(flops_tensor, op=torch.distributed.ReduceOp.SUM)
             # Divide by the number of processes and the number of sequence parallel processes
             # Thus the mfu is within every dp group
             sp_size = pgm.process_group_manager.cp_world_size
-            self.mfu = (
-                flops_tensor.item() / self.args.world_size / sp_size / promised_flops
-            )
+            self.mfu = flops_tensor.item() / self.args.world_size / sp_size / promised_flops
             self.log({"mfu": round(self.mfu, 2)})
             self.flops = 0
             self.total_seq_len.clear()
 
         # Calculate the total number of tokens, sum at the row dimension
-        self.total_seq_len.extend(
-            inputs.get("attention_mask", torch.tensor(0))
-            .sum(dim=1)
-            .detach()
-            .cpu()
-            .tolist()
-        )
+        self.total_seq_len.extend(inputs.get("attention_mask", torch.tensor(0)).sum(dim=1).detach().cpu().tolist())
         loss, outputs = super().compute_loss(
             model=model,
             inputs=inputs,
@@ -430,12 +364,8 @@ class Trainer(HFTrainer):
                             "conv1d",
                             "rotary",
                         ]
-                        weight_decay = (
-                            args.weight_decay if name not in decay_parameters else 0.0
-                        )
-                        use_muon = (param.ndim == 2) and (
-                            not (any(pattern in name for pattern in patterns))
-                        )
+                        weight_decay = args.weight_decay if name not in decay_parameters else 0.0
+                        use_muon = (param.ndim == 2) and (not (any(pattern in name for pattern in patterns)))
                         param.use_muon = use_muon
                         if use_muon and weight_decay > 0.0:
                             decay_muon_params_list.append(param)

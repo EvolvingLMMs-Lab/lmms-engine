@@ -17,9 +17,7 @@ from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
     def _build_processor(self):
         model_path = getattr(self.config, "processor_path", self.config.processor_name)
-        processor = Qwen2_5OmniProcessor.from_pretrained(
-            model_path, trust_remote_code=True, local_files_only=False
-        )
+        processor = Qwen2_5OmniProcessor.from_pretrained(model_path, trust_remote_code=True, local_files_only=False)
 
         # Set image processor parameters
         image_max_pixels = self.config.extra_kwargs.get("image_max_pixels", None)
@@ -100,15 +98,9 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             output_kwargs = kwargs
 
         # Pop Qwen2.5-Omni specific parameters
-        use_audio_in_video = output_kwargs.get("videos_kwargs", {}).pop(
-            "use_audio_in_video", False
-        )
-        seconds_per_chunk = output_kwargs.get("videos_kwargs", {}).pop(
-            "seconds_per_chunk", None
-        )
-        position_id_per_seconds = output_kwargs.get("videos_kwargs", {}).pop(
-            "position_id_per_seconds", None
-        )
+        use_audio_in_video = output_kwargs.get("videos_kwargs", {}).pop("use_audio_in_video", False)
+        seconds_per_chunk = output_kwargs.get("videos_kwargs", {}).pop("seconds_per_chunk", None)
+        position_id_per_seconds = output_kwargs.get("videos_kwargs", {}).pop("position_id_per_seconds", None)
 
         image_inputs = {}
         videos_inputs = {}
@@ -127,15 +119,10 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
                     image = image.resize((height, 28))
                 new_images.append(image)
             images = new_images
-            image_inputs = self.processor.image_processor(
-                images, return_tensors="pt", **output_kwargs["images_kwargs"]
-            )
+            image_inputs = self.processor.image_processor(images, return_tensors="pt", **output_kwargs["images_kwargs"])
             image_inputs["image_sizes"] = image_inputs.pop("image_grid_thw")
             merge_size = self.processor.image_processor.merge_size
-            num_image_tokens = [
-                (image_size[-2] * image_size[-1]).item() // (merge_size**2)
-                for image_size in image_inputs["image_sizes"]
-            ]
+            num_image_tokens = [(image_size[-2] * image_size[-1]).item() // (merge_size**2) for image_size in image_inputs["image_sizes"]]
         else:
             num_image_tokens = None
 
@@ -148,26 +135,14 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             video_grid_thw = videos_inputs["video_grid_thw"]
             fps = output_kwargs["videos_kwargs"].get("fps", 2.0)
             if isinstance(fps, (int, float)):
-                second_per_grid_ts = [
-                    self.processor.video_processor.temporal_patch_size / fps
-                ] * len(video_grid_thw)
+                second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / fps] * len(video_grid_thw)
             elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
-                second_per_grid_ts = [
-                    self.processor.video_processor.temporal_patch_size / tmp
-                    for tmp in fps
-                ]
+                second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / tmp for tmp in fps]
             else:
-                raise ValueError(
-                    f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number."
-                )
-            videos_inputs.update(
-                {"video_second_per_grid": torch.tensor(second_per_grid_ts)}
-            )
+                raise ValueError(f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number.")
+            videos_inputs.update({"video_second_per_grid": torch.tensor(second_per_grid_ts)})
             merge_length = self.processor.video_processor.merge_size**2
-            num_video_tokens = [
-                (video_grid_thw[index].prod() // merge_length)
-                for index in range(len(video_grid_thw))
-            ]
+            num_video_tokens = [(video_grid_thw[index].prod() // merge_length) for index in range(len(video_grid_thw))]
         else:
             num_video_tokens = None
 
@@ -177,10 +152,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             output_kwargs["audio_kwargs"]["padding"] = "max_length"
             output_kwargs["audio_kwargs"]["return_attention_mask"] = True
             output_kwargs["audio_kwargs"]["return_tensors"] = "pt"
-            if (
-                sampling_rate is not None
-                and "sampling_rate" not in output_kwargs["audio_kwargs"]
-            ):
+            if sampling_rate is not None and "sampling_rate" not in output_kwargs["audio_kwargs"]:
                 output_kwargs["audio_kwargs"]["sampling_rate"] = sampling_rate
 
             audio_inputs = self.audio_processor(
@@ -188,9 +160,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
                 **output_kwargs["audio_kwargs"],
             )
             audio_inputs["feature_attention_mask"] = audio_inputs.pop("attention_mask")
-            audio_inputs["audio_feature_lengths"] = (
-                audio_inputs["feature_attention_mask"].sum(-1) - 1
-            ) // 2 + 1
+            audio_inputs["audio_feature_lengths"] = (audio_inputs["feature_attention_mask"].sum(-1) - 1) // 2 + 1
             num_audio_tokens = (audio_inputs["audio_feature_lengths"] - 2) // 2 + 1
         else:
             num_audio_tokens = None

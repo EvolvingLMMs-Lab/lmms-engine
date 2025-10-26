@@ -10,9 +10,7 @@ def _lazy_imports():  # pragma: no cover - runtime dependency check
         import requests
         from tqdm import tqdm
     except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "Please install 'requests' and 'tqdm' to enable LPIPS support."
-        ) from exc
+        raise ImportError("Please install 'requests' and 'tqdm' to enable LPIPS support.") from exc
     return requests, tqdm
 
 

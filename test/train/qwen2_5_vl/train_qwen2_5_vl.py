@@ -13,17 +13,11 @@ from lmms_engine.launch.cli import create_train_task
 
 def main():
     parser = argparse.ArgumentParser(description="Train Qwen2.5-VL model")
-    parser.add_argument(
-        "--output_dir", type=str, required=True, help="Output directory for training"
-    )
-    parser.add_argument(
-        "--nproc_per_node", type=int, default=1, help="Number of processes per node"
-    )
+    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for training")
+    parser.add_argument("--nproc_per_node", type=int, default=1, help="Number of processes per node")
     parser.add_argument("--nnodes", type=int, default=1, help="Number of nodes")
     parser.add_argument("--node_rank", type=int, default=0, help="Rank of this node")
-    parser.add_argument(
-        "--master_addr", type=str, default="127.0.0.1", help="Master address"
-    )
+    parser.add_argument("--master_addr", type=str, default="127.0.0.1", help="Master address")
     parser.add_argument("--master_port", type=str, default="8000", help="Master port")
 
     args = parser.parse_args()

@@ -175,12 +175,8 @@ class SiglipVisionEmbeddings(nn.Module):
                 device="meta",
             )
         else:
-            linear_patch_embedding = nn.Linear(
-                config.num_channels * self.patch_size**2, self.embed_dim, bias=True
-            )
-        W = self.patch_embedding.weight.permute(0, 2, 3, 1).reshape(
-            self.embed_dim, config.num_channels * self.patch_size**2
-        )
+            linear_patch_embedding = nn.Linear(config.num_channels * self.patch_size**2, self.embed_dim, bias=True)
+        W = self.patch_embedding.weight.permute(0, 2, 3, 1).reshape(self.embed_dim, config.num_channels * self.patch_size**2)
         linear_patch_embedding.weight.data = W
         linear_patch_embedding.bias.data = self.patch_embedding.bias.data
         del self.patch_embedding
@@ -193,9 +189,7 @@ class SiglipVisionEmbeddings(nn.Module):
     ) -> torch.Tensor:
         patch_embeds = self.patch_embedding(packed_pixel_values)
         if not self.config.rope:
-            embeddings = patch_embeds + self.position_embedding(
-                packed_flattened_position_ids
-            )
+            embeddings = patch_embeds + self.position_embedding(packed_flattened_position_ids)
         else:
             embeddings = patch_embeds
         return embeddings
@@ -315,9 +309,7 @@ class SiglipEncoder(nn.Module):
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
-        self.layers = nn.ModuleList(
-            [SiglipEncoderLayer(config) for _ in range(config.num_hidden_layers)]
-        )
+        self.layers = nn.ModuleList([SiglipEncoderLayer(config) for _ in range(config.num_hidden_layers)])
 
     def forward(
         self,

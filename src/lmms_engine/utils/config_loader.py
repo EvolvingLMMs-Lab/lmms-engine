@@ -43,9 +43,7 @@ def load_config(config_path: str) -> List[Dict[str, Any]]:
         elif suffix in [".yaml", ".yml"]:
             return yaml.safe_load(f)
         else:
-            raise ValueError(
-                f"Unsupported configuration file format: {suffix}. Use .json, .yaml, or .yml"
-            )
+            raise ValueError(f"Unsupported configuration file format: {suffix}. Use .json, .yaml, or .yml")
 
 
 def save_config(config: List[Dict[str, Any]], config_path: str) -> None:
@@ -67,6 +65,4 @@ def save_config(config: List[Dict[str, Any]], config_path: str) -> None:
         elif suffix in [".yaml", ".yml"]:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         else:
-            raise ValueError(
-                f"Unsupported configuration file format: {suffix}. Use .json, .yaml, or .yml"
-            )
+            raise ValueError(f"Unsupported configuration file format: {suffix}. Use .json, .yaml, or .yml")

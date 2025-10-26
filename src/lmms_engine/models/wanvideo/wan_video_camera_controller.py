@@ -16,14 +16,10 @@ class SimpleAdapter(nn.Module):
 
         # Convolution: reduce spatial dimensions by a factor
         #  of 2 (without overlap)
-        self.conv = nn.Conv2d(
-            in_dim * 64, out_dim, kernel_size=kernel_size, stride=stride, padding=0
-        )
+        self.conv = nn.Conv2d(in_dim * 64, out_dim, kernel_size=kernel_size, stride=stride, padding=0)
 
         # Residual blocks for feature extraction
-        self.residual_blocks = nn.Sequential(
-            *[ResidualBlock(out_dim) for _ in range(num_residual_blocks)]
-        )
+        self.residual_blocks = nn.Sequential(*[ResidualBlock(out_dim) for _ in range(num_residual_blocks)])
 
     def forward(self, x):
         # Reshape to merge the frame dimension into batch
@@ -49,9 +45,7 @@ class SimpleAdapter(nn.Module):
 
     def process_camera_coordinates(
         self,
-        direction: Literal[
-            "Left", "Right", "Up", "Down", "LeftUp", "LeftDown", "RightUp", "RightDown"
-        ],
+        direction: Literal["Left", "Right", "Up", "Down", "LeftUp", "LeftDown", "RightUp", "RightDown"],
         length: int,
         height: int,
         width: int,
@@ -141,9 +135,7 @@ def get_relative_pose(cam_params):
     abs_w2cs = [cam_param.w2c_mat for cam_param in cam_params]
     abs_c2ws = [cam_param.c2w_mat for cam_param in cam_params]
     cam_to_origin = 0
-    target_cam_c2w = np.array(
-        [[1, 0, 0, 0], [0, 1, 0, -cam_to_origin], [0, 0, 1, 0], [0, 0, 0, 1]]
-    )
+    target_cam_c2w = np.array([[1, 0, 0, 0], [0, 1, 0, -cam_to_origin], [0, 0, 1, 0], [0, 0, 0, 1]])
     abs2rel = target_cam_c2w @ abs_w2cs[0]
     ret_poses = [
         target_cam_c2w,
@@ -207,9 +199,7 @@ def process_pose_file(
         cam_params = [Camera(cam_param) for cam_param in cam_params]
 
         sample_wh_ratio = width / height
-        pose_wh_ratio = (
-            original_pose_width / original_pose_height
-        )  # Assuming placeholder ratios, change as needed
+        pose_wh_ratio = original_pose_width / original_pose_height  # Assuming placeholder ratios, change as needed
 
         if pose_wh_ratio > sample_wh_ratio:
             resized_ori_w = height * pose_wh_ratio
@@ -234,15 +224,9 @@ def process_pose_file(
         )
 
         K = torch.as_tensor(intrinsic)[None]  # [1, 1, 4]
-        c2ws = get_relative_pose(
-            cam_params
-        )  # Assuming this function is defined elsewhere
+        c2ws = get_relative_pose(cam_params)  # Assuming this function is defined elsewhere
         c2ws = torch.as_tensor(c2ws)[None]  # [1, n_frame, 4, 4]
-        plucker_embedding = (
-            ray_condition(K, c2ws, height, width, device=device)[0]
-            .permute(0, 3, 1, 2)
-            .contiguous()
-        )  # V, 6, H, W
+        plucker_embedding = ray_condition(K, c2ws, height, width, device=device)[0].permute(0, 3, 1, 2).contiguous()  # V, 6, H, W
         plucker_embedding = plucker_embedding[None]
         plucker_embedding = rearrange(plucker_embedding, "b f c h w -> b f h w c")[0]
         return plucker_embedding

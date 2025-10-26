@@ -117,9 +117,7 @@ class FSDP2SFTTrainer:
             param_dtype = torch.float16
 
         if self.args.gradient_checkpointing:
-            self.model.gradient_checkpointing_enable(
-                gradient_checkpointing_kwargs={"use_reentrant": False}
-            )
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         reduce_dtype = getattr(torch, self.args.reduce_dtype)
         output_dtype = getattr(torch, self.args.output_dtype)
@@ -130,15 +128,11 @@ class FSDP2SFTTrainer:
         )
 
         fsdp_kwargs = {
-            "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get(
-                "reshard_after_forward", True
-            ),
+            "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
             "mp_policy": mp_policy,
         }
 
-        transformer_cls_names_to_wrap = self.args.fsdp_config.get(
-            "transformer_layer_cls_to_wrap", None
-        )
+        transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)
         full_state = self.model.state_dict()
         logger.info(f"Applying FSDP2 to model")
         apply_fsdp2(self.model, fsdp_kwargs, transformer_cls_names_to_wrap)
@@ -183,9 +177,7 @@ class FSDP2SFTTrainer:
                 **self.args.lr_scheduler_kwargs,
             )
         else:
-            raise ValueError(
-                f"Unsupported lr_scheduler_type: {self.args.lr_scheduler_type}"
-            )
+            raise ValueError(f"Unsupported lr_scheduler_type: {self.args.lr_scheduler_type}")
 
     def compute_loss(self, batch):
         if self.args.bf16:
@@ -205,9 +197,7 @@ class FSDP2SFTTrainer:
             loss = loss.mean()
         loss_item = loss.item()
         loss.backward()
-        grad_norm = fsdp2_clip_grad_norm_(
-            self.fsdp2_model.parameters(), self.args.max_grad_norm
-        )
+        grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
 
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
@@ -242,11 +232,7 @@ class FSDP2SFTTrainer:
         # Validate config for IterableDataset and Dataset
         self.prepare_and_validate_config()
 
-        warmup_steps = (
-            int(self.total_steps * self.args.warmup_ratio)
-            if self.args.warmup_ratio > 0
-            else self.args.warmup_steps
-        )
+        warmup_steps = int(self.total_steps * self.args.warmup_ratio) if self.args.warmup_ratio > 0 else self.args.warmup_steps
         self.prepare_scheduler(warmup_steps, self.total_steps)
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -262,11 +248,7 @@ class FSDP2SFTTrainer:
         self.total_tokens = 0
         if resume_from_checkpoint:
             # Search for the latest checkpoint in the output_dir
-            checkpoints = [
-                f
-                for f in os.listdir(self.args.output_dir)
-                if f.startswith("checkpoint")
-            ]
+            checkpoints = [f for f in os.listdir(self.args.output_dir) if f.startswith("checkpoint")]
             checkpoints.sort(key=lambda x: int(x.split("-")[1]))
             latest_checkpoint = checkpoints[-1]
             self.load_checkpoints(
@@ -283,16 +265,12 @@ class FSDP2SFTTrainer:
             self.global_step = 0
             need_update_pbar = False
 
-        logger.info(
-            f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps"
-        )
+        logger.info(f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps")
         self.step_profiler.start()
 
         curr_epoch = start_epoch
 
-        pbar = tqdm(
-            total=self.total_steps, desc="Training", disable=dist.get_rank() != 0
-        )
+        pbar = tqdm(total=self.total_steps, desc="Training", disable=dist.get_rank() != 0)
         while not self.should_stop():
             if hasattr(self.train_dataloader.sampler, "set_epoch"):
                 self.train_dataloader.sampler.set_epoch(curr_epoch)
@@ -319,16 +297,8 @@ class FSDP2SFTTrainer:
                 delta_time = end_time - start_time
 
                 # Calculate flops per rank
-                seq_len = (
-                    batch.get("attention_mask", torch.zeros((1, 1)))
-                    .sum(dim=1)
-                    .detach()
-                    .cpu()
-                    .tolist()
-                )
-                flops, promised_flops = model_utils.flops_counter.estimate_flops(
-                    seq_len, delta_time=delta_time
-                )
+                seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
+                flops, promised_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)
                 sp_size = pgm.process_group_manager.cp_world_size
@@ -354,19 +324,14 @@ class FSDP2SFTTrainer:
                     self.tracking.log(train_metrics, step=self.global_step)
                 self.global_step += 1
                 if self.should_save:
-                    output_dir = os.path.join(
-                        self.args.output_dir, f"checkpoint-{self.global_step}"
-                    )
+                    output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
                     self.save_checkpoints(
                         output_dir,
                         self.global_step,
                         total_limit=self.args.save_total_limit,
                     )
 
-                if (
-                    self.args.torch_empty_cache_steps is not None
-                    and self.global_step % self.args.torch_empty_cache_steps == 0
-                ):
+                if self.args.torch_empty_cache_steps is not None and self.global_step % self.args.torch_empty_cache_steps == 0:
                     self.empty_cache()
                 pbar.update(1)
             curr_epoch += 1
@@ -376,12 +341,8 @@ class FSDP2SFTTrainer:
 
         pbar.close()
         # Save the final checkpoint
-        output_dir = os.path.join(
-            self.args.output_dir, f"checkpoint-{self.global_step}"
-        )
-        self.save_checkpoints(
-            output_dir, self.global_step, total_limit=self.args.save_total_limit
-        )
+        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
+        self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
@@ -425,9 +386,7 @@ class FSDP2SFTTrainer:
             f"dataloader_state_world_size_{world_size}_rank_{rank}.pt",
         )
         if rank == 0:
-            os.makedirs(
-                os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True
-            )
+            os.makedirs(os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True)
             os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
             os.makedirs(os.path.join(output_path, "extra_state"), exist_ok=True)
             os.makedirs(os.path.join(output_path, "dataloader_state"), exist_ok=True)
@@ -448,9 +407,7 @@ class FSDP2SFTTrainer:
         if rank == 0:
             self.processing_class.save_pretrained(output_path)
             self.model.config.save_pretrained(output_path)
-            self.remove_old_checkpoints(
-                self.args.output_dir, total_limit=self.args.save_total_limit
-            )
+            self.remove_old_checkpoints(self.args.output_dir, total_limit=self.args.save_total_limit)
 
         dist.barrier()
 
@@ -489,9 +446,7 @@ class FSDP2SFTTrainer:
         self.total_tokens = extra_state["total_tokens"]
         self.load_rng_state(extra_state["rng"])
         self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
-        self.train_dataloader.load_state_dict(
-            torch.load(dataloader_state_path, weights_only=False)
-        )
+        self.train_dataloader.load_state_dict(torch.load(dataloader_state_path, weights_only=False))
         logger.info(f"Loaded checkpoint from {output_path} at step {step}")
 
     def get_rng_state(self):
@@ -516,11 +471,7 @@ class FSDP2SFTTrainer:
             self.total_steps = self.args.max_steps
         else:
             self.steps_per_epoch = len(self.train_dataloader)
-            self.total_steps = (
-                self.steps_per_epoch * self.args.num_train_epochs
-                if self.args.max_steps < 0
-                else self.args.max_steps
-            )
+            self.total_steps = self.steps_per_epoch * self.args.num_train_epochs if self.args.max_steps < 0 else self.args.max_steps
 
     def should_stop(self):
         if self.global_step >= self.total_steps and self.total_steps > 0:
@@ -537,17 +488,10 @@ class FSDP2SFTTrainer:
         torch.cuda.empty_cache()
 
     def print_batch_input(self, batch):
-        if (
-            self.args.print_batch_input_steps > 0
-            and self.global_step % self.args.print_batch_input_steps == 0
-        ):
+        if self.args.print_batch_input_steps > 0 and self.global_step % self.args.print_batch_input_steps == 0:
             try:
                 input_ids = batch.get("input_ids", torch.tensor(0))
-                logger.info(
-                    self.processing_class.processor.batch_decode(
-                        input_ids, skip_special_tokens=True
-                    )[0]
-                )
+                logger.info(self.processing_class.processor.batch_decode(input_ids, skip_special_tokens=True)[0])
             except Exception as e:
                 logger.error(f"Error printing batch input: {e}")
 
@@ -595,19 +539,13 @@ class FSDP2SFTTrainer:
         # Avg seq len won't be effected by sp since we perform all reduce
         # across world size
         global_seq_len_avg = seq_len.sum()
-        torch.distributed.all_reduce(
-            global_seq_len_avg, op=torch.distributed.ReduceOp.AVG
-        )
+        torch.distributed.all_reduce(global_seq_len_avg, op=torch.distributed.ReduceOp.AVG)
         metrics["perf/global_seq_len_avg"] = global_seq_len_avg.item()
         global_seq_len_min = seq_len.sum()
-        torch.distributed.all_reduce(
-            global_seq_len_min, op=torch.distributed.ReduceOp.MIN
-        )
+        torch.distributed.all_reduce(global_seq_len_min, op=torch.distributed.ReduceOp.MIN)
         metrics["perf/global_seq_len_min"] = global_seq_len_min.item()
         global_seq_len_max = seq_len.sum()
-        torch.distributed.all_reduce(
-            global_seq_len_max, op=torch.distributed.ReduceOp.MAX
-        )
+        torch.distributed.all_reduce(global_seq_len_max, op=torch.distributed.ReduceOp.MAX)
         metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
 
         metrics["train/mfu"] = round(mfu, 2)

@@ -16,14 +16,10 @@ def create_sparse_mask(document_lens, split_lens, attn_modes, device):
         return q_idx >= kv_idx
 
     def full_and_noise_mask(b, h, q_idx, kv_idx):
-        return (full_and_noise_seq_id[q_idx] == full_and_noise_seq_id[kv_idx]) & (
-            full_and_noise_seq_id[q_idx] >= 0
-        )
+        return (full_and_noise_seq_id[q_idx] == full_and_noise_seq_id[kv_idx]) & (full_and_noise_seq_id[q_idx] >= 0)
 
     def remove_noise_mask(b, h, q_idx, kv_idx):
-        return ~(
-            (noise_seq_id[kv_idx] >= 0) & (noise_seq_id[q_idx] != noise_seq_id[kv_idx])
-        )
+        return ~((noise_seq_id[kv_idx] >= 0) & (noise_seq_id[q_idx] != noise_seq_id[kv_idx]))
 
     def sample_mask(b, h, q_idx, kv_idx):
         return document_id[q_idx] == document_id[kv_idx]
@@ -40,30 +36,22 @@ def create_sparse_mask(document_lens, split_lens, attn_modes, device):
     full_and_noise_seq_id = torch.Tensor(full_and_noise_tmp).to(device)
     noise_seq_id = torch.Tensor(noise_tmp).to(device)
 
-    document_id = torch.cat(
-        [torch.full((l,), i) for i, l in enumerate(document_lens, start=1)]
-    ).to(device)
+    document_id = torch.cat([torch.full((l,), i) for i, l in enumerate(document_lens, start=1)]).to(device)
 
-    return and_masks(
-        or_masks(causal_mask, full_and_noise_mask), remove_noise_mask, sample_mask
-    )
+    return and_masks(or_masks(causal_mask, full_and_noise_mask), remove_noise_mask, sample_mask)
 
 
 def patchify(image, patch_size):
     p = patch_size
     c, h, w = image.shape
-    assert (
-        h % p == 0 and w % p == 0
-    ), f"Image size {h}x{w} is not divisible by patch size {p}"
+    assert h % p == 0 and w % p == 0, f"Image size {h}x{w} is not divisible by patch size {p}"
     image = image.reshape(c, h // p, p, w // p, p)
     image = torch.einsum("chpwq->hwpqc", image)
     image = image.reshape(-1, p**2 * c)
     return image
 
 
-def get_flattened_position_ids_extrapolate(
-    img_h, img_w, patch_size, max_num_patches_per_side
-):
+def get_flattened_position_ids_extrapolate(img_h, img_w, patch_size, max_num_patches_per_side):
     num_patches_h, num_patches_w = img_h // patch_size, img_w // patch_size
     coords_h = torch.arange(0, num_patches_h)
     coords_w = torch.arange(0, num_patches_w)
@@ -71,20 +59,14 @@ def get_flattened_position_ids_extrapolate(
     return pos_ids
 
 
-def get_flattened_position_ids_interpolate(
-    img_h, img_w, patch_size, max_num_patches_per_side
-):
+def get_flattened_position_ids_interpolate(img_h, img_w, patch_size, max_num_patches_per_side):
     num_patches_h, num_patches_w = img_h // patch_size, img_w // patch_size
-    boundaries = torch.arange(
-        1 / max_num_patches_per_side, 1.0, 1 / max_num_patches_per_side
-    )
+    boundaries = torch.arange(1 / max_num_patches_per_side, 1.0, 1 / max_num_patches_per_side)
     fractional_coords_h = torch.arange(0, 1 - 1e-6, 1 / num_patches_h)
     fractional_coords_w = torch.arange(0, 1 - 1e-6, 1 / num_patches_w)
     bucket_coords_h = torch.bucketize(fractional_coords_h, boundaries, right=True)
     bucket_coords_w = torch.bucketize(fractional_coords_w, boundaries, right=True)
-    pos_ids = (
-        bucket_coords_h[:, None] * max_num_patches_per_side + bucket_coords_w
-    ).flatten()
+    pos_ids = (bucket_coords_h[:, None] * max_num_patches_per_side + bucket_coords_w).flatten()
     return pos_ids
 
 
@@ -95,17 +77,13 @@ def prepare_attention_mask_per_sample(split_lens, attn_modes, device="cpu"):
     nested_attn_modes: whether to use full attn in each split.
     """
     sample_len = sum(split_lens)
-    attention_mask = torch.zeros(
-        (sample_len, sample_len), dtype=torch.bool, device=device
-    )
+    attention_mask = torch.zeros((sample_len, sample_len), dtype=torch.bool, device=device)
 
     csum = 0
     for s, attn_mode in zip(split_lens, attn_modes):
         assert attn_mode in ["causal", "full", "noise"]
         if attn_mode == "causal":
-            attention_mask[csum : csum + s, csum : csum + s] = torch.ones(
-                (s, s), device=device
-            ).tril()
+            attention_mask[csum : csum + s, csum : csum + s] = torch.ones((s, s), device=device).tril()
             attention_mask[csum : csum + s, :csum] = 1
         else:
             attention_mask[csum : csum + s, csum : csum + s] = torch.ones((s, s))
@@ -119,9 +97,7 @@ def prepare_attention_mask_per_sample(split_lens, attn_modes, device="cpu"):
             attention_mask[csum : csum + s, csum : csum + s] = torch.ones((s, s))
         csum += s
 
-    attention_mask = torch.zeros_like(attention_mask, dtype=torch.float).masked_fill_(
-        ~attention_mask, float("-inf")
-    )
+    attention_mask = torch.zeros_like(attention_mask, dtype=torch.float).masked_fill_(~attention_mask, float("-inf"))
 
     return attention_mask
 

@@ -15,9 +15,7 @@ try:
     from liger_kernel.transformers.rope import liger_rotary_pos_emb
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
-    print(
-        "liger kernel not installed, please install it with `pip install liger-kernel`"
-    )
+    print("liger kernel not installed, please install it with `pip install liger-kernel`")
 
 import transformers
 from transformers import PreTrainedModel
@@ -39,9 +37,7 @@ def apply_liger_kernel_to_aero(
     model: PreTrainedModel = None,
     use_rmpad: bool = False,
 ) -> None:
-    assert not (
-        cross_entropy and fused_linear_cross_entropy
-    ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
+    assert not (cross_entropy and fused_linear_cross_entropy), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
     from transformers.models.qwen2 import modeling_qwen2
     from transformers.models.qwen2.modeling_qwen2 import Qwen2Model

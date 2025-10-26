@@ -69,9 +69,7 @@ def sinusoidal_embedding_1d(dim, position):
         position.type(torch.float64),
         torch.pow(
             10000,
-            -torch.arange(dim // 2, dtype=torch.float64, device=position.device).div(
-                dim // 2
-            ),
+            -torch.arange(dim // 2, dtype=torch.float64, device=position.device).div(dim // 2),
         ),
     )
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
@@ -205,7 +203,9 @@ class WanDiTBlock(GradientCheckpointingLayer):
             shift_mlp,
             scale_mlp,
             gate_mlp,
-        ) = self.adaLN_modulation(conditioning).chunk(6, dim=-1)
+        ) = self.adaLN_modulation(
+            conditioning
+        ).chunk(6, dim=-1)
 
         # Self-attention with adaptive layer norm
         normed = self.norm1(hidden_states)
@@ -257,9 +257,7 @@ class WanDiT(nn.Module):
         )
 
         # Transformer blocks
-        self.blocks = nn.ModuleList(
-            [WanDiTBlock(config, idx) for idx in range(config.dit_num_layers)]
-        )
+        self.blocks = nn.ModuleList([WanDiTBlock(config, idx) for idx in range(config.dit_num_layers)])
 
         # Text projection layer
         if config.text_encoder_hidden_size != config.dit_hidden_size:
@@ -275,10 +273,7 @@ class WanDiT(nn.Module):
         self.norm_out = RMSNorm(config.dit_hidden_size)
         self.proj_out = nn.Linear(
             config.dit_hidden_size,
-            config.dit_patch_size_t
-            * config.dit_patch_size
-            * config.dit_patch_size
-            * config.dit_in_channels,
+            config.dit_patch_size_t * config.dit_patch_size * config.dit_patch_size * config.dit_in_channels,
             bias=False,
         )
 
@@ -372,9 +367,7 @@ class WanVideoPreTrainedModel(PreTrainedModel):
             if module.bias is not None:
                 module.bias.data.zero_()
 
-    def _set_gradient_checkpointing(
-        self, enable: bool = True, gradient_checkpointing_func=None
-    ):
+    def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func=None):
         if enable:
             self.gradient_checkpointing = True
             # Set gradient checkpointing for DiT module
@@ -497,9 +490,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             return_dict: Whether to return ModelOutput
             # use_gradient_checkpointing: Whether to use gradient checkpointing
         """
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         # use_gradient_checkpointing = (
         #     use_gradient_checkpointing
         #     if use_gradient_checkpointing is not None
@@ -524,9 +515,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         elif input_ids is not None and self.text_encoder is not None:
             # Use text encoder if available
 
-            text_embeddings = self.text_encoder(
-                input_ids, attention_mask=attention_mask
-            )[0]
+            text_embeddings = self.text_encoder(input_ids, attention_mask=attention_mask)[0]
 
         # Training mode
         # (B, T, C, H, W)

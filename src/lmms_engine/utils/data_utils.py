@@ -46,9 +46,7 @@ class DataUtilities:
         return data_list
 
     @staticmethod
-    def maybe_load_json_or_jsonlines_or_csv(
-        path: str, data_type: Literal["json", "jsonl", "csv"]
-    ) -> List[Dict[str, List]]:
+    def maybe_load_json_or_jsonlines_or_csv(path: str, data_type: Literal["json", "jsonl", "csv"]) -> List[Dict[str, List]]:
         if data_type == "json":
             return DataUtilities.load_json(path)
         elif data_type == "jsonl":
@@ -59,9 +57,7 @@ class DataUtilities:
             raise NotImplementedError
 
     @staticmethod
-    def maybe_load_by_type(
-        path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]
-    ) -> Union[List[Dict[str, List]], Dataset]:
+    def maybe_load_by_type(path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]) -> Union[List[Dict[str, List]], Dataset]:
         if data_type == "arrow":
             dataset = load_from_disk(path)
         elif data_type == "parquet":
@@ -92,13 +88,9 @@ class DataUtilities:
             data_types = [dataset.get("data_type") for dataset in datasets]
             with Pool(cpu_count()) as p:
                 logger.info("Loading data with multiprocess...")
-                nested_data_list = list(
-                    p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
-                )
+                nested_data_list = list(p.imap(DataUtilities.wrap_func, zip(data_paths, data_types)))
 
-            for data, data_folder, data_path in zip(
-                nested_data_list, data_folders, data_paths
-            ):
+            for data, data_folder, data_path in zip(nested_data_list, data_folders, data_paths):
                 logger.info(f"Data : {data_path}")
                 if isinstance(data, Dataset):
                     data_list.append(data)
@@ -136,16 +128,12 @@ class DataUtilities:
             int: the number of frames for video used for model inputs.
         """
         min_frames = DataUtilities.ceil_by_factor(FPS_MIN_FRAMES, FRAME_FACTOR)
-        max_frames = DataUtilities.floor_by_factor(
-            min(FPS_MAX_FRAMES, total_frames), FRAME_FACTOR
-        )
+        max_frames = DataUtilities.floor_by_factor(min(FPS_MAX_FRAMES, total_frames), FRAME_FACTOR)
         nframes = total_frames / video_fps * fps
         nframes = min(min(max(nframes, min_frames), max_frames), total_frames)
         nframes = DataUtilities.floor_by_factor(nframes, FRAME_FACTOR)
         if not (FRAME_FACTOR <= nframes and nframes <= total_frames):
-            raise ValueError(
-                f"nframes should in interval [{FRAME_FACTOR}, {total_frames}], but got {nframes}."
-            )
+            raise ValueError(f"nframes should in interval [{FRAME_FACTOR}, {total_frames}], but got {nframes}.")
         return nframes
 
     @staticmethod
@@ -179,9 +167,7 @@ class DataUtilities:
                     blob = bucket.blob(source_blob_name)
                     blob.download_to_file(file_obj)
                 elif storage_type == "azure":
-                    blob_client = storage_client.get_blob_client(
-                        container=bucket_name, blob=source_blob_name
-                    )
+                    blob_client = storage_client.get_blob_client(container=bucket_name, blob=source_blob_name)
                     blob_client.download_blob().readinto(file_obj)
                 break
             except Exception as e:
@@ -192,12 +178,8 @@ class DataUtilities:
         return file_obj
 
     @staticmethod
-    def resample_audio(
-        audio_array: np.ndarray, original_sr: int, target_sr: int
-    ) -> np.ndarray:
-        audio_resample_array = resample(
-            audio_array, orig_sr=original_sr, target_sr=target_sr
-        )
+    def resample_audio(audio_array: np.ndarray, original_sr: int, target_sr: int) -> np.ndarray:
+        audio_resample_array = resample(audio_array, orig_sr=original_sr, target_sr=target_sr)
         return audio_resample_array
 
     @staticmethod
@@ -224,13 +206,9 @@ class DataUtilities:
 
         with Pool(cpu_count()) as p:
             logger.info("Loading data with multiprocess...")
-            nested_data_list = list(
-                p.imap(DataUtilities.wrap_func, zip(data_paths, data_types))
-            )
+            nested_data_list = list(p.imap(DataUtilities.wrap_func, zip(data_paths, data_types)))
 
-        for data, data_folder, data_path in zip(
-            nested_data_list, data_folders, data_paths
-        ):
+        for data, data_folder, data_path in zip(nested_data_list, data_folders, data_paths):
             logger.info(f"Data : {data_path}")
             if isinstance(data, Dataset):
                 data_list.append(data)

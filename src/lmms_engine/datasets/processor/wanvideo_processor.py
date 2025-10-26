@@ -28,9 +28,7 @@ class WanVideoDataProcessor:
         self.processor = WanVideoModelProcessor(**wanvideo_kwargs)
         self.tokenizer = self.processor.tokenizer
 
-    def process(
-        self, images: List[Image.Image], hf_messages, videos=None, **kwargs
-    ) -> Dict[str, Any]:
+    def process(self, images: List[Image.Image], hf_messages, videos=None, **kwargs) -> Dict[str, Any]:
         """
         Process a single sample for WanVideo training.
 

@@ -44,22 +44,14 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         self.encoder_input_size = self.encoder_config.image_size
         self.encoder_patch_size = self.encoder_config.patch_size
         self.latent_dim = self.encoder_config.hidden_size
-        assert (
-            self.encoder_input_size % self.encoder_patch_size == 0
-        ), f"encoder_input_size {self.encoder_input_size} must be divisible by encoder_patch_size {self.encoder_patch_size}"
-        self.base_patches = (
-            self.encoder_input_size // self.encoder_patch_size
-        ) ** 2  # number of patches of the latent
+        assert self.encoder_input_size % self.encoder_patch_size == 0, f"encoder_input_size {self.encoder_input_size} must be divisible by encoder_patch_size {self.encoder_patch_size}"
+        self.base_patches = (self.encoder_input_size // self.encoder_patch_size) ** 2  # number of patches of the latent
 
         # decoder
         decoder_config = self.decoder_config
-        decoder_config.hidden_size = (
-            self.latent_dim
-        )  # set the hidden size of the decoder to be the same as the encoder's output
+        decoder_config.hidden_size = self.latent_dim  # set the hidden size of the decoder to be the same as the encoder's output
         decoder_config.patch_size = self.encoder_patch_size
-        decoder_config.image_size = int(
-            self.encoder_patch_size * sqrt(self.base_patches)
-        )
+        decoder_config.image_size = int(self.encoder_patch_size * sqrt(self.base_patches))
         self.decoder = GeneralDecoder(decoder_config, num_patches=self.base_patches)
         self.noise_tau = config.noise_tau
         logger.info(f"[RAE SigLIP] Noise tau: {self.noise_tau}")
@@ -91,9 +83,7 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         encoder.requires_grad_(False)
         self.encoder = encoder
 
-        self.decoder = GeneralDecoder(
-            self.decoder_config, num_patches=self.base_patches
-        )
+        self.decoder = GeneralDecoder(self.decoder_config, num_patches=self.base_patches)
 
         self.post_init()
 
@@ -101,9 +91,7 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
     def encode(self, pixel_values, interpolate_pos_encoding: bool = False, **kwargs):
         filtered_kwargs = {k: v for k, v in kwargs.items() if k != "attention_mask"}
         if pixel_values.dim() != 4:
-            raise ValueError(
-                "pixel_values must be a 4D tensor [batch, channels, height, width]."
-            )
+            raise ValueError("pixel_values must be a 4D tensor [batch, channels, height, width].")
         pixel_values = pixel_values.to(dtype=self.encoder_mean.dtype)
         _, _, height, width = pixel_values.shape
         if height != self.encoder_input_size or width != self.encoder_input_size:
@@ -124,28 +112,18 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         hidden_states = outputs.last_hidden_state
         if self.training and self.noise_tau > 0:
             shape = (hidden_states.size(0),) + (1,) * (hidden_states.dim() - 1)
-            noise_sigma = self.noise_tau * torch.rand(
-                shape, device=hidden_states.device, dtype=hidden_states.dtype
-            )
-            hidden_states = hidden_states + noise_sigma * torch.randn_like(
-                hidden_states
-            )
+            noise_sigma = self.noise_tau * torch.rand(shape, device=hidden_states.device, dtype=hidden_states.dtype)
+            hidden_states = hidden_states + noise_sigma * torch.randn_like(hidden_states)
 
         if self.reshape_to_2d:
             batch_size, num_tokens, hidden = hidden_states.shape
             side = int(math.sqrt(num_tokens))
             if side * side != num_tokens:
-                raise ValueError(
-                    f"Cannot reshape latent with {num_tokens} tokens into square grid."
-                )
-            hidden_states = hidden_states.transpose(1, 2).reshape(
-                batch_size, hidden, side, side
-            )
+                raise ValueError(f"Cannot reshape latent with {num_tokens} tokens into square grid.")
+            hidden_states = hidden_states.transpose(1, 2).reshape(batch_size, hidden, side, side)
         if self.do_normalization:
             # Buffers are automatically moved to the correct device
-            hidden_states = (hidden_states - self.latent_mean) / torch.sqrt(
-                self.latent_var + self.eps
-            )
+            hidden_states = (hidden_states - self.latent_mean) / torch.sqrt(self.latent_var + self.eps)
 
         outputs.last_hidden_state = hidden_states
         return outputs
@@ -162,16 +140,12 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
             batch, seq_len, dim = hidden_states.shape
             side = int(math.sqrt(seq_len))
             if side * side != seq_len:
-                raise ValueError(
-                    f"Cannot reshape latent with {seq_len} tokens into square grid."
-                )
+                raise ValueError(f"Cannot reshape latent with {seq_len} tokens into square grid.")
             latent = hidden_states.transpose(1, 2).reshape(batch, dim, side, side)
         elif hidden_states.dim() == 3:
             latent = hidden_states
         else:
-            raise ValueError(
-                "decoder expects latent states as (batch, seq_len, dim) or (batch, dim, h, w)."
-            )
+            raise ValueError("decoder expects latent states as (batch, seq_len, dim) or (batch, dim, h, w).")
 
         if self.do_normalization:
             # Buffers are automatically moved to the correct device

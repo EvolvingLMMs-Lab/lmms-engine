@@ -24,9 +24,7 @@ def load_state_dict(directory_path):
 
     # tied wieghts so lm.head is not saved. Let's clone to load state dict
     if "lm_head.weight" not in original_state_dict:
-        original_state_dict["lm_head.weight"] = original_state_dict[
-            "model.embed_tokens.weight"
-        ].clone()
+        original_state_dict["lm_head.weight"] = original_state_dict["model.embed_tokens.weight"].clone()
 
     return original_state_dict
 
@@ -90,9 +88,7 @@ def merge_adapters(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[
-        0
-    ].strip()
+    generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
     print("Generated text:", repr(generated_text))
     processor.save_pretrained(output_path)

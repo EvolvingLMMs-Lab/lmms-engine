@@ -10,9 +10,7 @@ from lmms_engine.train import TrainerConfig, TrainingArguments
 
 
 def generate_default_yaml(model_name="Qwen/Qwen2.5-VL-7B-Instruct"):
-    processor_config = ProcessorConfig(
-        processor_name=model_name, processor_type="qwen2_5_vl"
-    )
+    processor_config = ProcessorConfig(processor_name=model_name, processor_type="qwen2_5_vl")
     model_config = ModelConfig(load_from_pretrained_path=model_name)
     dataset_config = DatasetConfig(
         dataset_type="vision_iterable",
@@ -47,9 +45,7 @@ if __name__ == "__main__":
 
     # Define output path relative to this file
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(
-        script_dir, "../../src/lmms_engine/launch/config/default_config.yaml"
-    )
+    output_path = os.path.join(script_dir, "../../src/lmms_engine/launch/config/default_config.yaml")
     output_path = os.path.abspath(output_path)
 
     # Create directory if it doesn't exist

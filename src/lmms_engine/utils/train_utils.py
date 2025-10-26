@@ -85,13 +85,9 @@ class TrainUtilities:
                 if content["type"] == "image_url":
                     new_message["content"].append({"type": "image"})
                 elif content["type"] == "audio_url":
-                    new_message["content"].append(
-                        {"type": "audio", "audio_url": content["audio_url"]["url"]}
-                    )
+                    new_message["content"].append({"type": "audio", "audio_url": content["audio_url"]["url"]})
                 elif content["type"] == "video_url":
-                    new_message["content"].append(
-                        {"type": "video", "video_url": content["video_url"]["url"]}
-                    )
+                    new_message["content"].append({"type": "video", "video_url": content["video_url"]["url"]})
                 else:
                     new_content = {"type": "text", "text": content["text"]}
                     if "audio_text" in content:
@@ -102,9 +98,7 @@ class TrainUtilities:
         return hf_messages
 
     @staticmethod
-    def sanity_check_labels(
-        processor: AutoProcessor, input_ids: torch.Tensor, labels: torch.Tensor
-    ):
+    def sanity_check_labels(processor: AutoProcessor, input_ids: torch.Tensor, labels: torch.Tensor):
         print(" ======== Inputs ========")
         for o in processor.batch_decode(input_ids):
             print(o)
@@ -151,15 +145,8 @@ class TrainUtilities:
 
     @staticmethod
     def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
-        to_return = {
-            k: t
-            for k, t in named_params
-            if any(key_match in k for key_match in keys_to_match)
-        }
-        to_return = {
-            k: TrainUtilities.maybe_zero_3(v, ignore_status=True).cpu()
-            for k, v in to_return.items()
-        }
+        to_return = {k: t for k, t in named_params if any(key_match in k for key_match in keys_to_match)}
+        to_return = {k: TrainUtilities.maybe_zero_3(v, ignore_status=True).cpu() for k, v in to_return.items()}
         return to_return
 
     @staticmethod
@@ -170,9 +157,7 @@ class TrainUtilities:
         if hasattr(param, "ds_id"):
             if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
                 if not ignore_status:
-                    logger.warning(
-                        f"{name}: param.ds_status != ZeroParamStatus.NOT_AVAILABLE: {param.ds_status}"
-                    )
+                    logger.warning(f"{name}: param.ds_status != ZeroParamStatus.NOT_AVAILABLE: {param.ds_status}")
             with zero.GatheredParameters([param]):
                 param = param.data.detach().cpu().clone()
         else:
@@ -208,71 +193,20 @@ class TrainUtilities:
         # decoder
         # self attention
         ## qkv projection
-        qkv_proj_flops_fwd = (
-            2
-            * num_layers
-            * batch_size
-            * seq_len
-            * (hidden_size)
-            * num_heads
-            * hidden_size_per_head
-            + 2
-            * num_layers
-            * batch_size
-            * seq_len
-            * (hidden_size)
-            * 2
-            * num_key_value_heads
-            * hidden_size_per_head
-        )
+        qkv_proj_flops_fwd = 2 * num_layers * batch_size * seq_len * (hidden_size) * num_heads * hidden_size_per_head + 2 * num_layers * batch_size * seq_len * (hidden_size) * 2 * num_key_value_heads * hidden_size_per_head
         ## qk logits
-        qk_logits_flops_fwd = (
-            2
-            * num_layers
-            * batch_size
-            * num_heads
-            * seq_len
-            * (hidden_size_per_head)
-            * seq_len
-        )
+        qk_logits_flops_fwd = 2 * num_layers * batch_size * num_heads * seq_len * (hidden_size_per_head) * seq_len
         ## v logits
-        v_logits_flops_fwd = (
-            2
-            * num_layers
-            * batch_size
-            * num_heads
-            * seq_len
-            * (seq_len)
-            * hidden_size_per_head
-        )
+        v_logits_flops_fwd = 2 * num_layers * batch_size * num_heads * seq_len * (seq_len) * hidden_size_per_head
         ## attn out
-        attn_out_flops_fwd = (
-            2
-            * num_layers
-            * batch_size
-            * num_heads
-            * seq_len
-            * (hidden_size_per_head)
-            * hidden_size
-        )
+        attn_out_flops_fwd = 2 * num_layers * batch_size * num_heads * seq_len * (hidden_size_per_head) * hidden_size
         # FF
         ## 1st layer
-        ffn_1_flops_fwd = (
-            4 * num_layers * batch_size * seq_len * (hidden_size) * ffn_hidden_size
-        )
+        ffn_1_flops_fwd = 4 * num_layers * batch_size * seq_len * (hidden_size) * ffn_hidden_size
         ## 2nd layer
-        ffn_2_flops_fwd = (
-            2 * num_layers * batch_size * seq_len * (ffn_hidden_size) * hidden_size
-        )
+        ffn_2_flops_fwd = 2 * num_layers * batch_size * seq_len * (ffn_hidden_size) * hidden_size
 
-        flops_fwd = (
-            qkv_proj_flops_fwd
-            + qk_logits_flops_fwd
-            + v_logits_flops_fwd
-            + attn_out_flops_fwd
-            + ffn_1_flops_fwd
-            + ffn_2_flops_fwd
-        )
+        flops_fwd = qkv_proj_flops_fwd + qk_logits_flops_fwd + v_logits_flops_fwd + attn_out_flops_fwd + ffn_1_flops_fwd + ffn_2_flops_fwd
         return flops_fwd
 
     @staticmethod
@@ -314,9 +248,7 @@ class TrainUtilities:
 
         # the bwd pass requires double the flops in case of matmuls to calculate the gradients with respect to
         # both input and weight tensors
-        model_flops = 3 * (
-            decoder_flops_fwd + lm_head_flops_fwd
-        )  # 1 for fwd + 2 for bwd
+        model_flops = 3 * (decoder_flops_fwd + lm_head_flops_fwd)  # 1 for fwd + 2 for bwd
 
         return model_flops
 
@@ -353,11 +285,7 @@ class TrainUtilities:
             for checkpoint_key in loaded_keys:
                 model_key = checkpoint_key
 
-                if (
-                    model_key in model_state_dict
-                    and state_dict[checkpoint_key].shape
-                    != model_state_dict[model_key].shape
-                ):
+                if model_key in model_state_dict and state_dict[checkpoint_key].shape != model_state_dict[model_key].shape:
                     mismatched_keys.append(
                         (
                             checkpoint_key,
@@ -383,9 +311,7 @@ class TrainUtilities:
                 # because zero3 puts placeholders in model params, this context
                 # manager gathers (unpartitions) the params of the current layer, then loads from
                 # the state dict and then re-partitions them again
-                with deepspeed.zero.GatheredParameters(
-                    list(module.parameters(recurse=False)), modifier_rank=0
-                ):
+                with deepspeed.zero.GatheredParameters(list(module.parameters(recurse=False)), modifier_rank=0):
                     if torch.distributed.get_rank() == 0:
                         module._load_from_state_dict(*args)
             else:
@@ -404,9 +330,7 @@ class TrainUtilities:
             error_msg = "\n\t".join(error_msgs)
             if "size mismatch" in error_msg:
                 error_msg += "\n\tYou may consider adding `ignore_mismatched_sizes=True` in the model `from_pretrained` method."
-            raise RuntimeError(
-                f"Error(s) in loading state_dict for {model.__class__.__name__}:\n\t{error_msg}"
-            )
+            raise RuntimeError(f"Error(s) in loading state_dict for {model.__class__.__name__}:\n\t{error_msg}")
         if len(unexpected_keys) > 0:
             logging.warning(
                 f"Some weights of the model checkpoint at {pretrained_model_path} were not used when"
@@ -418,9 +342,7 @@ class TrainUtilities:
                 " (initializing a BertForSequenceClassification model from a BertForSequenceClassification model)."
             )
         else:
-            logging.info(
-                f"All model checkpoint weights were used when initializing {model.__class__.__name__}.\n"
-            )
+            logging.info(f"All model checkpoint weights were used when initializing {model.__class__.__name__}.\n")
         if len(missing_keys) > 0:
             logging.warning(
                 f"Some weights of {model.__class__.__name__} were not initialized from the model checkpoint at"
@@ -435,12 +357,7 @@ class TrainUtilities:
                 " training."
             )
         if len(mismatched_keys) > 0:
-            mismatched_warning = "\n".join(
-                [
-                    f"- {key}: found shape {shape1} in the checkpoint and {shape2} in the model instantiated"
-                    for key, shape1, shape2 in mismatched_keys
-                ]
-            )
+            mismatched_warning = "\n".join([f"- {key}: found shape {shape1} in the checkpoint and {shape2} in the model instantiated" for key, shape1, shape2 in mismatched_keys])
             logging.warning(
                 f"Some weights of {model.__class__.__name__} were not initialized from the model checkpoint at"
                 f" {pretrained_model_path} and are newly initialized because the shapes did not"

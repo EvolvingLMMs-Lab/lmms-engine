@@ -56,9 +56,7 @@ def load_image():
     return image
 
 
-def convert_llava_to_hf(
-    model_id, pytorch_dump_folder_path, audio_model_id, with_out_init=False
-):
+def convert_llava_to_hf(model_id, pytorch_dump_folder_path, audio_model_id, with_out_init=False):
     if not with_out_init:
         # load original config
         text_model_id = model_id
@@ -67,15 +65,9 @@ def convert_llava_to_hf(
         text_config = AutoConfig.from_pretrained(text_model_id)
 
         tokenizer = AutoTokenizer.from_pretrained(text_model_id, use_fast=True)
-        tokenizer.add_tokens(
-            AddedToken("<image>", special=True, normalized=False), special_tokens=True
-        )
-        tokenizer.add_tokens(
-            AddedToken("<video>", special=True, normalized=False), special_tokens=True
-        )
-        tokenizer.add_tokens(
-            AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True
-        )
+        tokenizer.add_tokens(AddedToken("<image>", special=True, normalized=False), special_tokens=True)
+        tokenizer.add_tokens(AddedToken("<video>", special=True, normalized=False), special_tokens=True)
+        tokenizer.add_tokens(AddedToken("<|AUDIO|>", special=True, normalized=False), special_tokens=True)
         image_token_id = tokenizer.convert_tokens_to_ids("<image>")
         video_token_id = tokenizer.convert_tokens_to_ids("<video>")
         audio_token_id = tokenizer.convert_tokens_to_ids("<|AUDIO|>")
@@ -111,15 +103,9 @@ def convert_llava_to_hf(
 
         with init_empty_weights():
             model = AeroForConditionalGeneration(config)
-        text_model = AutoModelForCausalLM.from_pretrained(
-            text_model_id, torch_dtype="auto", device_map="cuda:0"
-        )
+        text_model = AutoModelForCausalLM.from_pretrained(text_model_id, torch_dtype="auto", device_map="cuda:0")
         audio_modal_projector = PROJECTOR_MAP[model.audio_tower_type](config)
-        std = (
-            config.initializer_range
-            if hasattr(config, "initializer_range")
-            else config.text_config.initializer_range
-        )
+        std = config.initializer_range if hasattr(config, "initializer_range") else config.text_config.initializer_range
         audio_modal_projector.linear.weight.data.normal_(mean=0.0, std=std)
         audio_modal_projector.linear.bias.data.zero_()
         model.audio_modal_projector = audio_modal_projector
@@ -130,12 +116,8 @@ def convert_llava_to_hf(
         pre_expansion_embeddings = model.language_model.model.embed_tokens.weight.data
         mu = torch.mean(pre_expansion_embeddings, dim=0).float()
         n = pre_expansion_embeddings.size()[0]
-        sigma = (
-            (pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)
-        ) / n
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
-            mu, covariance_matrix=1e-5 * sigma
-        )
+        sigma = ((pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)) / n
+        dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, covariance_matrix=1e-5 * sigma)
 
         # We add an image token so we resize the model
         # Pad to 64 for performance reasons
@@ -145,33 +127,15 @@ def convert_llava_to_hf(
         num_tokens = vocab_size + 3
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.model.embed_tokens.weight.data[
-                            vocab_size:
-                        ].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.lm_head.weight.data[vocab_size:].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.lm_head.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
 
-        print(
-            f"Saving model and processor for {model_id} to {pytorch_dump_folder_path}"
-        )
+        print(f"Saving model and processor for {model_id} to {pytorch_dump_folder_path}")
         Path(pytorch_dump_folder_path).mkdir(exist_ok=True)
         model.save_pretrained(pytorch_dump_folder_path)
         processor.save_pretrained(pytorch_dump_folder_path)

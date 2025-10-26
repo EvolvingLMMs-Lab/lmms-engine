@@ -47,32 +47,16 @@ def encoder_forward(
     output_hidden_states=None,
     return_dict=None,
 ):
-    expected_seq_length = (
-        self.config.max_source_positions * self.conv1.stride[0] * self.conv2.stride[0]
-    )
+    expected_seq_length = self.config.max_source_positions * self.conv1.stride[0] * self.conv2.stride[0]
     if input_features.shape[-1] != expected_seq_length:
-        raise ValueError(
-            f"Qwen2Audio expects the mel input features to be of length {expected_seq_length}, but found {input_features.shape[-1]}. Make sure to pad the input mel features to {expected_seq_length}."
-        )
+        raise ValueError(f"Qwen2Audio expects the mel input features to be of length {expected_seq_length}, but found {input_features.shape[-1]}. Make sure to pad the input mel features to {expected_seq_length}.")
 
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
-    output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
-    )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     # Ignore copy
-    input_features = input_features.to(
-        dtype=self.conv1.weight.dtype, device=self.conv1.weight.device
-    )
+    input_features = input_features.to(dtype=self.conv1.weight.dtype, device=self.conv1.weight.device)
 
     inputs_embeds = nn.functional.gelu(self.conv1(input_features))
     inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
@@ -81,23 +65,17 @@ def encoder_forward(
     embed_pos = self.embed_positions.weight
 
     hidden_states = inputs_embeds + embed_pos
-    hidden_states = nn.functional.dropout(
-        hidden_states, p=self.dropout, training=self.training
-    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
 
     encoder_states = () if output_hidden_states else None
     all_attentions = () if output_attentions else None
 
     attention_mask = prepare_causal_attn_mask(attention_mask)
-    hidden_states, indices, cu_seq_lens, _ = _unpad_input(
-        hidden_states, attention_mask=attention_mask
-    )
+    hidden_states, indices, cu_seq_lens, _ = _unpad_input(hidden_states, attention_mask=attention_mask)
 
     # check if head_mask has a correct number of layers specified if desired
     if head_mask is not None:
-        assert head_mask.size()[0] == (
-            len(self.layers)
-        ), f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
+        assert head_mask.size()[0] == (len(self.layers)), f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
 
     for idx, encoder_layer in enumerate(self.layers):
         if output_hidden_states:
@@ -151,9 +129,7 @@ def encoder_forward(
         encoder_states = encoder_states + (hidden_states,)
 
     if not return_dict:
-        return tuple(
-            v for v in [hidden_states, encoder_states, all_attentions] if v is not None
-        )
+        return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
     return BaseModelOutput(
         last_hidden_state=hidden_states,
         hidden_states=encoder_states,
@@ -178,26 +154,18 @@ def encoder_layer_forward(
         output_attentions=output_attentions,
         cu_seq_lens=cu_seq_lens,
     )
-    hidden_states = nn.functional.dropout(
-        hidden_states, p=self.dropout, training=self.training
-    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
     hidden_states = residual + hidden_states
 
     residual = hidden_states
     hidden_states = self.final_layer_norm(hidden_states)
     hidden_states = self.activation_fn(self.fc1(hidden_states))
-    hidden_states = nn.functional.dropout(
-        hidden_states, p=self.activation_dropout, training=self.training
-    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
     hidden_states = self.fc2(hidden_states)
-    hidden_states = nn.functional.dropout(
-        hidden_states, p=self.dropout, training=self.training
-    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
     hidden_states = residual + hidden_states
 
-    if hidden_states.dtype == torch.float16 and (
-        torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()
-    ):
+    if hidden_states.dtype == torch.float16 and (torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()):
         clamp_value = torch.finfo(hidden_states.dtype).max - 1000
         hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
@@ -240,18 +208,14 @@ def flash_attn_forward(
             target_dtype = self.q_proj.weight.dtype
 
         logger.warning_once(
-            f"The input hidden states seems to be silently casted in float32, this might be related to"
-            f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
-            f" {target_dtype}."
+            f"The input hidden states seems to be silently casted in float32, this might be related to" f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in" f" {target_dtype}."
         )
 
         query_states = query_states.to(target_dtype)
         key_states = key_states.to(target_dtype)
         value_states = value_states.to(target_dtype)
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     window_size = (-1, -1)
 
     # Align with flash attn forward in whisper

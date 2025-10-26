@@ -76,9 +76,7 @@ def main(args):
         )
 
         audio_pad_token_idx = processor.tokenizer.convert_tokens_to_ids("<|audio_pad|>")
-        audio_token_start_from = processor.tokenizer.convert_tokens_to_ids(
-            "<|audio_token_0|>"
-        )
+        audio_token_start_from = processor.tokenizer.convert_tokens_to_ids("<|audio_token_0|>")
         audio_bos_token_idx = processor.tokenizer.convert_tokens_to_ids("<|audio_bos|>")
         audio_eos_token_idx = processor.tokenizer.convert_tokens_to_ids("<|audio_eos|>")
 
@@ -98,12 +96,8 @@ def main(args):
         pre_expansion_embeddings = model.language_model.model.embed_tokens.weight.data
         mu = torch.mean(pre_expansion_embeddings, dim=0).float()
         n = pre_expansion_embeddings.size()[0]
-        sigma = (
-            (pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)
-        ) / n
-        dist = torch.distributions.multivariate_normal.MultivariateNormal(
-            mu, covariance_matrix=1e-5 * sigma
-        )
+        sigma = ((pre_expansion_embeddings - mu).T @ (pre_expansion_embeddings - mu)) / n
+        dist = torch.distributions.multivariate_normal.MultivariateNormal(mu, covariance_matrix=1e-5 * sigma)
 
         # We add an image token so we resize the model
         # Pad to 64 for performance reasons
@@ -115,27 +109,11 @@ def main(args):
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
 
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.model.embed_tokens.weight.data[
-                            vocab_size:
-                        ].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
-            tuple(
-                (
-                    dist.sample()
-                    for _ in range(
-                        model.language_model.lm_head.weight.data[vocab_size:].shape[0]
-                    )
-                )
-            ),
+            tuple((dist.sample() for _ in range(model.language_model.lm_head.weight.data[vocab_size:].shape[0]))),
             dim=0,
         )
 
@@ -143,9 +121,7 @@ def main(args):
         model.save_pretrained(args.output_dir)
         new_processor.save_pretrained(args.output_dir)
 
-    model = AeroOmniForConditionalGeneration.from_pretrained(
-        args.output_dir, device_map="cuda", torch_dtype="auto"
-    )
+    model = AeroOmniForConditionalGeneration.from_pretrained(args.output_dir, device_map="cuda", torch_dtype="auto")
     processor = AeroOmniProcessor.from_pretrained(args.output_dir)
 
     audio = load_audio()

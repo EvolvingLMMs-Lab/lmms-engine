@@ -58,9 +58,7 @@ class AeroProcessor(ProcessorMixin):
         audio_token="<|AUDIO|>",
         **kwargs,
     ):
-        self.audio_token = (
-            tokenizer.audio_token if hasattr(tokenizer, "audio_token") else audio_token
-        )
+        self.audio_token = tokenizer.audio_token if hasattr(tokenizer, "audio_token") else audio_token
         if chat_template is None:
             chat_template = self.default_chat_template
         super().__init__(
@@ -71,9 +69,7 @@ class AeroProcessor(ProcessorMixin):
 
     def __call__(
         self,
-        text: Union[
-            TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]
-        ] = None,
+        text: Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]] = None,
         audios: Union[np.ndarray, List[np.ndarray]] = None,
         videos: VideoInput = None,
         images: ImageInput = None,
@@ -119,9 +115,7 @@ class AeroProcessor(ProcessorMixin):
         if isinstance(text, str):
             text = [text]
         elif not isinstance(text, list) and not isinstance(text[0], str):
-            raise ValueError(
-                "Invalid input text. Please provide a string, or a list of strings"
-            )
+            raise ValueError("Invalid input text. Please provide a string, or a list of strings")
 
         audio_inputs = {}
 
@@ -133,12 +127,8 @@ class AeroProcessor(ProcessorMixin):
                 padding="max_length",
                 **kwargs,
             )
-            audio_inputs["audio_attention_mask"] = audio_inputs.pop(
-                "attention_mask"
-            )  # rename attention_mask to prevent conflicts later on
-            audio_inputs["audio_values"] = audio_inputs.pop(
-                "input_features"
-            )  # rename input_features to audio_features for clarification
+            audio_inputs["audio_attention_mask"] = audio_inputs.pop("attention_mask")  # rename attention_mask to prevent conflicts later on
+            audio_inputs["audio_values"] = audio_inputs.pop("input_features")  # rename input_features to audio_features for clarification
             # Computes the output length of the convolutional layers and the output length of the audio encoder
             input_lengths = (audio_inputs["audio_attention_mask"].sum(-1) - 1) // 2 + 1
             num_audio_tokens = (input_lengths - 2) // 2 + 1
@@ -158,14 +148,10 @@ class AeroProcessor(ProcessorMixin):
         for sample in text:
             while special_token in sample:
                 num_audio_token = num_audio_tokens[current_audio_idx]
-                sample = sample.replace(
-                    special_token, "<placeholder>" * num_audio_token, 1
-                )
+                sample = sample.replace(special_token, "<placeholder>" * num_audio_token, 1)
                 current_audio_idx += 1
             prompt_strings.append(sample)
-        text = [
-            sample.replace("<placeholder>", special_token) for sample in prompt_strings
-        ]
+        text = [sample.replace("<placeholder>", special_token) for sample in prompt_strings]
         return text
 
     # Copied from transformers.models.clip.processing_clip.CLIPProcessor.batch_decode with CLIP->Llama

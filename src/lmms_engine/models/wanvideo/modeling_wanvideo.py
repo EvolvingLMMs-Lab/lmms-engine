@@ -71,9 +71,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         self.trainable_modules = config.trainable_modules
 
     def freeze_except(self):
-        trainable_modules = (
-            [] if not self.trainable_modules else self.trainable_modules.split(",")
-        )
+        trainable_modules = [] if not self.trainable_modules else self.trainable_modules.split(",")
         for name, model in self.named_children():
             if name in trainable_modules:
                 model.train()
@@ -99,10 +97,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         max_value=1,
     ):
         # Transform a list of PIL.Image to torch.Tensor
-        video = [
-            repeat(image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {}))
-            for image in video
-        ]
+        video = [repeat(image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {})) for image in video]
         video = torch.stack(video, dim=pattern.index("T") // 2)
         return video
 
@@ -116,54 +111,29 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         dtype=None,
     ):
         # Initialize Gaussian noise
-        generator = (
-            None if seed is None else torch.Generator(rand_device).manual_seed(seed)
-        )
-        noise = torch.randn(
-            shape, generator=generator, device=rand_device, dtype=rand_dtype
-        )
+        generator = None if seed is None else torch.Generator(rand_device).manual_seed(seed)
+        noise = torch.randn(shape, generator=generator, device=rand_device, dtype=rand_dtype)
         noise = noise.to(dtype=dtype or self.dtype, device=device or self.device)
         return noise
 
     def check_resize_height_width(self, height, width, num_frames=None):
         # Shape check
         if height % self.height_division_factor != 0:
-            height = (
-                (height + self.height_division_factor - 1)
-                // self.height_division_factor
-                * self.height_division_factor
-            )
-            logger.info(
-                f"height % {self.height_division_factor} != 0. We round it up to {height}."
-            )
+            height = (height + self.height_division_factor - 1) // self.height_division_factor * self.height_division_factor
+            logger.info(f"height % {self.height_division_factor} != 0. We round it up to {height}.")
 
         if width % self.width_division_factor != 0:
-            width = (
-                (width + self.width_division_factor - 1)
-                // self.width_division_factor
-                * self.width_division_factor
-            )
-            logger.info(
-                f"width % {self.width_division_factor} != 0. We round it up to {width}."
-            )
+            width = (width + self.width_division_factor - 1) // self.width_division_factor * self.width_division_factor
+            logger.info(f"width % {self.width_division_factor} != 0. We round it up to {width}.")
 
         if num_frames is not None:
             if num_frames % self.time_division_factor != self.time_division_remainder:
-                num_frames = (
-                    (num_frames + self.time_division_factor - 1)
-                    // self.time_division_factor
-                    * self.time_division_factor
-                    + self.time_division_remainder
-                )
-                logger.info(
-                    f"num_frames % {self.time_division_factor} != {self.time_division_remainder}. We round it up to {num_frames}."
-                )
+                num_frames = (num_frames + self.time_division_factor - 1) // self.time_division_factor * self.time_division_factor + self.time_division_remainder
+                logger.info(f"num_frames % {self.time_division_factor} != {self.time_division_remainder}. We round it up to {num_frames}.")
 
         return height, width, num_frames
 
-    def noise_initialize(
-        self, height, width, num_frames, seed, rand_device, vace_reference_image
-    ):
+    def noise_initialize(self, height, width, num_frames, seed, rand_device, vace_reference_image):
         length = (num_frames - 1) // 4 + 1
         if vace_reference_image is not None:
             length += 1
@@ -179,9 +149,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             noise = torch.concat((noise[:, :, -1:], noise[:, :, :-1]), dim=2)
         return noise
 
-    def embed_input_video(
-        self, input_video, noise, tiled, tile_size, tile_stride, vace_reference_image
-    ):
+    def embed_input_video(self, input_video, noise, tiled, tile_size, tile_stride, vace_reference_image):
         input_video = self.preprocess_video(input_video)  # B, C, T, H, W
         input_latents = self.vae.encode(
             input_video,
@@ -192,9 +160,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         ).to(dtype=self.dtype, device=self.device)
         if vace_reference_image is not None:
             vace_reference_image = self.preprocess_video([vace_reference_image])
-            vace_reference_latents = self.vae.encode(
-                vace_reference_image, device=self.device
-            ).to(dtype=self.dtype, device=self.device)
+            vace_reference_latents = self.vae.encode(vace_reference_image, device=self.device).to(dtype=self.dtype, device=self.device)
             input_latents = torch.concat([vace_reference_latents, input_latents], dim=2)
         return input_latents
 
@@ -209,15 +175,11 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         tile_size,
         tile_stride,
     ):
-        image = repeat(
-            input_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {})
-        )
+        image = repeat(input_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {}))
         msk = torch.ones(1, num_frames, height // 8, width // 8, device=self.device)
         msk[:, 1:] = 0
         if end_image is not None:
-            end_image = repeat(
-                end_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {})
-            )
+            end_image = repeat(end_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {}))
             vae_input = torch.concat(
                 [
                     image.transpose(0, 1),
@@ -236,9 +198,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 dim=1,
             )
 
-        msk = torch.concat(
-            [torch.repeat_interleave(msk[:, 0:1], repeats=4, dim=1), msk[:, 1:]], dim=1
-        )
+        msk = torch.concat([torch.repeat_interleave(msk[:, 0:1], repeats=4, dim=1), msk[:, 1:]], dim=1)
         msk = msk.view(1, msk.shape[1] // 4, 4, height // 8, width // 8)
         msk = msk.transpose(1, 2)[0]
 
@@ -256,24 +216,16 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         return y
 
     def embed_image_CLIP(self, input_image, end_image, height, width):
-        image = repeat(
-            input_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {})
-        )
+        image = repeat(input_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {}))
         clip_context = self.image_encoder.encode_image([image])
         if end_image is not None:
-            end_image = repeat(
-                end_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {})
-            )
+            end_image = repeat(end_image, f"H W C -> {PATTERN}", **({"B": 1} if "B" in PATTERN else {}))
             if self.dit.has_image_pos_emb:
-                clip_context = torch.concat(
-                    [clip_context, self.image_encoder.encode_image([end_image])], dim=1
-                )
+                clip_context = torch.concat([clip_context, self.image_encoder.encode_image([end_image])], dim=1)
         clip_context = clip_context.to(dtype=self.dtype, device=self.device)
         return clip_context
 
-    def embed_image_fused(
-        self, input_image, latents, height, width, tiled, tile_size, tile_stride
-    ):
+    def embed_image_fused(self, input_image, latents, height, width, tiled, tile_size, tile_stride):
         image = repeat(input_image, f"H W C -> C T H W", T=1)
         z = self.vae.encode(
             [image],
@@ -310,9 +262,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         control_latents = control_latents.to(dtype=self.dtype, device=self.device)
         y_dim = self.dit.in_channels - control_latents.shape[1] - latents.shape[1]
         if clip_feature is None or y is None:
-            clip_feature = torch.zeros(
-                (1, 257, 1280), dtype=self.dtype, device=self.device
-            )
+            clip_feature = torch.zeros((1, 257, 1280), dtype=self.dtype, device=self.device)
             y = torch.zeros(
                 (1, y_dim, (num_frames - 1) // 4 + 1, height // 8, width // 8),
                 dtype=self.dtype,
@@ -343,45 +293,27 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         tile_size,
         tile_stride,
     ):
-        camera_control_plucker_embedding = (
-            self.dit.control_adapter.process_camera_coordinates(
-                camera_control_direction,
-                num_frames,
-                height,
-                width,
-                camera_control_speed,
-                camera_control_origin,
-            )
+        camera_control_plucker_embedding = self.dit.control_adapter.process_camera_coordinates(
+            camera_control_direction,
+            num_frames,
+            height,
+            width,
+            camera_control_speed,
+            camera_control_origin,
         )
 
-        control_camera_video = (
-            camera_control_plucker_embedding[:num_frames]
-            .permute([3, 0, 1, 2])
-            .unsqueeze(0)
-        )
+        control_camera_video = camera_control_plucker_embedding[:num_frames].permute([3, 0, 1, 2]).unsqueeze(0)
         control_camera_latents = torch.concat(
             [
-                torch.repeat_interleave(
-                    control_camera_video[:, :, 0:1], repeats=4, dim=2
-                ),
+                torch.repeat_interleave(control_camera_video[:, :, 0:1], repeats=4, dim=2),
                 control_camera_video[:, :, 1:],
             ],
             dim=2,
         ).transpose(1, 2)
         b, f, c, h, w = control_camera_latents.shape
-        control_camera_latents = (
-            control_camera_latents.contiguous()
-            .view(b, f // 4, 4, c, h, w)
-            .transpose(2, 3)
-        )
-        control_camera_latents = (
-            control_camera_latents.contiguous()
-            .view(b, f // 4, c * 4, h, w)
-            .transpose(1, 2)
-        )
-        control_camera_latents_input = control_camera_latents.to(
-            device=self.device, dtype=self.dtype
-        )
+        control_camera_latents = control_camera_latents.contiguous().view(b, f // 4, 4, c, h, w).transpose(2, 3)
+        control_camera_latents = control_camera_latents.contiguous().view(b, f // 4, c * 4, h, w).transpose(1, 2)
+        control_camera_latents_input = control_camera_latents.to(device=self.device, dtype=self.dtype)
 
         input_image = input_image
         input_latents = self.preprocess_video([input_image])
@@ -437,11 +369,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         tile_size,
         tile_stride,
     ):
-        if (
-            vace_video is not None
-            or vace_video_mask is not None
-            or vace_reference_image is not None
-        ):
+        if vace_video is not None or vace_video_mask is not None or vace_reference_image is not None:
             self.load_models_to_device(["vae"])
             if vace_video is None:
                 vace_video = torch.zeros(
@@ -455,9 +383,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             if vace_video_mask is None:
                 vace_video_mask = torch.ones_like(vace_video)
             else:
-                vace_video_mask = self.preprocess_video(
-                    vace_video_mask, min_value=0, max_value=1
-                )
+                vace_video_mask = self.preprocess_video(vace_video_mask, min_value=0, max_value=1)
 
             inactive = vace_video * (1 - vace_video_mask) + 0 * vace_video_mask
             reactive = vace_video * vace_video_mask + 0 * (1 - vace_video_mask)
@@ -477,9 +403,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             ).to(dtype=self.dtype, device=self.device)
             vace_video_latents = torch.concat((inactive, reactive), dim=1)
 
-            vace_mask_latents = rearrange(
-                vace_video_mask[0, 0], "T (H P) (W Q) -> 1 (P Q) T H W", P=8, Q=8
-            )
+            vace_mask_latents = rearrange(vace_video_mask[0, 0], "T (H P) (W Q) -> 1 (P Q) T H W", P=8, Q=8)
             vace_mask_latents = F.interpolate(
                 vace_mask_latents,
                 size=(
@@ -505,9 +429,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                     (vace_reference_latents, torch.zeros_like(vace_reference_latents)),
                     dim=1,
                 )
-                vace_video_latents = torch.concat(
-                    (vace_reference_latents, vace_video_latents), dim=2
-                )
+                vace_video_latents = torch.concat((vace_reference_latents, vace_video_latents), dim=2)
                 vace_mask_latents = torch.concat(
                     (torch.zeros_like(vace_mask_latents[:, :, :1]), vace_mask_latents),
                     dim=2,
@@ -520,9 +442,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
     def forward_preprocess(self, scheduler, data_inputs: dict[str, Any]):
         inputs = data_inputs
-        height, width, num_frames = self.check_resize_height_width(
-            inputs["height"], inputs["width"], inputs["num_frames"]
-        )
+        height, width, num_frames = self.check_resize_height_width(inputs["height"], inputs["width"], inputs["num_frames"])
         inputs.update({"height": height, "width": width, "num_frames": num_frames})
         noise = self.noise_initialize(
             inputs["height"],
@@ -544,20 +464,14 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 inputs["vace_reference_image"],
             )
             if not scheduler.training:
-                latents = scheduler.add_noise(
-                    input_latents, noise, timestep=scheduler.timesteps[0]
-                )
+                latents = scheduler.add_noise(input_latents, noise, timestep=scheduler.timesteps[0])
                 inputs.update({"latents": latents})
             else:
-                inputs.update(
-                    {"latents": noise, "input_latents": input_latents}
-                )  # this 'latents' actually will not be used in training.
+                inputs.update({"latents": noise, "input_latents": input_latents})  # this 'latents' actually will not be used in training.
         else:
             inputs.update({"latents": noise})
         # might need to be checked.
-        context = self.encode_prompt(
-            inputs["input_ids"], inputs["attention_mask"], device=self.device
-        )
+        context = self.encode_prompt(inputs["input_ids"], inputs["attention_mask"], device=self.device)
         inputs.update({"context": context})
 
         if inputs["input_image"] is not None and self.require_vae_embedding:
@@ -573,14 +487,8 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             )
             inputs.update({"y": y})
 
-        if (
-            (inputs["input_image"] is not None)
-            and (self.image_encoder is not None)
-            and self.require_clip_embedding
-        ):
-            clip_feature = self.embed_image_CLIP(
-                inputs["input_image"], inputs["end_image"], height, width
-            )
+        if (inputs["input_image"] is not None) and (self.image_encoder is not None) and self.require_clip_embedding:
+            clip_feature = self.embed_image_CLIP(inputs["input_image"], inputs["end_image"], height, width)
             inputs.update({"clip_feature": clip_feature})
 
         if inputs["input_image"] is not None and self.fuse_vae_embedding_in_latents:
@@ -617,9 +525,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
             inputs.update({"clip_feature": clip_feature, "y": y})
 
         if inputs["reference_image"] is not None:
-            reference_latents, clip_feature = self.fun_reference(
-                inputs["reference_image"], height, width
-            )
+            reference_latents, clip_feature = self.fun_reference(inputs["reference_image"], height, width)
             if self.image_encoder is not None:
                 clip_feature = repeat(
                     inputs["reference_image"],
@@ -627,9 +533,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                     **({"B": 1} if "B" in PATTERN else {}),
                 )
                 clip_feature = self.image_encoder.encode_image([clip_feature])
-            inputs.update(
-                {"reference_latents": reference_latents, "clip_feature": clip_feature}
-            )
+            inputs.update({"reference_latents": reference_latents, "clip_feature": clip_feature})
 
         if inputs["camera_control_direction"] is not None:
             control_camera_latents_input, y = self.fun_camera_control(
@@ -645,14 +549,10 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 inputs["tile_size"],
                 inputs["tile_stride"],
             )
-            inputs.update(
-                {"control_camera_latents_input": control_camera_latents_input, "y": y}
-            )
+            inputs.update({"control_camera_latents_input": control_camera_latents_input, "y": y})
 
         if inputs["motion_bucket_id"] is not None:
-            motion_bucket_id = torch.Tensor((inputs["motion_bucket_id"],)).to(
-                dtype=self.dtype, device=self.device
-            )
+            motion_bucket_id = torch.Tensor((inputs["motion_bucket_id"],)).to(dtype=self.dtype, device=self.device)
             inputs.update({"motion_bucket_id": motion_bucket_id})
 
         vace_context, vace_scale = self.vace_call(
@@ -684,18 +584,12 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         control_camera_latents_input: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> WanVideoOutput:
-        t = self.dit.time_embedding(
-            sinusoidal_embedding_1d(self.dit.freq_dim, timestep).to(
-                device=self.dit.device, dtype=self.dit.dtype
-            )
-        )
+        t = self.dit.time_embedding(sinusoidal_embedding_1d(self.dit.freq_dim, timestep).to(device=self.dit.device, dtype=self.dit.dtype))
         t_mod = self.dit.time_projection(t).unflatten(1, (6, self.dit.hidden_size))
 
         # Motion Controller
         if motion_bucket_id is not None and self.motion_controller is not None:
-            t_mod = t_mod + self.motion_controller(motion_bucket_id).unflatten(
-                1, (6, self.dit.hidden_size)
-            )
+            t_mod = t_mod + self.motion_controller(motion_bucket_id).unflatten(1, (6, self.dit.hidden_size))
         context = self.dit.text_embedding(context)
 
         x = latents
@@ -719,12 +613,8 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         # Reference image
         if reference_latents is not None:
             if len(reference_latents.shape) == 5:  # video case
-                reference_latents = reference_latents[
-                    :, :, 0
-                ]  # only use the first frame
-            reference_latents = (
-                self.dit.ref_conv(reference_latents).flatten(2).transpose(1, 2)
-            )
+                reference_latents = reference_latents[:, :, 0]  # only use the first frame
+            reference_latents = self.dit.ref_conv(reference_latents).flatten(2).transpose(1, 2)
             x = torch.concat([reference_latents, x], dim=1)
             f += 1
 
@@ -753,9 +643,7 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
         x = self.dit.head(x, t)
         # Remove reference latents
-        if (
-            reference_latents is not None
-        ):  # since we replace the first frame with the reference image, we need to remove the first frame
+        if reference_latents is not None:  # since we replace the first frame with the reference image, we need to remove the first frame
             x = x[:, reference_latents.shape[1] :]
             f -= 1
         x = self.dit.unpatchify(x, (f, h, w))

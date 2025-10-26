@@ -43,9 +43,7 @@ class TrainRunner:
             self.eval_dataset_config = deepcopy(config.dataset_config)
             # Never use packing for eval dataset
             self.eval_dataset_config.packing = False
-            self.eval_dataset_config.dataset_path = (
-                config.dataset_config.eval_dataset_path
-            )
+            self.eval_dataset_config.dataset_path = config.dataset_config.eval_dataset_path
         self.model_config = config.model_config
         self.config = config
 
@@ -79,15 +77,11 @@ class TrainRunner:
             init_config = load_from_config.get("config", None)
             if init_config is None:
                 # If no nested config, use the load_from_config dict directly (excluding model_type)
-                init_config = {
-                    k: v for k, v in load_from_config.items() if k != "model_type"
-                }
+                init_config = {k: v for k, v in load_from_config.items() if k != "model_type"}
             model_class, m_config = create_model_from_config(model_type, init_config)
             model = model_class.from_config(m_config, **model_kwargs)
         else:
-            raise ValueError(
-                "No model name or pretrained path provided. Please provide one of them."
-            )
+            raise ValueError("No model name or pretrained path provided. Please provide one of them.")
 
         if self.model_config.overwrite_config:
             for key, value in self.model_config.overwrite_config.items():
@@ -109,9 +103,7 @@ class TrainRunner:
             self.config.trainer_args.use_liger_kernel = False
 
         if self.model_config.monkey_patch_kwargs:
-            patch_type = getattr(
-                self.model_config.monkey_patch_kwargs, "patch_type", []
-            )
+            patch_type = getattr(self.model_config.monkey_patch_kwargs, "patch_type", [])
             kwargs["patch_type"].extend(patch_type)
             kwargs.update(self.model_config.monkey_patch_kwargs)
         try:
@@ -150,9 +142,7 @@ class TrainRunner:
         sp_degree = sp_ulysses_degree * 1  # ring attn always 1, kept for clarity
 
         total_group_size = sp_degree
-        assert (
-            world_size % total_group_size == 0
-        ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
+        assert world_size % total_group_size == 0, f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
 
         set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
 
@@ -183,9 +173,7 @@ class TrainRunner:
         # Save the state for hf_trainer
         if hasattr(self.trainer, "save_state"):
             self.trainer.save_state()
-            self.safe_save_model_for_hf_trainer(
-                self.trainer, self.config.trainer_args.output_dir
-            )
+            self.safe_save_model_for_hf_trainer(self.trainer, self.config.trainer_args.output_dir)
 
     def safe_save_model_for_hf_trainer(self, trainer: Trainer, output_dir: str):
         """Collects the state dict and dump to disk."""
@@ -198,9 +186,7 @@ class TrainRunner:
             # Only save Adapter
             keys_to_match = ["multi_modal_projector", "audio_modal_projector"]
 
-            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(
-                trainer.model.named_parameters(), keys_to_match
-            )
+            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(trainer.model.named_parameters(), keys_to_match)
             trainer.model.config.save_pretrained(output_dir)
 
             current_folder = output_dir.split("/")[-1]
@@ -214,9 +200,7 @@ class TrainRunner:
                         os.path.join(mm_projector_folder, f"{current_folder}.bin"),
                     )
                 else:
-                    torch.save(
-                        weight_to_save, os.path.join(output_dir, f"mm_projector.bin")
-                    )
+                    torch.save(weight_to_save, os.path.join(output_dir, f"mm_projector.bin"))
             return
         if trainer.deepspeed:
             trainer.save_model(output_dir)

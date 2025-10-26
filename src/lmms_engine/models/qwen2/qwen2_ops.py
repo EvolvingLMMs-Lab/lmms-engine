@@ -54,9 +54,7 @@ try:
     from flash_attn.layers.rotary import apply_rotary_emb_func
 except:
     apply_rotary_emb_func = None
-    logger.warning_once(
-        "fail to load faster rotary ops, use PyTorch version by default. Please check image version"
-    )
+    logger.warning_once("fail to load faster rotary ops, use PyTorch version by default. Please check image version")
 
 
 # The forward func for the base model of a LM
@@ -78,9 +76,7 @@ def model_forward(
 
     if cu_seq_lens is None and input_ids is not None:
         original_inputs = input_ids
-        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
-            input_ids, attention_mask
-        )
+        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(input_ids, attention_mask)
         if get_ulysses_sequence_parallel_world_size() > 1:
             input_ids_rmpad = input_ids.unsqueeze(0)
             input_ids, _, pad_size = ulysses_pad_and_slice_inputs(
@@ -90,9 +86,7 @@ def model_forward(
             input_ids = input_ids.squeeze(0)
     elif cu_seq_lens is None and inputs_embeds is not None:
         original_inputs = inputs_embeds
-        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
-            inputs_embeds, attention_mask
-        )
+        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(inputs_embeds, attention_mask)
         if get_ulysses_sequence_parallel_world_size() > 1:
             inputs_embeds = slice_input_tensor(inputs_embeds, dim=0, padding=True)
     bs, seqlen = original_inputs.shape[:2]
@@ -104,9 +98,7 @@ def model_forward(
         past_key_values = DynamicCache(config=self.config)
 
     if cache_position is None:
-        past_seen_tokens = (
-            past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seqlen,
@@ -117,9 +109,7 @@ def model_forward(
         position_ids = cache_position.unsqueeze(0)
     position_ids = position_ids.repeat_interleave(bs, dim=0)
 
-    position_ids = index_first_axis(
-        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-    ).transpose(0, 1)
+    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
     original_position_ids = position_ids
 
     # Pad the position ids according to the original input ids
@@ -147,9 +137,7 @@ def model_forward(
         }
         # The sliding window alternating layers are not always activated depending on the config
         if self.has_sliding_layers:
-            causal_mask_mapping[
-                "sliding_attention"
-            ] = create_sliding_window_causal_mask(**mask_kwargs)
+            causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
 
     hidden_states = inputs_embeds
 
@@ -235,9 +223,7 @@ def attn_forward(
     **kwargs,
 ):
     if "padding_mask" in kwargs:
-        warnings.warn(
-            "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-        )
+        warnings.warn("Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`")
 
         # overwrite attention_mask with padding_mask
         attention_mask = kwargs.pop("padding_mask")
@@ -245,22 +231,14 @@ def attn_forward(
     bsz = hidden_states.shape[0]
     q_len = torch.max(position_ids).item() + 1
     kv_seq_len = q_len
-    query_states = self.q_proj(hidden_states).view(
-        -1, self.config.num_attention_heads, self.head_dim
-    )
-    key_states = self.k_proj(hidden_states).view(
-        -1, self.config.num_key_value_heads, self.head_dim
-    )
-    value_states = self.v_proj(hidden_states).view(
-        -1, self.config.num_key_value_heads, self.head_dim
-    )
+    query_states = self.q_proj(hidden_states).view(-1, self.config.num_attention_heads, self.head_dim)
+    key_states = self.k_proj(hidden_states).view(-1, self.config.num_key_value_heads, self.head_dim)
+    value_states = self.v_proj(hidden_states).view(-1, self.config.num_key_value_heads, self.head_dim)
     cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     if ulysses_sp_size > 1:
-        assert (
-            position_ids is not None
-        ), "position_ids is required for Ulysses sequence parallelism"
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
 
         # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
         # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.
@@ -297,9 +275,7 @@ def attn_forward(
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     window_size = (-1, -1)
 
     attn_output = flash_attn_varlen_func(

@@ -34,9 +34,7 @@ class HFDataContent(BaseModel):
     image_url: SFTChatDataURL
 
 
-SFTChatDataContent = Union[
-    SFTChatDataText, SFTChatDataImage, SFTChatDataAudio, SFTChatDataVideo, HFDataContent
-]
+SFTChatDataContent = Union[SFTChatDataText, SFTChatDataImage, SFTChatDataAudio, SFTChatDataVideo, HFDataContent]
 
 
 class SFTChatDataMessages(BaseModel):

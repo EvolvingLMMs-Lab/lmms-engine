@@ -23,15 +23,11 @@ class TestTrainUtilities(unittest.TestCase):
             },
             {
                 "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "The bus in the image is white and red."}
-                ],
+                "content": [{"type": "text", "text": "The bus in the image is white and red."}],
             },
         ]
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
-        processor = AutoProcessor.from_pretrained(
-            "llava-hf/llava-onevision-qwen2-0.5b-ov-hf"
-        )
+        processor = AutoProcessor.from_pretrained("llava-hf/llava-onevision-qwen2-0.5b-ov-hf")
         print(processor.apply_chat_template(hf_messages))
 
 

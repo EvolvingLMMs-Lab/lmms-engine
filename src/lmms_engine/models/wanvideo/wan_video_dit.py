@@ -50,9 +50,7 @@ def sinusoidal_embedding_1d(dim, position):
         position.type(torch.float64),
         torch.pow(
             10000,
-            -torch.arange(dim // 2, dtype=torch.float64, device=position.device).div(
-                dim // 2
-            ),
+            -torch.arange(dim // 2, dtype=torch.float64, device=position.device).div(dim // 2),
         ),
     )
     x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
@@ -77,9 +75,7 @@ def precompute_freqs_cis(dim: int, end: int = 1024, theta: float = 10000.0):
 
 def rope_apply(x, freqs, num_heads):
     x = rearrange(x, "b s (n d) -> b s n d", n=num_heads)
-    x_out = torch.view_as_complex(
-        x.to(torch.float64).reshape(x.shape[0], x.shape[1], x.shape[2], -1, 2)
-    )
+    x_out = torch.view_as_complex(x.to(torch.float64).reshape(x.shape[0], x.shape[1], x.shape[2], -1, 2))
     x_out = torch.view_as_real(x_out * freqs).flatten(2)
     return x_out.to(x.dtype)
 
@@ -202,9 +198,7 @@ class DiTBlock(GradientCheckpointingLayer):
         self.intermediate_size = intermediate_size
 
         self.self_attn = SelfAttention(hidden_size, num_heads, eps)
-        self.cross_attn = CrossAttention(
-            hidden_size, num_heads, eps, has_image_input=has_image_input
-        )
+        self.cross_attn = CrossAttention(hidden_size, num_heads, eps, has_image_input=has_image_input)
         self.norm1 = nn.LayerNorm(hidden_size, eps=eps, elementwise_affine=False)
         self.norm2 = nn.LayerNorm(hidden_size, eps=eps, elementwise_affine=False)
         self.norm3 = nn.LayerNorm(hidden_size, eps=eps)
@@ -213,18 +207,14 @@ class DiTBlock(GradientCheckpointingLayer):
             nn.GELU(approximate="tanh"),
             nn.Linear(intermediate_size, hidden_size),
         )
-        self.modulation = nn.Parameter(
-            torch.randn(1, 6, hidden_size) / hidden_size**0.5
-        )
+        self.modulation = nn.Parameter(torch.randn(1, 6, hidden_size) / hidden_size**0.5)
         self.gate = GateModule()
 
     def forward(self, x, context, t_mod, freqs):
         has_seq = len(t_mod.shape) == 4
         chunk_dim = 2 if has_seq else 1
         # msa: multi-head self-attention  mlp: multi-layer perceptron
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            self.modulation.to(dtype=t_mod.dtype, device=t_mod.device) + t_mod
-        ).chunk(6, dim=chunk_dim)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (self.modulation.to(dtype=t_mod.dtype, device=t_mod.device) + t_mod).chunk(6, dim=chunk_dim)
         if has_seq:
             shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
                 shift_msa.squeeze(2),
@@ -275,21 +265,14 @@ class Head(nn.Module):
         self.patch_size = patch_size
         self.norm = nn.LayerNorm(hidden_size, eps=eps, elementwise_affine=False)
         self.head = nn.Linear(hidden_size, out_channels * math.prod(patch_size))
-        self.modulation = nn.Parameter(
-            torch.randn(1, 2, hidden_size) / hidden_size**0.5
-        )
+        self.modulation = nn.Parameter(torch.randn(1, 2, hidden_size) / hidden_size**0.5)
 
     def forward(self, x, t_mod):
         if len(t_mod.shape) == 3:
-            shift, scale = (
-                self.modulation.unsqueeze(0).to(dtype=t_mod.dtype, device=t_mod.device)
-                + t_mod.unsqueeze(2)
-            ).chunk(2, dim=2)
+            shift, scale = (self.modulation.unsqueeze(0).to(dtype=t_mod.dtype, device=t_mod.device) + t_mod.unsqueeze(2)).chunk(2, dim=2)
             x = self.head(self.norm(x) * (1 + scale.squeeze(2)) + shift.squeeze(2))
         else:
-            shift, scale = (
-                self.modulation.to(dtype=t_mod.dtype, device=t_mod.device) + t_mod
-            ).chunk(2, dim=1)
+            shift, scale = (self.modulation.to(dtype=t_mod.dtype, device=t_mod.device) + t_mod).chunk(2, dim=1)
             x = self.head(self.norm(x) * (1 + scale) + shift)
         return x
 
@@ -368,9 +351,7 @@ class WanDitModel(PreTrainedModel):
             nn.Linear(self.hidden_size, self.hidden_size),
         )
 
-        self.time_projection = nn.Sequential(
-            nn.SiLU(), nn.Linear(self.hidden_size, self.hidden_size * 6)
-        )
+        self.time_projection = nn.Sequential(nn.SiLU(), nn.Linear(self.hidden_size, self.hidden_size * 6))
 
         self.blocks = nn.ModuleList(
             [
@@ -388,14 +369,10 @@ class WanDitModel(PreTrainedModel):
         self.head = Head(self.hidden_size, self.out_channels, self.patch_size, self.eps)
 
         if self.has_image_input:
-            self.img_emb = MLP(
-                1280, self.hidden_size, has_pos_emb=self.has_image_pos_emb
-            )  # clip_feature_dim = 1280
+            self.img_emb = MLP(1280, self.hidden_size, has_pos_emb=self.has_image_pos_emb)  # clip_feature_dim = 1280
 
         if self.has_ref_conv:
-            self.ref_conv = nn.Conv2d(
-                self.in_channels, self.hidden_size, kernel_size=(2, 2), stride=(2, 2)
-            )
+            self.ref_conv = nn.Conv2d(self.in_channels, self.hidden_size, kernel_size=(2, 2), stride=(2, 2))
 
         if self.add_control_adapter:
             self.control_adapter = SimpleAdapter(
@@ -413,10 +390,7 @@ class WanDitModel(PreTrainedModel):
         control_camera_latents_input: Optional[torch.Tensor] = None,
     ):
         x = self.patch_embedding(x)
-        if (
-            self.control_adapter is not None
-            and control_camera_latents_input is not None
-        ):
+        if self.control_adapter is not None and control_camera_latents_input is not None:
             y_camera = self.control_adapter(control_camera_latents_input)
             x = [u + v for u, v in zip(x, y_camera)]
             x = x[0].unsqueeze(0)

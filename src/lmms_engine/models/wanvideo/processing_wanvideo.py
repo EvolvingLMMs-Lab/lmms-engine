@@ -123,16 +123,12 @@ class WanVideoImageProcessor(BaseImageProcessor):
         """
         do_resize = do_resize if do_resize is not None else self.do_resize
         size = size if size is not None else self.size
-        do_center_crop = (
-            do_center_crop if do_center_crop is not None else self.do_center_crop
-        )
+        do_center_crop = do_center_crop if do_center_crop is not None else self.do_center_crop
         crop_size = crop_size if crop_size is not None else self.crop_size
         do_normalize = do_normalize if do_normalize is not None else self.do_normalize
         image_mean = image_mean if image_mean is not None else self.image_mean
         image_std = image_std if image_std is not None else self.image_std
-        do_convert_rgb = (
-            do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
-        )
+        do_convert_rgb = do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
 
         # Handle single image or list of images (video frames)
         if not isinstance(images, list):
@@ -247,11 +243,7 @@ class WanVideoProcessor:
 
     def __call__(
         self,
-        text: Optional[
-            Union[
-                TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]
-            ]
-        ] = None,
+        text: Optional[Union[TextInput, PreTokenizedInput, List[TextInput], List[PreTokenizedInput]]] = None,
         images: Optional[ImageInput] = None,
         videos: Optional[ImageInput] = None,
         return_tensors: Optional[Union[str, TensorType]] = None,
@@ -312,8 +304,6 @@ class WanVideoProcessor:
     @property
     def model_input_names(self):
         """Get model input names from components."""
-        tokenizer_input_names = (
-            self.tokenizer.model_input_names if self.tokenizer else []
-        )
+        tokenizer_input_names = self.tokenizer.model_input_names if self.tokenizer else []
         image_processor_input_names = self.image_processor.model_input_names
         return list(set(tokenizer_input_names + image_processor_input_names))
