@@ -60,10 +60,11 @@ def _token_combine(routed_output, input_splits, output_splits):
     )
     return routed_output
 
+
 def sync_gradients(model):
     shared_params = []
     for name, param in model.named_parameters():
-        if param.requires_grad and 'expert' in name:
+        if param.requires_grad and "expert" in name:
             shared_params.append(param)
     world_size = dist.get_world_size()
     buffer_size = sum(p.numel() for p in shared_params)

@@ -281,7 +281,7 @@ def moe_sparse_layer_forward(
     routed_input = torch.gather(
         hidden_states, dim=0, index=token_indices_experts_sorted
     )
-    #print(routed_input)
+    # print(routed_input)
     if pgm.process_group_manager.ep_world_size > 1:
         (
             routed_input,
@@ -305,7 +305,7 @@ def moe_sparse_layer_forward(
     gate_proj = self.gate_proj.to_local()
     num_experts = down_proj.shape[0]
     out_experts_split = []
-    
+
     for idx, x in enumerate(routed_input):
         expert_idx = idx % num_experts
         hidden = self.act_fn(torch.matmul(x, gate_proj[expert_idx].transpose(-2, -1)))

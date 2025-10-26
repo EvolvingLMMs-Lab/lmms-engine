@@ -18,24 +18,39 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
+
+
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
     logger.info("Stacking expert parameters for Qwen3Moe model")
     with torch.no_grad():
         for decoder_layer in model.model.layers:
-            up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
+            up_proj_weights = [
+                expert.up_proj.weight for expert in decoder_layer.mlp.experts
+            ]
             stacked_up_proj = torch.stack(up_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("up_proj", nn.Parameter(stacked_up_proj))
+            decoder_layer.mlp.register_parameter(
+                "up_proj", nn.Parameter(stacked_up_proj)
+            )
 
-            down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
+            down_proj_weights = [
+                expert.down_proj.weight for expert in decoder_layer.mlp.experts
+            ]
             stacked_down_proj = torch.stack(down_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("down_proj", nn.Parameter(stacked_down_proj))
+            decoder_layer.mlp.register_parameter(
+                "down_proj", nn.Parameter(stacked_down_proj)
+            )
 
-            gate_proj_weights = [expert.gate_proj.weight for expert in decoder_layer.mlp.experts]
+            gate_proj_weights = [
+                expert.gate_proj.weight for expert in decoder_layer.mlp.experts
+            ]
             stacked_gate_proj = torch.stack(gate_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("gate_proj", nn.Parameter(stacked_gate_proj))
+            decoder_layer.mlp.register_parameter(
+                "gate_proj", nn.Parameter(stacked_gate_proj)
+            )
             decoder_layer.mlp.act_fn = decoder_layer.mlp.experts[0].act_fn
 
             del decoder_layer.mlp.experts
+
 
 def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
     logger.info("Unstacking expert parameters for Qwen3Moe model")
@@ -80,6 +95,7 @@ def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             del decoder_layer.mlp.down_proj
             del decoder_layer.mlp.gate_proj
 
+
 def apply_qwen3_moe_parallel(
     model: Qwen3MoeForCausalLM,
     ep_mesh: DeviceMesh,
@@ -98,7 +114,6 @@ def apply_qwen3_moe_parallel(
             device_mesh=ep_mesh,
             parallelize_plan=ep_plan,
         )
-
 
     for name, module in model.model.named_modules():
         if isinstance(module, Qwen3MoeSparseMoeBlock):
