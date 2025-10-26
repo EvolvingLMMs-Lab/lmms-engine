@@ -115,7 +115,9 @@ def calculate_image_tokens(image_path):
     try:
         image = Image.open(file_obj)
         width, height = image.size
-        num_tokens = width * height // (14 * 14 * 4)  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
+        num_tokens = (
+            width * height // (14 * 14 * 4)
+        )  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
     except Exception as e:
         print(f"Error: {str(e)} when loading {image_path}")
         num_tokens = 500 * 500 // (14 * 14 * 4)  # Default to 500x500 image
@@ -203,7 +205,10 @@ if __name__ == "__main__":
         data_folders = [dataset.get("data_folder") for dataset in datasets]
         data_types = [dataset.get("data_type") for dataset in datasets]
 
-    info = [(data_path, data_folder, data_type) for data_path, data_folder, data_type in zip(data_paths, data_folders, data_types)]
+    info = [
+        (data_path, data_folder, data_type)
+        for data_path, data_folder, data_type in zip(data_paths, data_folders, data_types)
+    ]
     with Pool(32) as p:
         results = list(tqdm(p.imap(check_single_dataset, info), total=len(info)))
 

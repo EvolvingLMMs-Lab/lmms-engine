@@ -127,8 +127,12 @@ class AeroProcessor(ProcessorMixin):
                 padding="max_length",
                 **kwargs,
             )
-            audio_inputs["audio_attention_mask"] = audio_inputs.pop("attention_mask")  # rename attention_mask to prevent conflicts later on
-            audio_inputs["audio_values"] = audio_inputs.pop("input_features")  # rename input_features to audio_features for clarification
+            audio_inputs["audio_attention_mask"] = audio_inputs.pop(
+                "attention_mask"
+            )  # rename attention_mask to prevent conflicts later on
+            audio_inputs["audio_values"] = audio_inputs.pop(
+                "input_features"
+            )  # rename input_features to audio_features for clarification
             # Computes the output length of the convolutional layers and the output length of the audio encoder
             input_lengths = (audio_inputs["audio_attention_mask"].sum(-1) - 1) // 2 + 1
             num_audio_tokens = (input_lengths - 2) // 2 + 1

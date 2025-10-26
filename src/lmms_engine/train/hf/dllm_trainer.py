@@ -42,7 +42,9 @@ class DLLMTrainer(HFTrainer):
 
         zero_config = getattr(model.config, "zero_optimization", None) if hasattr(model, "config") else None
         if zero_config:
-            zero_stage = zero_config.get("stage", None) if isinstance(zero_config, dict) else getattr(zero_config, "stage", None)
+            zero_stage = (
+                zero_config.get("stage", None) if isinstance(zero_config, dict) else getattr(zero_config, "stage", None)
+            )
             inputs["zero_stage"] = zero_stage
 
         if self.state.global_step == 0 or getattr(self, "cur_time", None) is None:
@@ -57,7 +59,11 @@ class DLLMTrainer(HFTrainer):
         outputs = model(**inputs)
         d_loss, nll = outputs.loss, outputs.nll
 
-        if self.args.average_tokens_across_devices and (self.model_accepts_loss_kwargs or self.compute_loss_func) and num_items_in_batch is not None:
+        if (
+            self.args.average_tokens_across_devices
+            and (self.model_accepts_loss_kwargs or self.compute_loss_func)
+            and num_items_in_batch is not None
+        ):
             d_loss *= self.accelerator.num_processes
             nll *= self.accelerator.num_processes
 
@@ -99,7 +105,9 @@ class DLLMTrainer(HFTrainer):
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
 
-            flops, promised_flops = model_utils.flops_counter.estimate_flops(self.total_seq_len, delta_time=self.cur_time - prev_time)
+            flops, promised_flops = model_utils.flops_counter.estimate_flops(
+                self.total_seq_len, delta_time=self.cur_time - prev_time
+            )
             flops_tensor = torch.tensor(flops, device=device)
             torch.distributed.all_reduce(flops_tensor, op=torch.distributed.ReduceOp.SUM)
             sp_size = pgm.process_group_manager.cp_world_size

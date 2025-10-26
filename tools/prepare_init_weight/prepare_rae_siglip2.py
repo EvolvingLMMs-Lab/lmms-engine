@@ -10,7 +10,9 @@ from lmms_engine.models.rae_siglip.modeling_rae_siglip import RaeSiglipModel
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Prepare RAE SigLIP model weights aligned with the original Stage-1 architecture.")
+    parser = argparse.ArgumentParser(
+        description="Prepare RAE SigLIP model weights aligned with the original Stage-1 architecture."
+    )
     parser.add_argument(
         "--checkpoint",
         type=str,
@@ -91,7 +93,9 @@ def main():
     # Load base model
     base_model = AutoModel.from_pretrained(args.checkpoint, device_map=args.device).eval()
     siglip_config = base_model.config.vision_config
-    encoder_input_size = int(args.encoder_input_size) if args.encoder_input_size is not None else int(siglip_config.image_size)
+    encoder_input_size = (
+        int(args.encoder_input_size) if args.encoder_input_size is not None else int(siglip_config.image_size)
+    )
 
     if args.decoder_config is not None:
         # Use custom decoder config from HuggingFace or path
@@ -188,7 +192,10 @@ def main():
         print(f"Verification successful! Output shape: {output_shape}")
 
     print(f"\n✓ RAE SigLIP model saved to: {output_path}")
-    print(f"✓ Decoder image size: {loaded_config.decoder_config.image_size}, " f"patch size: {loaded_config.decoder_config.patch_size}")
+    print(
+        f"✓ Decoder image size: {loaded_config.decoder_config.image_size}, "
+        f"patch size: {loaded_config.decoder_config.patch_size}"
+    )
 
 
 if __name__ == "__main__":

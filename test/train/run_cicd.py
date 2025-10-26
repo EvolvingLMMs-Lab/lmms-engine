@@ -29,7 +29,9 @@ def run_training_tests(test_pattern="test_*.py", verbose=False, failfast=False, 
         model_dir = test_dir / model_name
         if not model_dir.exists():
             print(f"Error: Model directory '{model_name}' not found in {test_dir}")
-            print(f"Available models: {', '.join([d.name for d in test_dir.iterdir() if d.is_dir() and not d.name.startswith('_')])}")
+            print(
+                f"Available models: {', '.join([d.name for d in test_dir.iterdir() if d.is_dir() and not d.name.startswith('_')])}"
+            )
             return False
         search_dir = model_dir
         print(f"Running tests for model: {model_name}")

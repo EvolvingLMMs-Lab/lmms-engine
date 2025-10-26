@@ -100,7 +100,9 @@ def main(config: DictConfig):
     # If you have a predefined config yaml
     config_yaml = config.pop("config_yaml")
     if config_yaml:
-        logger.info(f"Detected config yaml, merging with the default config. Will use the args in {config_yaml} to override current config.")
+        logger.info(
+            f"Detected config yaml, merging with the default config. Will use the args in {config_yaml} to override current config."
+        )
         with open(config_yaml, "r") as f:
             config_yaml = yaml.safe_load(f)
         config.update(config_yaml)

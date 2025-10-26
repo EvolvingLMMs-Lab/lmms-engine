@@ -232,7 +232,9 @@ class FSDP2SFTTrainer:
         # Validate config for IterableDataset and Dataset
         self.prepare_and_validate_config()
 
-        warmup_steps = int(self.total_steps * self.args.warmup_ratio) if self.args.warmup_ratio > 0 else self.args.warmup_steps
+        warmup_steps = (
+            int(self.total_steps * self.args.warmup_ratio) if self.args.warmup_ratio > 0 else self.args.warmup_steps
+        )
         self.prepare_scheduler(warmup_steps, self.total_steps)
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -331,7 +333,10 @@ class FSDP2SFTTrainer:
                         total_limit=self.args.save_total_limit,
                     )
 
-                if self.args.torch_empty_cache_steps is not None and self.global_step % self.args.torch_empty_cache_steps == 0:
+                if (
+                    self.args.torch_empty_cache_steps is not None
+                    and self.global_step % self.args.torch_empty_cache_steps == 0
+                ):
                     self.empty_cache()
                 pbar.update(1)
             curr_epoch += 1
@@ -471,7 +476,9 @@ class FSDP2SFTTrainer:
             self.total_steps = self.args.max_steps
         else:
             self.steps_per_epoch = len(self.train_dataloader)
-            self.total_steps = self.steps_per_epoch * self.args.num_train_epochs if self.args.max_steps < 0 else self.args.max_steps
+            self.total_steps = (
+                self.steps_per_epoch * self.args.num_train_epochs if self.args.max_steps < 0 else self.args.max_steps
+            )
 
     def should_stop(self):
         if self.global_step >= self.total_steps and self.total_steps > 0:

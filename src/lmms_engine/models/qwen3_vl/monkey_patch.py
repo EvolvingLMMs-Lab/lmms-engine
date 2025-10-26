@@ -49,7 +49,9 @@ def apply_liger_kernel_to_qwen3_vl(
         model (PreTrainedModel): The model instance to apply Liger kernels to, if the model has already been
         loaded. Default is None.
     """
-    assert not (cross_entropy and fused_linear_cross_entropy), "cross_entropy and fused_linear_cross_entropy cannot both be True."
+    assert not (
+        cross_entropy and fused_linear_cross_entropy
+    ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
     from transformers.models.qwen3_vl import modeling_qwen3_vl
     from transformers.models.qwen3_vl.modeling_qwen3_vl import (

@@ -69,7 +69,9 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             if getattr(self, "data_folder", None) is not None:
                 self.data_folder = [self.data_folder[i] for i in select_indices]
             self.data_lengths = [self.data_lengths[i] for i in select_indices]
-            logger.info(f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}")
+            logger.info(
+                f"Filter overlong data done, original length: {original_length}, new length: {len(self.data_list)}"
+            )
 
     def _build_from_config(self):
         """Load and prepare data from the configuration."""
@@ -117,7 +119,11 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             self.data_lengths = self.data_lengths.to_list()
             self.data_lengths = [da["length"] for da in self.data_lengths]
         else:
-            self.data_lengths = self._estimate_data_tokens(self.data_list) if self.config.dataset_format != "hf_dataset" else self.data_list_no_image
+            self.data_lengths = (
+                self._estimate_data_tokens(self.data_list)
+                if self.config.dataset_format != "hf_dataset"
+                else self.data_list_no_image
+            )
         self.filter_overlong()
 
         if self.config.packing:
@@ -266,7 +272,9 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             next_window = {}
             for j in cur_window.keys():
                 cur_length = cur_window[j]
-                if (cur_length + current_concatenated_length) * control_threshold <= max_length and (max_size == -1 or len(current_list) < max_size):
+                if (cur_length + current_concatenated_length) * control_threshold <= max_length and (
+                    max_size == -1 or len(current_list) < max_size
+                ):
                     current_concatenated_length += cur_length
                     current_list.append(int(j))
                 else:
@@ -329,7 +337,11 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             data_dict_list = self.load_from_packing(index_group)
             return data_dict_list
 
-        if self.config.dataset_format == "json" or self.config.dataset_format == "jsonl" or self.config.dataset_format == "arrow":
+        if (
+            self.config.dataset_format == "json"
+            or self.config.dataset_format == "jsonl"
+            or self.config.dataset_format == "arrow"
+        ):
             data_dict = self.load_from_json(self.data_list[index])
         elif self.config.dataset_format == "yaml":
             data_dict = self.load_from_json(self.data_list[index], self.data_folder[index])
@@ -352,7 +364,9 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
         if self.config.dataset_format == "json" or self.config.dataset_format == "jsonl":
             data_dict_list = [self.load_from_json(self.data_list[index]) for index in index_group]
         elif self.config.dataset_format == "yaml":
-            data_dict_list = [self.load_from_json(self.data_list[index], self.data_folder[index]) for index in index_group]
+            data_dict_list = [
+                self.load_from_json(self.data_list[index], self.data_folder[index]) for index in index_group
+            ]
         elif self.config.dataset_format == "hf_dataset":
             data_dict_list = [self.load_from_hf(self.data_list[index]) for index in index_group]
         else:

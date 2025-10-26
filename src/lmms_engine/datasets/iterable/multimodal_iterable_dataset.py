@@ -59,7 +59,9 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             self.rank = 0
             self.world_size = 1
         else:
-            logger.info("Distributed environment initialized, setting rank and world size to dist.get_rank() and dist.get_world_size()")
+            logger.info(
+                "Distributed environment initialized, setting rank and world size to dist.get_rank() and dist.get_world_size()"
+            )
             # Try to use data parallel rank if available, otherwise fall back to global rank
             if pgm is not None and hasattr(pgm, "process_group_manager") and pgm.process_group_manager is not None:
                 self.rank = pgm.process_group_manager.dp_rank
@@ -114,7 +116,11 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             data_folder = self.data_folder[index]
         if data_list is None:
             data_list = self.data_list
-        if self.config.dataset_format == "json" or self.config.dataset_format == "jsonl" or self.config.dataset_format == "arrow":
+        if (
+            self.config.dataset_format == "json"
+            or self.config.dataset_format == "jsonl"
+            or self.config.dataset_format == "arrow"
+        ):
             data_dict = self.load_from_json(data_list[index])
         elif self.config.dataset_format == "yaml":
             data_dict = self.load_from_json(data_list[index], data_folder)
@@ -135,7 +141,10 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
         # The first l ranks will have dataset length (len(dataset) // n) + 1
         # The rest ranks will have dataset length (len(dataset) // n)
         rank_mod_size = len(self.data_list) % world_size
-        per_rank_size = [(len(self.data_list) // world_size) + 1 if i < rank_mod_size else (len(self.data_list) // world_size) for i in range(world_size)]
+        per_rank_size = [
+            (len(self.data_list) // world_size) + 1 if i < rank_mod_size else (len(self.data_list) // world_size)
+            for i in range(world_size)
+        ]
         start_index = sum(per_rank_size[:rank])
         end_index = start_index + per_rank_size[rank]
 

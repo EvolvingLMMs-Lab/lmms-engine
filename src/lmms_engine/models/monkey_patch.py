@@ -19,7 +19,9 @@ class MonkeyPatcher:
             if not callable(func):
                 raise TypeError(f"Error: {func} must be callable!")
             if patch_type in self._dict[model_type]:
-                logger.warning(f"Monkey patch for model_type='{model_type}', patch_type='{patch_type}' already exists and will be overwritten by {getattr(func, '__name__', repr(func))}.")
+                logger.warning(
+                    f"Monkey patch for model_type='{model_type}', patch_type='{patch_type}' already exists and will be overwritten by {getattr(func, '__name__', repr(func))}."
+                )
             self._dict[model_type][patch_type] = func
             return func
 
@@ -34,7 +36,9 @@ class MonkeyPatcher:
             logger.info("Model type was not provided. No patches will be applied.")
             return
         if model_type not in self._dict.keys():
-            logger.info(f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}")
+            logger.info(
+                f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
+            )
             return
 
         apply_fn = self._dict[model_type][patch_type]
@@ -43,7 +47,9 @@ class MonkeyPatcher:
         # Filter out the keyword arguments that are not supported by the apply function
         applicable_kwargs = {key: value for key, value in kwargs.items() if key in apply_fn_signature.parameters}
 
-        logger.info(f"Applying patches for model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}")
+        logger.info(
+            f"Applying patches for model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
+        )
 
         apply_fn(**applicable_kwargs)
 
@@ -58,7 +64,9 @@ class MonkeyPatcher:
             logger.info("Model type could not be determined from model config. No patches will be applied.")
             return
         if model_type not in self._dict.keys():
-            logger.info(f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}")
+            logger.info(
+                f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
+            )
             return
 
         apply_fn = self._dict[model_type][patch_type]
@@ -67,7 +75,9 @@ class MonkeyPatcher:
 
         # Filter out the keyword arguments that are not supported by the apply function
         applicable_kwargs = {key: value for key, value in kwargs.items() if key in apply_fn_signature.parameters}
-        logger.info(f"Applying patches to model instance with model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}")
+        logger.info(
+            f"Applying patches to model instance with model type: {model_type} with patch type: {patch_type} with kwargs: {applicable_kwargs}"
+        )
 
         apply_fn(model=model, **applicable_kwargs)
 

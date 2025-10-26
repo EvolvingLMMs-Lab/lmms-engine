@@ -60,7 +60,10 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             image_inputs = self.processor.image_processor(images, return_tensors="pt", **output_kwargs["images_kwargs"])
             image_inputs["image_sizes"] = image_inputs.pop("image_grid_thw")
             merge_size = self.processor.image_processor.merge_size
-            num_image_tokens = [(image_size[-2] * image_size[-1]).item() // (merge_size**2) for image_size in image_inputs["image_sizes"]]
+            num_image_tokens = [
+                (image_size[-2] * image_size[-1]).item() // (merge_size**2)
+                for image_size in image_inputs["image_sizes"]
+            ]
         else:
             num_image_tokens = None
 
@@ -78,7 +81,9 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
                 second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / tmp for tmp in fps]
             else:
-                raise ValueError(f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number.")
+                raise ValueError(
+                    f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number."
+                )
             videos_inputs.update({"second_per_grid_ts": torch.tensor(second_per_grid_ts)})
             merge_length = self.processor.video_processor.merge_size**2
             num_video_tokens = [(video_grid_thw[index].prod() // merge_length) for index in range(len(video_grid_thw))]
@@ -94,7 +99,9 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
                 return_tensors="pt",
                 **kwargs,
             )
-            audio_inputs["audio_attention_mask"] = audio_inputs.pop("attention_mask")  # rename attention_mask to prevent conflicts later on
+            audio_inputs["audio_attention_mask"] = audio_inputs.pop(
+                "attention_mask"
+            )  # rename attention_mask to prevent conflicts later on
             audio_inputs["audio_values"] = audio_inputs.pop("input_features")
             input_lengths = (audio_inputs["audio_attention_mask"].sum(-1) - 1) // 2 + 1
             num_audio_tokens = (input_lengths - 2) // 2 + 1
@@ -150,13 +157,19 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
             encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
             # Should be 3 if instead of if else, so that can expand for each case
             if self.image_token_id in encode_id:
-                encode_id, used_images = self._expand_encode_id_image_tokens(encode_id, num_image_tokens, image_start_from)
+                encode_id, used_images = self._expand_encode_id_image_tokens(
+                    encode_id, num_image_tokens, image_start_from
+                )
                 image_start_from += used_images
             if self.audio_token_id in encode_id:
-                encode_id, used_audio = self._expand_encode_id_audio_tokens(encode_id, num_audio_tokens, audio_start_from)
+                encode_id, used_audio = self._expand_encode_id_audio_tokens(
+                    encode_id, num_audio_tokens, audio_start_from
+                )
                 audio_start_from += used_audio
             if self.video_token_id in encode_id:
-                encode_id, used_video = self._expand_encode_id_video_tokens(encode_id, num_video_tokens, video_start_from)
+                encode_id, used_video = self._expand_encode_id_video_tokens(
+                    encode_id, num_video_tokens, video_start_from
+                )
                 video_start_from += used_video
 
             input_id += encode_id

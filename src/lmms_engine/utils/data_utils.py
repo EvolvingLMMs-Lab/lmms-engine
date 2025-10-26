@@ -46,7 +46,9 @@ class DataUtilities:
         return data_list
 
     @staticmethod
-    def maybe_load_json_or_jsonlines_or_csv(path: str, data_type: Literal["json", "jsonl", "csv"]) -> List[Dict[str, List]]:
+    def maybe_load_json_or_jsonlines_or_csv(
+        path: str, data_type: Literal["json", "jsonl", "csv"]
+    ) -> List[Dict[str, List]]:
         if data_type == "json":
             return DataUtilities.load_json(path)
         elif data_type == "jsonl":
@@ -57,7 +59,9 @@ class DataUtilities:
             raise NotImplementedError
 
     @staticmethod
-    def maybe_load_by_type(path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]) -> Union[List[Dict[str, List]], Dataset]:
+    def maybe_load_by_type(
+        path: str, data_type: Literal["json", "jsonl", "csv", "arrow"]
+    ) -> Union[List[Dict[str, List]], Dataset]:
         if data_type == "arrow":
             dataset = load_from_disk(path)
         elif data_type == "parquet":

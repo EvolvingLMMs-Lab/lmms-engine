@@ -90,7 +90,9 @@ def vl_model_forward(
     **kwargs,
 ) -> Union[tuple, Qwen2_5_VLModelOutputWithPast]:
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
     batch_size, seq_length = input_ids.shape
     original_input_ids = input_ids
@@ -123,7 +125,9 @@ def vl_model_forward(
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-    position_ids = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
+    position_ids = (
+        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
+    )
 
     if get_ulysses_sequence_parallel_world_size() > 1:
         # Pad the input ids and position ids if the sequence parallelism is used
@@ -143,7 +147,9 @@ def vl_model_forward(
         n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
         if n_image_tokens != n_image_features:
-            raise ValueError(f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}")
+            raise ValueError(
+                f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+            )
 
         mask = input_ids == self.config.image_token_id
         mask_unsqueezed = mask.unsqueeze(-1)
@@ -159,7 +165,9 @@ def vl_model_forward(
         n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
         n_video_features = video_embeds.shape[0]
         if n_video_tokens != n_video_features:
-            raise ValueError(f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}")
+            raise ValueError(
+                f"Video features and video tokens do not match: tokens: {n_video_tokens}, features {n_video_features}"
+            )
 
         mask = input_ids == self.config.video_token_id
         mask_unsqueezed = mask.unsqueeze(-1)
@@ -175,13 +183,20 @@ def vl_model_forward(
         n_audio_tokens = (input_ids == self.config.audio_token_id).sum().item()
         n_audio_features = audio_output_lengths.sum()
         if n_audio_tokens != n_audio_features:
-            raise ValueError(f"Audio features and image tokens do not match: tokens: {n_audio_tokens}, features {n_audio_features}")
-        audio_mask = (input_ids == self.config.audio_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+            raise ValueError(
+                f"Audio features and image tokens do not match: tokens: {n_audio_tokens}, features {n_audio_features}"
+            )
+        audio_mask = (
+            (input_ids == self.config.audio_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+        )
         audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
         # Audio feature is in (bs, max_seq_len, hidden_size)
         # If directly masked scatter, the embed will be place one by one (order is incorret)
         # We remove the padded values first
-        unpadded_audio_features = [audio_feat[:audio_output_length] for audio_feat, audio_output_length in zip(audio_features, audio_output_lengths)]
+        unpadded_audio_features = [
+            audio_feat[:audio_output_length]
+            for audio_feat, audio_output_length in zip(audio_features, audio_output_lengths)
+        ]
         # Concat the audio features
         # Should exactly have audio_mask.sum() values
         unpadded_audio_features = torch.concatenate(unpadded_audio_features, dim=0)
@@ -233,7 +248,9 @@ def text_model_forward(
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
     # use_cache = use_cache if use_cache is not None else self.config.use_cache
     # use_rmpad = use_rmpad if use_rmpad is not None else self.config.use_rmpad
 
@@ -251,7 +268,9 @@ def text_model_forward(
 
     if self.gradient_checkpointing and self.training:
         if use_cache:
-            logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
+            logger.warning_once(
+                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+            )
             use_cache = False
 
     past_key_values_length = 0

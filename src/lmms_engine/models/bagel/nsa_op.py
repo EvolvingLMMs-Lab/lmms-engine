@@ -11,7 +11,10 @@ try:
         topk_sparse_attention,
     )
 except ImportError:
-    logger.warning("native_sparse_attention is not installed, please install with" " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`")
+    logger.warning(
+        "native_sparse_attention is not installed, please install with"
+        " `pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
+    )
 
 from transformers.utils import is_flash_attn_2_available
 
@@ -30,7 +33,9 @@ def forward_train(
 ):
     packed_query_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_heads * self.head_dim))
     packed_key_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
-    packed_value_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
+    packed_value_states = packed_sequence.new_zeros(
+        (packed_sequence.shape[0], self.num_key_value_heads * self.head_dim)
+    )
 
     packed_sequence_und = packed_sequence[packed_und_token_indexes]
     packed_sequence_gen = packed_sequence[packed_gen_token_indexes]
@@ -138,7 +143,11 @@ def forward_train(
         window_size=(self.window_size, -1),
     )
 
-    attn_output = compressed_attn_output * g_cmp.unsqueeze(-1) + sparse_attn_output * g_swa.unsqueeze(-1) + sliding_attn_output * g_slc.unsqueeze(-1)
+    attn_output = (
+        compressed_attn_output * g_cmp.unsqueeze(-1)
+        + sparse_attn_output * g_swa.unsqueeze(-1)
+        + sliding_attn_output * g_slc.unsqueeze(-1)
+    )
 
     packed_attn_output = attn_output.squeeze(0)
 

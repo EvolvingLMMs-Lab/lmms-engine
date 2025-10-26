@@ -133,10 +133,26 @@ class Qwen2Tokenizer(PreTrainedTokenizer):
         **kwargs,
     ):
         # Qwen vocab does not contain control tokens; added tokens need to be special
-        bos_token = AddedToken(bos_token, lstrip=False, rstrip=False, special=True, normalized=False) if isinstance(bos_token, str) else bos_token
-        eos_token = AddedToken(eos_token, lstrip=False, rstrip=False, special=True, normalized=False) if isinstance(eos_token, str) else eos_token
-        unk_token = AddedToken(unk_token, lstrip=False, rstrip=False, special=True, normalized=False) if isinstance(unk_token, str) else unk_token
-        pad_token = AddedToken(pad_token, lstrip=False, rstrip=False, special=True, normalized=False) if isinstance(pad_token, str) else pad_token
+        bos_token = (
+            AddedToken(bos_token, lstrip=False, rstrip=False, special=True, normalized=False)
+            if isinstance(bos_token, str)
+            else bos_token
+        )
+        eos_token = (
+            AddedToken(eos_token, lstrip=False, rstrip=False, special=True, normalized=False)
+            if isinstance(eos_token, str)
+            else eos_token
+        )
+        unk_token = (
+            AddedToken(unk_token, lstrip=False, rstrip=False, special=True, normalized=False)
+            if isinstance(unk_token, str)
+            else unk_token
+        )
+        pad_token = (
+            AddedToken(pad_token, lstrip=False, rstrip=False, special=True, normalized=False)
+            if isinstance(pad_token, str)
+            else pad_token
+        )
 
         with open(vocab_file, encoding="utf-8") as vocab_handle:
             self.encoder = json.load(vocab_handle)
@@ -161,7 +177,9 @@ class Qwen2Tokenizer(PreTrainedTokenizer):
         self.pat = re.compile(PRETOKENIZE_REGEX)
 
         if kwargs.get("add_prefix_space", False):
-            logger.warning_once(f"{self.__class__.__name} does not support `add_prefix_space`, setting it to True has no effect.")
+            logger.warning_once(
+                f"{self.__class__.__name} does not support `add_prefix_space`, setting it to True has no effect."
+            )
 
         super().__init__(
             errors=errors,
@@ -230,7 +248,9 @@ class Qwen2Tokenizer(PreTrainedTokenizer):
         """Tokenize a string."""
         bpe_tokens = []
         for token in re.findall(self.pat, text):
-            token = "".join(self.byte_encoder[b] for b in token.encode("utf-8"))  # Maps all our bytes to unicode strings, avoiding control tokens of the BPE (spaces in our case)
+            token = "".join(
+                self.byte_encoder[b] for b in token.encode("utf-8")
+            )  # Maps all our bytes to unicode strings, avoiding control tokens of the BPE (spaces in our case)
             bpe_tokens.extend(bpe_token for bpe_token in self.bpe(token).split(" "))
         return bpe_tokens
 
@@ -291,7 +311,10 @@ class Qwen2Tokenizer(PreTrainedTokenizer):
             writer.write("#version: 0.2\n")
             for bpe_tokens, token_index in sorted(self.bpe_ranks.items(), key=lambda kv: kv[1]):
                 if index != token_index:
-                    logger.warning(f"Saving vocabulary to {merge_file}: BPE merge indices are not consecutive." " Please check that the tokenizer is not corrupted!")
+                    logger.warning(
+                        f"Saving vocabulary to {merge_file}: BPE merge indices are not consecutive."
+                        " Please check that the tokenizer is not corrupted!"
+                    )
                     index = token_index
                 writer.write(" ".join(bpe_tokens) + "\n")
                 index += 1

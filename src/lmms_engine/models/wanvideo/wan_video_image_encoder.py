@@ -116,7 +116,9 @@ class XLMRoberta(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         # blocks
-        self.blocks = nn.ModuleList([AttentionBlock(dim, num_heads, post_norm, dropout, eps) for _ in range(num_layers)])
+        self.blocks = nn.ModuleList(
+            [AttentionBlock(dim, num_heads, post_norm, dropout, eps) for _ in range(num_layers)]
+        )
 
         # norm layer
         self.norm = nn.LayerNorm(dim, eps=eps)
@@ -129,7 +131,11 @@ class XLMRoberta(nn.Module):
         mask = ids.ne(self.pad_id).long()
 
         # embeddings
-        x = self.token_embedding(ids) + self.type_embedding(torch.zeros_like(ids)) + self.pos_embedding(self.pad_id + torch.cumsum(mask, dim=1) * mask)
+        x = (
+            self.token_embedding(ids)
+            + self.type_embedding(torch.zeros_like(ids))
+            + self.pos_embedding(self.pad_id + torch.cumsum(mask, dim=1) * mask)
+        )
         if self.post_norm:
             x = self.norm(x)
         x = self.dropout(x)

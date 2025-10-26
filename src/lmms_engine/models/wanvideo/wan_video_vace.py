@@ -44,7 +44,9 @@ class VaceWanModel(torch.nn.Module):
         self.vace_layers_mapping = {i: n for n, i in enumerate(self.vace_layers)}
 
         # vace blocks
-        self.vace_blocks = torch.nn.ModuleList([VaceWanAttentionBlock(has_image_input, dim, num_heads, ffn_dim, eps, block_id=i) for i in self.vace_layers])
+        self.vace_blocks = torch.nn.ModuleList(
+            [VaceWanAttentionBlock(has_image_input, dim, num_heads, ffn_dim, eps, block_id=i) for i in self.vace_layers]
+        )
 
         # vace patch embeddings
         self.vace_patch_embedding = torch.nn.Conv3d(vace_in_dim, dim, kernel_size=patch_size, stride=patch_size)

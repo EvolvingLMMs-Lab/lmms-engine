@@ -142,7 +142,9 @@ class TrainRunner:
         sp_degree = sp_ulysses_degree * 1  # ring attn always 1, kept for clarity
 
         total_group_size = sp_degree
-        assert world_size % total_group_size == 0, f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
+        assert (
+            world_size % total_group_size == 0
+        ), f"world_size={world_size} must be divisible by total_group_size={total_group_size}"
 
         set_ulysses_sequence_parallel_group(pgm.process_group_manager.cp_group)
 
@@ -186,7 +188,9 @@ class TrainRunner:
             # Only save Adapter
             keys_to_match = ["multi_modal_projector", "audio_modal_projector"]
 
-            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(trainer.model.named_parameters(), keys_to_match)
+            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(
+                trainer.model.named_parameters(), keys_to_match
+            )
             trainer.model.config.save_pretrained(output_dir)
 
             current_folder = output_dir.split("/")[-1]

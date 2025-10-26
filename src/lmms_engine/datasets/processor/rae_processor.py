@@ -16,7 +16,9 @@ from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 class RaeSiglipDataProcessor(BaseQwen2_5_DataProcessor):
     def _build_processor(self):
         # Handle local paths by using local_files_only and trust_remote_code
-        processor = AutoProcessor.from_pretrained(self.config.processor_name, local_files_only=True, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(
+            self.config.processor_name, local_files_only=True, trust_remote_code=True
+        )
         image_processor = processor.image_processor
         size_attr = getattr(image_processor, "size", 256)
         if isinstance(size_attr, dict):

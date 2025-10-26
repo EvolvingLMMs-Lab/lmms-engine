@@ -22,7 +22,11 @@ def apply_fsdp2(model, fsdp_kwargs, fsdp_transformer_layer_cls_to_wrap=None):
     """model: AutoModelForCausalLM"""
 
     default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
-    fsdp_transformer_layer_cls_to_wrap = default_transformer_cls_names_to_wrap if fsdp_transformer_layer_cls_to_wrap is None else fsdp_transformer_layer_cls_to_wrap
+    fsdp_transformer_layer_cls_to_wrap = (
+        default_transformer_cls_names_to_wrap
+        if fsdp_transformer_layer_cls_to_wrap is None
+        else fsdp_transformer_layer_cls_to_wrap
+    )
 
     if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
         fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
@@ -31,7 +35,9 @@ def apply_fsdp2(model, fsdp_kwargs, fsdp_transformer_layer_cls_to_wrap=None):
 
     modules = []
     for name, module in model.named_modules():
-        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
+        if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
+            isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
+        ):
             modules.append(module)
 
     for idx, module in enumerate(modules):

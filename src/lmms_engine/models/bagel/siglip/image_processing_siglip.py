@@ -181,7 +181,10 @@ class SiglipImageProcessor(BaseImageProcessor):
         images = make_list_of_images(images)
 
         if not valid_images(images):
-            raise ValueError("Invalid image type. Must be of type PIL.Image.Image, numpy.ndarray, " "torch.Tensor, tf.Tensor or jax.ndarray.")
+            raise ValueError(
+                "Invalid image type. Must be of type PIL.Image.Image, numpy.ndarray, "
+                "torch.Tensor, tf.Tensor or jax.ndarray."
+            )
         validate_preprocess_arguments(
             do_rescale=do_rescale,
             rescale_factor=rescale_factor,
@@ -199,7 +202,10 @@ class SiglipImageProcessor(BaseImageProcessor):
             images = [convert_to_rgb(image) for image in images]
 
         if is_scaled_image(images[0]) and do_rescale:
-            logger.warning_once("It looks like you are trying to rescale already rescaled images. If the input" " images have pixel values between 0 and 1, set `do_rescale=False` to avoid rescaling them again.")
+            logger.warning_once(
+                "It looks like you are trying to rescale already rescaled images. If the input"
+                " images have pixel values between 0 and 1, set `do_rescale=False` to avoid rescaling them again."
+            )
 
         if input_data_format is None:
             # We assume that all images have the same channel dimension format.
@@ -238,7 +244,9 @@ class SiglipImageProcessor(BaseImageProcessor):
                 for image in images
             ]
 
-        images = [to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format) for image in images]
+        images = [
+            to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format) for image in images
+        ]
 
         data = {"pixel_values": images}
         return BatchFeature(data=data, tensor_type=return_tensors)

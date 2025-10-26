@@ -48,7 +48,10 @@ class LLaVADataProcessor:
             height = image_inputs["pixel_values"].shape[-2]
             width = image_inputs["pixel_values"].shape[-1]
             image_sizes = image_inputs["image_sizes"]
-            num_image_tokens = [self.processor._get_number_of_features(image_size[0], image_size[1], height, width) for image_size in image_sizes]
+            num_image_tokens = [
+                self.processor._get_number_of_features(image_size[0], image_size[1], height, width)
+                for image_size in image_sizes
+            ]
         else:
             num_image_tokens = None
 

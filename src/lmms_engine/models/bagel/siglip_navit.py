@@ -176,7 +176,9 @@ class SiglipVisionEmbeddings(nn.Module):
             )
         else:
             linear_patch_embedding = nn.Linear(config.num_channels * self.patch_size**2, self.embed_dim, bias=True)
-        W = self.patch_embedding.weight.permute(0, 2, 3, 1).reshape(self.embed_dim, config.num_channels * self.patch_size**2)
+        W = self.patch_embedding.weight.permute(0, 2, 3, 1).reshape(
+            self.embed_dim, config.num_channels * self.patch_size**2
+        )
         linear_patch_embedding.weight.data = W
         linear_patch_embedding.bias.data = self.patch_embedding.bias.data
         del self.patch_embedding

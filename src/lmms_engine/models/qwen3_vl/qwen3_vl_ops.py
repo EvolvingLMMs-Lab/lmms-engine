@@ -92,8 +92,12 @@ def _aggregate_visual_masks_and_embeds(
     # Distribute deepstack embeds for this rank based on original masks
     deepstack_visual_embeds = []
     if sp_size > 1:
-        deepstack_image_embeds = _distribute_deepstack_embeds_for_rank(deepstack_image_embeds, original_image_mask, sp_size)
-        deepstack_video_embeds = _distribute_deepstack_embeds_for_rank(deepstack_video_embeds, original_video_mask, sp_size)
+        deepstack_image_embeds = _distribute_deepstack_embeds_for_rank(
+            deepstack_image_embeds, original_image_mask, sp_size
+        )
+        deepstack_video_embeds = _distribute_deepstack_embeds_for_rank(
+            deepstack_video_embeds, original_video_mask, sp_size
+        )
 
     # Merge image and video embeddings
     image_mask_joint = image_mask[visual_pos_masks]
@@ -175,7 +179,9 @@ def model_forward(
 
     # Get and split pos ids and input_ids first, then prepare the embeddings
     if position_ids is None:
-        attention_mask_tensor = attention_mask if not isinstance(attention_mask, dict) else attention_mask["full_attention"]
+        attention_mask_tensor = (
+            attention_mask if not isinstance(attention_mask, dict) else attention_mask["full_attention"]
+        )
         if attention_mask_tensor is not None and attention_mask_tensor.ndim == 4:
             attention_mask_tensor = torch.diagonal(attention_mask_tensor[:, 0], dim1=1, dim2=2)
             # Only apply conversion for floating point tensors (inverted masks)
@@ -187,8 +193,14 @@ def model_forward(
         # When compiling, we can't check tensor values thus we check only input length
         # It is safe to assume that `length!=1` means we're in pre-fill because compiled
         # models currently cannot do asssisted decoding
-        prefill_compiled_stage = is_torchdynamo_compiling() and ((original_input_ids is not None and original_input_ids.shape[1] != 1) or (inputs_embeds is not None and inputs_embeds.shape[1] != 1))
-        prefill_noncompiled_stage = not is_torchdynamo_compiling() and ((cache_position is not None and cache_position[0] == 0) or (past_key_values is None or past_key_values.get_seq_length() == 0))
+        prefill_compiled_stage = is_torchdynamo_compiling() and (
+            (original_input_ids is not None and original_input_ids.shape[1] != 1)
+            or (inputs_embeds is not None and inputs_embeds.shape[1] != 1)
+        )
+        prefill_noncompiled_stage = not is_torchdynamo_compiling() and (
+            (cache_position is not None and cache_position[0] == 0)
+            or (past_key_values is None or past_key_values.get_seq_length() == 0)
+        )
         if (prefill_compiled_stage or prefill_noncompiled_stage) or self.rope_deltas is None:
             position_ids, rope_deltas = self.get_rope_index(
                 original_input_ids,
@@ -208,7 +220,9 @@ def model_forward(
             position_ids = position_ids.add(delta)
             position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
-    position_ids = index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
+    position_ids = (
+        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
+    )
     if get_ulysses_sequence_parallel_world_size() > 1:
         # Pad the input ids and position ids if the sequence parallelism is used
         input_ids, position_ids, pad_size = ulysses_pad(
@@ -464,7 +478,9 @@ def attn_forward(
     cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        assert position_ids is not None, f"position_ids is required for Ulysses sequence parallelism " f"(sp_size={ulysses_sp_size}). Got None."
+        assert position_ids is not None, (
+            f"position_ids is required for Ulysses sequence parallelism " f"(sp_size={ulysses_sp_size}). Got None."
+        )
 
         # NOTE: repeat kv heads to be divided by sequence parallel. Instead of repeating nheads_q//nheads_k,
         # we choose to repeat sp_size//nheads_k, since flash_attention supports MQA/GQA.

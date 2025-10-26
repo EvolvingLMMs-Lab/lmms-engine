@@ -89,7 +89,10 @@ class RandomWindowCrop:
         self.num_windows = len(self.offsets)
 
     def __repr__(self) -> str:
-        return f"RandomWindowCrop(input={(self.H, self.W)}, crop={self.crop}, " f"windows={self.num_windows}, per_sample={self.per_sample})"
+        return (
+            f"RandomWindowCrop(input={(self.H, self.W)}, crop={self.crop}, "
+            f"windows={self.num_windows}, per_sample={self.per_sample})"
+        )
 
     def _rand_idx(self) -> int:
         return torch.randint(0, self.num_windows, (1,)).item()
@@ -117,7 +120,9 @@ def slow_attn(query, key, value, scale: float, attn_mask=None, dropout_p: float 
     if attn_mask is not None:
         attn.add_(attn_mask)
 
-    return (F.dropout(attn.softmax(dim=-1), p=dropout_p, inplace=True) if dropout_p > 0 else attn.softmax(dim=-1)) @ value
+    return (
+        F.dropout(attn.softmax(dim=-1), p=dropout_p, inplace=True) if dropout_p > 0 else attn.softmax(dim=-1)
+    ) @ value
 
 
 class MLPNoDrop(nn.Module):

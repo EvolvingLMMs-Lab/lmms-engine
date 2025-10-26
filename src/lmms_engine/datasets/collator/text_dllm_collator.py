@@ -46,7 +46,10 @@ def _torch_collate_batch(examples, tokenizer, pad_to_multiple_of: Optional[int] 
 
     # If yes, check if we have a `pad_token`.
     if tokenizer.pad_token is None:
-        raise ValueError("You are attempting to pad samples but the tokenizer you are using" f" ({tokenizer.__class__.__name__}) does not have a pad token.")
+        raise ValueError(
+            "You are attempting to pad samples but the tokenizer you are using"
+            f" ({tokenizer.__class__.__name__}) does not have a pad token."
+        )
 
     # Creating the full tensor and filling it with our data.
     max_length = max(x.size(0) for x in examples)
@@ -88,20 +91,30 @@ class TextDllmCollator(DataCollatorForLanguageModeling):
                 pad_to_multiple_of=self.pad_to_multiple_of,
             )
         else:
-            batch = {"input_ids": _torch_collate_batch(examples, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)}
+            batch = {
+                "input_ids": _torch_collate_batch(examples, self.tokenizer, pad_to_multiple_of=self.pad_to_multiple_of)
+            }
         special_tokens_mask = batch.pop("special_tokens_mask", None)
-        batch["input_ids"], batch["labels"], batch["mlm_prob"] = self.torch_mask_tokens(batch["input_ids"], special_tokens_mask=special_tokens_mask)
+        batch["input_ids"], batch["labels"], batch["mlm_prob"] = self.torch_mask_tokens(
+            batch["input_ids"], special_tokens_mask=special_tokens_mask
+        )
         return batch
 
     def torch_mask_tokens(self, inputs: Any, special_tokens_mask: Optional[Any] = None) -> tuple[Any, Any]:
         labels = inputs.clone()
         # We sample a few tokens uniformly in each sequence for MLM training
         B = labels.shape[0]
-        mlm_probabilities = torch.rand(B, generator=self.generator, device=labels.device) * (self.p_max - self.p_min) + self.p_min
-        probability_matrix = mlm_probabilities.view(B, *([1] * (labels.ndim - 1))) * torch.ones_like(labels, device=labels.device)
+        mlm_probabilities = (
+            torch.rand(B, generator=self.generator, device=labels.device) * (self.p_max - self.p_min) + self.p_min
+        )
+        probability_matrix = mlm_probabilities.view(B, *([1] * (labels.ndim - 1))) * torch.ones_like(
+            labels, device=labels.device
+        )
 
         if special_tokens_mask is None:
-            special_tokens_mask = [self.tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()]
+            special_tokens_mask = [
+                self.tokenizer.get_special_tokens_mask(val, already_has_special_tokens=True) for val in labels.tolist()
+            ]
             special_tokens_mask = torch.tensor(special_tokens_mask, dtype=torch.bool)
         else:
             special_tokens_mask = special_tokens_mask.bool()

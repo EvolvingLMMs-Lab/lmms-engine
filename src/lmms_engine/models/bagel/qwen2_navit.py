@@ -432,8 +432,12 @@ class PackedAttentionMoT(Qwen2Attention):
         packed_gen_token_indexes: torch.LongTensor,
     ):
         packed_query_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_heads * self.head_dim))
-        packed_key_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
-        packed_value_states = packed_sequence.new_zeros((packed_sequence.shape[0], self.num_key_value_heads * self.head_dim))
+        packed_key_states = packed_sequence.new_zeros(
+            (packed_sequence.shape[0], self.num_key_value_heads * self.head_dim)
+        )
+        packed_value_states = packed_sequence.new_zeros(
+            (packed_sequence.shape[0], self.num_key_value_heads * self.head_dim)
+        )
 
         packed_sequence_und = packed_sequence[packed_und_token_indexes]
         packed_sequence_gen = packed_sequence[packed_gen_token_indexes]
@@ -459,7 +463,9 @@ class PackedAttentionMoT(Qwen2Attention):
         packed_query_states_[packed_und_token_indexes] = self.q_norm(packed_query_states[packed_und_token_indexes])
         if self.config.freeze_und:
             packed_query_states_[packed_und_token_indexes] = packed_query_states_[packed_und_token_indexes].detach()
-        packed_query_states_[packed_gen_token_indexes] = self.q_norm_moe_gen(packed_query_states[packed_gen_token_indexes])
+        packed_query_states_[packed_gen_token_indexes] = self.q_norm_moe_gen(
+            packed_query_states[packed_gen_token_indexes]
+        )
 
         packed_key_states_[packed_und_token_indexes] = self.k_norm(packed_key_states[packed_und_token_indexes])
         if self.config.freeze_und:
@@ -523,7 +529,9 @@ class PackedAttentionMoT(Qwen2Attention):
         packed_attn_output = packed_attn_output.transpose(0, 1).reshape(-1, self.num_heads * self.head_dim)
         packed_attn_output_ = packed_attn_output.new_zeros(packed_attn_output.shape)
         packed_attn_output_[packed_und_token_indexes] = self.o_proj(packed_attn_output[packed_und_token_indexes])
-        packed_attn_output_[packed_gen_token_indexes] = self.o_proj_moe_gen(packed_attn_output[packed_gen_token_indexes])
+        packed_attn_output_[packed_gen_token_indexes] = self.o_proj_moe_gen(
+            packed_attn_output[packed_gen_token_indexes]
+        )
 
         return packed_attn_output_
 
@@ -550,7 +558,9 @@ class PackedAttentionMoT(Qwen2Attention):
             packed_key_states = self.k_norm(packed_key_states)
         elif mode == "gen":
             packed_query_sequence = packed_query_sequence.to(torch.bfloat16)
-            packed_query_states = packed_query_sequence.new_zeros((packed_query_sequence.shape[0], self.num_heads * self.head_dim))
+            packed_query_states = packed_query_sequence.new_zeros(
+                (packed_query_sequence.shape[0], self.num_heads * self.head_dim)
+            )
             packed_key_states = packed_query_sequence.new_zeros(
                 (
                     packed_query_sequence.shape[0],
@@ -582,11 +592,15 @@ class PackedAttentionMoT(Qwen2Attention):
 
             packed_query_states = packed_query_states.to(torch.float32)
             packed_query_states[packed_text_indexes] = self.q_norm(packed_query_states[packed_text_indexes])
-            packed_query_states[packed_vae_token_indexes] = self.q_norm_moe_gen(packed_query_states[packed_vae_token_indexes])
+            packed_query_states[packed_vae_token_indexes] = self.q_norm_moe_gen(
+                packed_query_states[packed_vae_token_indexes]
+            )
 
             packed_key_states = packed_key_states.to(torch.float32)
             packed_key_states[packed_text_indexes] = self.k_norm(packed_key_states[packed_text_indexes])
-            packed_key_states[packed_vae_token_indexes] = self.k_norm_moe_gen(packed_key_states[packed_vae_token_indexes])
+            packed_key_states[packed_vae_token_indexes] = self.k_norm_moe_gen(
+                packed_key_states[packed_vae_token_indexes]
+            )
 
         packed_cos, packed_sin = packed_query_position_embeddings
         packed_query_states, packed_key_states = apply_rotary_pos_emb(
@@ -636,7 +650,9 @@ class PackedAttentionMoT(Qwen2Attention):
             packed_attn_output = self.o_proj(packed_attn_output)
         elif mode == "gen":
             packed_attn_output[packed_text_indexes] = self.o_proj(packed_attn_output[packed_text_indexes])
-            packed_attn_output[packed_vae_token_indexes] = self.o_proj_moe_gen(packed_attn_output[packed_vae_token_indexes])
+            packed_attn_output[packed_vae_token_indexes] = self.o_proj_moe_gen(
+                packed_attn_output[packed_vae_token_indexes]
+            )
 
         if update_past_key_values:
             past_key_values.key_cache[self.layer_idx] = merged_key_states
@@ -765,7 +781,9 @@ class Qwen2MoTDecoderLayer(GradientCheckpointingLayer):
         residual = packed_sequence
         packed_sequence_ = packed_sequence.new_zeros(packed_sequence.shape)
         packed_sequence_[packed_und_token_indexes] = self.input_layernorm(packed_sequence[packed_und_token_indexes])
-        packed_sequence_[packed_gen_token_indexes] = self.input_layernorm_moe_gen(packed_sequence[packed_gen_token_indexes])
+        packed_sequence_[packed_gen_token_indexes] = self.input_layernorm_moe_gen(
+            packed_sequence[packed_gen_token_indexes]
+        )
 
         # Self Attention
         packed_sequence_ = self.self_attn(
@@ -783,11 +801,15 @@ class Qwen2MoTDecoderLayer(GradientCheckpointingLayer):
         # Fully Connected
         residual = packed_sequence
         packed_sequence_ = packed_sequence.new_zeros(packed_sequence.shape)
-        packed_sequence_[packed_und_token_indexes] = self.mlp(self.post_attention_layernorm(packed_sequence[packed_und_token_indexes]))
+        packed_sequence_[packed_und_token_indexes] = self.mlp(
+            self.post_attention_layernorm(packed_sequence[packed_und_token_indexes])
+        )
         if self.freeze_und:
             packed_sequence_[packed_und_token_indexes] = packed_sequence_[packed_und_token_indexes].detach()
 
-        packed_sequence_[packed_gen_token_indexes] = self.mlp_moe_gen(self.post_attention_layernorm_moe_gen(packed_sequence[packed_gen_token_indexes]))
+        packed_sequence_[packed_gen_token_indexes] = self.mlp_moe_gen(
+            self.post_attention_layernorm_moe_gen(packed_sequence[packed_gen_token_indexes])
+        )
         packed_sequence = residual + packed_sequence_
 
         return packed_sequence
@@ -819,8 +841,12 @@ class Qwen2MoTDecoderLayer(GradientCheckpointingLayer):
                 packed_query_sequence = self.input_layernorm(packed_query_sequence)
             elif mode == "gen":
                 packed_query_sequence_ = torch.zeros_like(packed_query_sequence)
-                packed_query_sequence_[packed_text_indexes] = self.input_layernorm(packed_query_sequence[packed_text_indexes])
-                packed_query_sequence_[packed_vae_token_indexes] = self.input_layernorm_moe_gen(packed_query_sequence[packed_vae_token_indexes])
+                packed_query_sequence_[packed_text_indexes] = self.input_layernorm(
+                    packed_query_sequence[packed_text_indexes]
+                )
+                packed_query_sequence_[packed_vae_token_indexes] = self.input_layernorm_moe_gen(
+                    packed_query_sequence[packed_vae_token_indexes]
+                )
                 packed_query_sequence = packed_query_sequence_
 
             # Self Attention
@@ -848,8 +874,12 @@ class Qwen2MoTDecoderLayer(GradientCheckpointingLayer):
             elif mode == "gen":
                 packed_text_query_sequence = packed_query_sequence[packed_text_indexes]
                 packed_vae_query_sequence = packed_query_sequence[packed_vae_token_indexes]
-                packed_text_query_sequence = self.post_attention_layernorm(packed_text_query_sequence).to(torch.bfloat16)
-                packed_vae_query_sequence = self.post_attention_layernorm_moe_gen(packed_vae_query_sequence).to(torch.bfloat16)
+                packed_text_query_sequence = self.post_attention_layernorm(packed_text_query_sequence).to(
+                    torch.bfloat16
+                )
+                packed_vae_query_sequence = self.post_attention_layernorm_moe_gen(packed_vae_query_sequence).to(
+                    torch.bfloat16
+                )
 
                 packed_query_sequence_ = torch.zeros_like(packed_query_sequence).to(torch.bfloat16)
                 packed_query_sequence_[packed_text_indexes] = self.mlp(packed_text_query_sequence)
@@ -965,7 +995,9 @@ class Qwen2MoEDecoderLayer(GradientCheckpointingLayer):
         elif mode == "gen":
             packed_query_sequence_ = torch.zeros_like(packed_query_sequence).to(torch.bfloat16)
             packed_query_sequence_[packed_text_indexes] = self.mlp(packed_query_sequence[packed_text_indexes])
-            packed_query_sequence_[packed_vae_token_indexes] = self.mlp_moe_gen(packed_query_sequence[packed_vae_token_indexes])
+            packed_query_sequence_[packed_vae_token_indexes] = self.mlp_moe_gen(
+                packed_query_sequence[packed_vae_token_indexes]
+            )
             packed_query_sequence = packed_query_sequence_
         packed_query_sequence = residual + packed_query_sequence
 
@@ -1114,7 +1146,9 @@ class Qwen2Model(Qwen2PreTrainedModel):
             elif mode == "gen":
                 packed_query_sequence_ = torch.zeros_like(packed_query_sequence)
                 packed_query_sequence_[packed_text_indexes] = self.norm(packed_query_sequence[packed_text_indexes])
-                packed_query_sequence_[packed_vae_token_indexes] = self.norm_moe_gen(packed_query_sequence[packed_vae_token_indexes])
+                packed_query_sequence_[packed_vae_token_indexes] = self.norm_moe_gen(
+                    packed_query_sequence[packed_vae_token_indexes]
+                )
                 packed_query_sequence = packed_query_sequence_
         else:
             packed_query_sequence = self.norm(packed_query_sequence)

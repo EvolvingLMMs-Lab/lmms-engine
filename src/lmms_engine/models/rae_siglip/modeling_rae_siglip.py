@@ -44,12 +44,16 @@ class RaeSiglipModel(RaeSiglipPreTrainedModel):
         self.encoder_input_size = self.encoder_config.image_size
         self.encoder_patch_size = self.encoder_config.patch_size
         self.latent_dim = self.encoder_config.hidden_size
-        assert self.encoder_input_size % self.encoder_patch_size == 0, f"encoder_input_size {self.encoder_input_size} must be divisible by encoder_patch_size {self.encoder_patch_size}"
+        assert (
+            self.encoder_input_size % self.encoder_patch_size == 0
+        ), f"encoder_input_size {self.encoder_input_size} must be divisible by encoder_patch_size {self.encoder_patch_size}"
         self.base_patches = (self.encoder_input_size // self.encoder_patch_size) ** 2  # number of patches of the latent
 
         # decoder
         decoder_config = self.decoder_config
-        decoder_config.hidden_size = self.latent_dim  # set the hidden size of the decoder to be the same as the encoder's output
+        decoder_config.hidden_size = (
+            self.latent_dim
+        )  # set the hidden size of the decoder to be the same as the encoder's output
         decoder_config.patch_size = self.encoder_patch_size
         decoder_config.image_size = int(self.encoder_patch_size * sqrt(self.base_patches))
         self.decoder = GeneralDecoder(decoder_config, num_patches=self.base_patches)

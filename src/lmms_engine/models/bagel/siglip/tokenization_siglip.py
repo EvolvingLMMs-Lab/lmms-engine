@@ -86,9 +86,21 @@ class SiglipTokenizer(PreTrainedTokenizer):
     ) -> None:
         requires_backends(self, "protobuf")
 
-        pad_token = AddedToken(pad_token, rstrip=True, lstrip=True, normalized=False, special=True) if isinstance(pad_token, str) else pad_token
-        unk_token = AddedToken(unk_token, rstrip=True, lstrip=True, normalized=False, special=True) if isinstance(unk_token, str) else unk_token
-        eos_token = AddedToken(eos_token, rstrip=True, lstrip=True, normalized=False, special=True) if isinstance(eos_token, str) else eos_token
+        pad_token = (
+            AddedToken(pad_token, rstrip=True, lstrip=True, normalized=False, special=True)
+            if isinstance(pad_token, str)
+            else pad_token
+        )
+        unk_token = (
+            AddedToken(unk_token, rstrip=True, lstrip=True, normalized=False, special=True)
+            if isinstance(unk_token, str)
+            else unk_token
+        )
+        eos_token = (
+            AddedToken(eos_token, rstrip=True, lstrip=True, normalized=False, special=True)
+            if isinstance(eos_token, str)
+            else eos_token
+        )
 
         self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
 
@@ -171,13 +183,18 @@ class SiglipTokenizer(PreTrainedTokenizer):
     def _add_eos_if_not_present(self, token_ids: List[int]) -> List[int]:
         """Do not add eos again if user already added it."""
         if len(token_ids) > 0 and token_ids[-1] == self.eos_token_id:
-            warnings.warn(f"This sequence already has {self.eos_token}. In future versions this behavior may lead to duplicated" " eos tokens being added.")
+            warnings.warn(
+                f"This sequence already has {self.eos_token}. In future versions this behavior may lead to duplicated"
+                " eos tokens being added."
+            )
             return token_ids
         else:
             return token_ids + [self.eos_token_id]
 
     # Copied from transformers.models.t5.tokenization_t5.T5Tokenizer.create_token_type_ids_from_sequences
-    def create_token_type_ids_from_sequences(self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None) -> List[int]:
+    def create_token_type_ids_from_sequences(
+        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
+    ) -> List[int]:
         """
         Create a mask from the two sequences passed to be used in a sequence-pair classification task. T5 does not make
         use of token type ids, therefore a list of zeros is returned.
@@ -198,7 +215,9 @@ class SiglipTokenizer(PreTrainedTokenizer):
         return len(token_ids_0 + eos + token_ids_1 + eos) * [0]
 
     # Copied from transformers.models.t5.tokenization_t5.T5Tokenizer.build_inputs_with_special_tokens
-    def build_inputs_with_special_tokens(self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None) -> List[int]:
+    def build_inputs_with_special_tokens(
+        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
+    ) -> List[int]:
         """
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
         adding special tokens. A sequence has the following format:
@@ -254,7 +273,9 @@ class SiglipTokenizer(PreTrainedTokenizer):
                 (but will still remove '{' and '}' that appear separately).
         """
         if keep_punctuation_exact_string:
-            text = keep_punctuation_exact_string.join(self.remove_punctuation(part) for part in text.split(keep_punctuation_exact_string))
+            text = keep_punctuation_exact_string.join(
+                self.remove_punctuation(part) for part in text.split(keep_punctuation_exact_string)
+            )
         else:
             text = self.remove_punctuation(text)
         text = re.sub(r"\s+", " ", text)

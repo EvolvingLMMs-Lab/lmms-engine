@@ -111,7 +111,9 @@ def prepare_weights_for_kino(
         model.save_pretrained(pytorch_dump_folder_path)
         processor.save_pretrained(pytorch_dump_folder_path)
 
-    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
+    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(
+        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
+    )
     processor = KinoQwen2_5_VLProcessor.from_pretrained(pytorch_dump_folder_path)
 
     device = model.device

@@ -52,7 +52,9 @@ class Qwen3VLIterableDataset(VisionSFTIterableDataset):
         return inputs
 
     def load_videos(self, video_path: str, data_folder=None, fps: int = 1):
-        assert self.config.video_backend == "qwen_vl_utils", "Qwen3VLIterableDataset only supports qwen_vl_utils backend"
+        assert (
+            self.config.video_backend == "qwen_vl_utils"
+        ), "Qwen3VLIterableDataset only supports qwen_vl_utils backend"
         frames, video_metadata, sample_fps = self.load_video_qwen_vl_utils(video_path, fps)
         return frames, video_metadata, sample_fps
 

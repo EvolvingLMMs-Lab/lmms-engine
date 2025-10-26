@@ -88,7 +88,9 @@ def cross_entropy_loss(
         logits = logits.float().view(B * seq_len, -1)
         loss = nn.functional.cross_entropy(logits, labels, ignore_index=ignore_index, reduction="none")
     else:
-        raise ValueError(f"Invalid kernel: {kernel}. Two possible reasons: 1. kernel is not supported/installed; 2. zero_stage 3 is not supported for liger and cutoff currently.")
+        raise ValueError(
+            f"Invalid kernel: {kernel}. Two possible reasons: 1. kernel is not supported/installed; 2. zero_stage 3 is not supported for liger and cutoff currently."
+        )
     return loss
 
 
@@ -398,7 +400,9 @@ class Qwen3DLLMModel(Qwen3DLLMPreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.layers = nn.ModuleList([Qwen3DLLMDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [Qwen3DLLMDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+        )
         self.norm = Qwen3DLLMRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Qwen3DLLMRotaryEmbedding(config=config)
         self.gradient_checkpointing = False

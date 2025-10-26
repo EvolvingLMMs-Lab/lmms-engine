@@ -55,7 +55,8 @@ def _trunc_normal_(tensor, mean, std, a, b):
 
     if (mean < a - 2 * std) or (mean > b + 2 * std):
         warnings.warn(
-            "mean is more than 2 std from [a, b] in nn.init.trunc_normal_. " "The distribution of values may be incorrect.",
+            "mean is more than 2 std from [a, b] in nn.init.trunc_normal_. "
+            "The distribution of values may be incorrect.",
             stacklevel=2,
         )
 
@@ -236,7 +237,10 @@ class SiglipOutput(ModelOutput):
     vision_model_output: BaseModelOutputWithPooling = None
 
     def to_tuple(self) -> Tuple[Any]:
-        return tuple(self[k] if k not in ["text_model_output", "vision_model_output"] else getattr(self, k).to_tuple() for k in self.keys())
+        return tuple(
+            self[k] if k not in ["text_model_output", "vision_model_output"] else getattr(self, k).to_tuple()
+            for k in self.keys()
+        )
 
 
 class SiglipVisionEmbeddings(nn.Module):
@@ -361,7 +365,10 @@ class SiglipAttention(nn.Module):
         self.num_heads = config.num_attention_heads
         self.head_dim = self.embed_dim // self.num_heads
         if self.head_dim * self.num_heads != self.embed_dim:
-            raise ValueError(f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`:" f" {self.num_heads}).")
+            raise ValueError(
+                f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`:"
+                f" {self.num_heads})."
+            )
         self.scale = self.head_dim**-0.5
         self.dropout = config.attention_dropout
 
@@ -392,11 +399,16 @@ class SiglipAttention(nn.Module):
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) * self.scale
 
         if attn_weights.size() != (batch_size, self.num_heads, q_len, k_v_seq_len):
-            raise ValueError(f"Attention weights should be of size {(batch_size, self.num_heads, q_len, k_v_seq_len)}, but is" f" {attn_weights.size()}")
+            raise ValueError(
+                f"Attention weights should be of size {(batch_size, self.num_heads, q_len, k_v_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
 
         if attention_mask is not None:
             if attention_mask.size() != (batch_size, 1, q_len, k_v_seq_len):
-                raise ValueError(f"Attention mask should be of size {(batch_size, 1, q_len, k_v_seq_len)}, but is {attention_mask.size()}")
+                raise ValueError(
+                    f"Attention mask should be of size {(batch_size, 1, q_len, k_v_seq_len)}, but is {attention_mask.size()}"
+                )
             attn_weights = attn_weights + attention_mask
 
         # upcast attention to fp32
@@ -405,7 +417,10 @@ class SiglipAttention(nn.Module):
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (batch_size, self.num_heads, q_len, self.head_dim):
-            raise ValueError(f"`attn_output` should be of size {(batch_size, self.num_heads, q_len, self.head_dim)}, but is" f" {attn_output.size()}")
+            raise ValueError(
+                f"`attn_output` should be of size {(batch_size, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
 
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.reshape(batch_size, q_len, self.embed_dim)
@@ -480,7 +495,9 @@ class SiglipFlashAttention2(SiglipAttention):
                 target_dtype = self.q_proj.weight.dtype
 
             logger.warning_once(
-                f"The input hidden states seems to be silently casted in float32, this might be related to" f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in" f" {target_dtype}."
+                f"The input hidden states seems to be silently casted in float32, this might be related to"
+                f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
+                f" {target_dtype}."
             )
 
             query_states = query_states.to(target_dtype)
@@ -668,7 +685,11 @@ class SiglipPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """Initialize the weights"""
         if isinstance(module, SiglipVisionEmbeddings):
-            width = self.config.vision_config.hidden_size if isinstance(self.config, SiglipConfig) else self.config.hidden_size
+            width = (
+                self.config.vision_config.hidden_size
+                if isinstance(self.config, SiglipConfig)
+                else self.config.hidden_size
+            )
             nn.init.normal_(module.position_embedding.weight, std=1 / np.sqrt(width))
         elif isinstance(module, nn.Embedding):
             default_flax_embed_init(module.weight)
@@ -860,7 +881,9 @@ class SiglipEncoder(nn.Module):
                 Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
         """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         encoder_states = () if output_hidden_states else None
@@ -929,7 +952,9 @@ class SiglipTextTransformer(nn.Module):
 
         """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if input_ids is None:
@@ -1060,7 +1085,9 @@ class SiglipVisionTransformer(nn.Module):
 
         """
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         hidden_states = self.embeddings(pixel_values, interpolate_pos_encoding=interpolate_pos_encoding)
@@ -1181,10 +1208,16 @@ class SiglipModel(SiglipPreTrainedModel):
         super().__init__(config)
 
         if not isinstance(config.text_config, SiglipTextConfig):
-            raise TypeError("config.text_config is expected to be of type SiglipTextConfig but is of type" f" {type(config.text_config)}.")
+            raise TypeError(
+                "config.text_config is expected to be of type SiglipTextConfig but is of type"
+                f" {type(config.text_config)}."
+            )
 
         if not isinstance(config.vision_config, SiglipVisionConfig):
-            raise TypeError("config.vision_config is expected to be of type SiglipVisionConfig but is of type" f" {type(config.vision_config)}.")
+            raise TypeError(
+                "config.vision_config is expected to be of type SiglipVisionConfig but is of type"
+                f" {type(config.vision_config)}."
+            )
 
         text_config = config.text_config
         vision_config = config.vision_config
@@ -1234,7 +1267,9 @@ class SiglipModel(SiglipPreTrainedModel):
         ```"""
         # Use SigLIP model's config for some fields (if specified) instead of those of vision & text components.
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         text_outputs = self.text_model(
@@ -1285,7 +1320,9 @@ class SiglipModel(SiglipPreTrainedModel):
         ```"""
         # Use SiglipModel's config for some fields (if specified) instead of those of vision & text components.
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         vision_outputs = self.vision_model(
@@ -1345,7 +1382,9 @@ class SiglipModel(SiglipPreTrainedModel):
         ```"""
         # Use SigLIP model's config for some fields (if specified) instead of those of vision & text components.
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         vision_outputs = self.vision_model(
@@ -1373,7 +1412,10 @@ class SiglipModel(SiglipPreTrainedModel):
         text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
 
         # cosine similarity as logits
-        logits_per_text = torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device)) * self.logit_scale.exp() + self.logit_bias
+        logits_per_text = (
+            torch.matmul(text_embeds, image_embeds.t().to(text_embeds.device)) * self.logit_scale.exp()
+            + self.logit_bias
+        )
         logits_per_image = logits_per_text.t()
 
         loss = None
@@ -1428,7 +1470,9 @@ class SiglipForImageClassification(SiglipPreTrainedModel):
         self.vision_model = vision_model.vision_model
 
         # Classifier head
-        self.classifier = nn.Linear(config.vision_config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
+        self.classifier = (
+            nn.Linear(config.vision_config.hidden_size, config.num_labels) if config.num_labels > 0 else nn.Identity()
+        )
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1478,7 +1522,9 @@ class SiglipForImageClassification(SiglipPreTrainedModel):
         Predicted class: LABEL_1
         ```"""
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         outputs = self.vision_model(

@@ -109,7 +109,9 @@ def model_forward(
         position_ids = cache_position.unsqueeze(0)
     position_ids = position_ids.repeat_interleave(bs, dim=0)
 
-    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(0, 1)
+    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(
+        0, 1
+    )
     original_position_ids = position_ids
 
     # Pad the position ids according to the original input ids
@@ -223,7 +225,9 @@ def attn_forward(
     **kwargs,
 ):
     if "padding_mask" in kwargs:
-        warnings.warn("Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`")
+        warnings.warn(
+            "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+        )
 
         # overwrite attention_mask with padding_mask
         attention_mask = kwargs.pop("padding_mask")

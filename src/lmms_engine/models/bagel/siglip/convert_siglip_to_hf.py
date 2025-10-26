@@ -197,16 +197,32 @@ def rename_key(dct, old, new, config):
 
 def read_in_q_k_v_head(state_dict, config):
     # read in individual input projection layers
-    key_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/kernel").reshape(-1, config.vision_config.hidden_size).T
+    key_proj_weight = (
+        state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/kernel")
+        .reshape(-1, config.vision_config.hidden_size)
+        .T
+    )
     key_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/key/bias").reshape(-1)
-    value_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/kernel").reshape(-1, config.vision_config.hidden_size).T
+    value_proj_weight = (
+        state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/kernel")
+        .reshape(-1, config.vision_config.hidden_size)
+        .T
+    )
     value_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/value/bias").reshape(-1)
-    query_proj_weight = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/kernel").reshape(-1, config.vision_config.hidden_size).T
+    query_proj_weight = (
+        state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/kernel")
+        .reshape(-1, config.vision_config.hidden_size)
+        .T
+    )
     query_proj_bias = state_dict.pop("params/img/MAPHead_0/MultiHeadDotProductAttention_0/query/bias").reshape(-1)
 
     # next, add them to the state dict as a single matrix + vector
-    state_dict["vision_model.head.attention.in_proj_weight"] = torch.from_numpy(np.concatenate([query_proj_weight, key_proj_weight, value_proj_weight], axis=0))
-    state_dict["vision_model.head.attention.in_proj_bias"] = torch.from_numpy(np.concatenate([query_proj_bias, key_proj_bias, value_proj_bias], axis=0))
+    state_dict["vision_model.head.attention.in_proj_weight"] = torch.from_numpy(
+        np.concatenate([query_proj_weight, key_proj_weight, value_proj_weight], axis=0)
+    )
+    state_dict["vision_model.head.attention.in_proj_bias"] = torch.from_numpy(
+        np.concatenate([query_proj_bias, key_proj_bias, value_proj_bias], axis=0)
+    )
 
 
 # We will verify our results on an image of cute cats

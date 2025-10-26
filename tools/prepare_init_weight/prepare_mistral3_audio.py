@@ -102,7 +102,12 @@ def prepare_weights_for_kino(
         num_tokens = vocab_size + 2
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
+            tuple(
+                (
+                    dist.sample()
+                    for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0])
+                )
+            ),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
@@ -118,7 +123,9 @@ def prepare_weights_for_kino(
         torch.cuda.empty_cache()
 
     processor = Mistral3AudioProcessor.from_pretrained(pytorch_dump_folder_path)
-    model = Mistral3AudioForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
+    model = Mistral3AudioForConditionalGeneration.from_pretrained(
+        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
+    )
 
     device = model.device
 
@@ -149,7 +156,9 @@ def prepare_weights_for_kino(
         use_cache=True,
     )
 
-    generated_text = processor.batch_decode(output_ids[:, inputs["input_ids"].shape[1] :], skip_special_tokens=False)[0].strip()
+    generated_text = processor.batch_decode(output_ids[:, inputs["input_ids"].shape[1] :], skip_special_tokens=False)[
+        0
+    ].strip()
 
     print("Generated text:", repr(generated_text))
 

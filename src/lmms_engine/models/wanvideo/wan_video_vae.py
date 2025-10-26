@@ -1035,9 +1035,13 @@ class VideoVAE_(nn.Module):
         for i in range(iter_):
             feat_idx = 0
             if i == 0:
-                out, feat_cache, feat_idx = self.decoder(x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx)
+                out, feat_cache, feat_idx = self.decoder(
+                    x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx
+                )
             else:
-                out_, feat_cache, feat_idx = self.decoder(x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx)
+                out_, feat_cache, feat_idx = self.decoder(
+                    x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx
+                )
                 out = torch.cat([out, out_], 2)  # may add tensor offload
         return out
 
@@ -1425,7 +1429,9 @@ class VideoVAE38_(VideoVAE_):
                     first_chunk=True,
                 )
             else:
-                out_, feat_cache, feat_idx = self.decoder(x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx)
+                out_, feat_cache, feat_idx = self.decoder(
+                    x[:, :, i : i + 1, :, :], feat_cache=feat_cache, feat_idx=feat_idx
+                )
                 out = torch.cat([out, out_], 2)
         out = unpatchify(out, patch_size=2)
         self.clear_cache()

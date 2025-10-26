@@ -61,7 +61,9 @@ class AeroDataProcessor:
                 return_tensors="pt",
                 **kwargs,
             )
-            audio_inputs["audio_attention_mask"] = audio_inputs.pop("attention_mask")  # rename attention_mask to prevent conflicts later on
+            audio_inputs["audio_attention_mask"] = audio_inputs.pop(
+                "attention_mask"
+            )  # rename attention_mask to prevent conflicts later on
             audio_inputs["audio_values"] = audio_inputs.pop("input_features")
             input_lengths = (audio_inputs["audio_attention_mask"].sum(-1) - 1) // 2 + 1
             num_audio_tokens = (input_lengths - 2) // 2 + 1
@@ -105,7 +107,9 @@ class AeroDataProcessor:
             # Cautions, qwen2_5 vl tokenizer wrap into a list
             encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
             if self.audio_token_id in encode_id:
-                encode_id, used_audio = self._expand_encode_id_audio_tokens(encode_id, num_audio_tokens, audio_start_from)
+                encode_id, used_audio = self._expand_encode_id_audio_tokens(
+                    encode_id, num_audio_tokens, audio_start_from
+                )
                 audio_start_from += used_audio
             input_id += encode_id
             if role in ["user", "system"]:

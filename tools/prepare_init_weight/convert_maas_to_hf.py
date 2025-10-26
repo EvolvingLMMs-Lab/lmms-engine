@@ -185,7 +185,12 @@ def convert_llava_to_hf(model_id, pytorch_dump_folder_path, repo_id, push_to_hub
         num_tokens = vocab_size + 3
         model.resize_token_embeddings(num_tokens, pad_to_multiple_of=pad_shape)
         model.language_model.model.embed_tokens.weight.data[vocab_size:] = torch.stack(
-            tuple((dist.sample() for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0]))),
+            tuple(
+                (
+                    dist.sample()
+                    for _ in range(model.language_model.model.embed_tokens.weight.data[vocab_size:].shape[0])
+                )
+            ),
             dim=0,
         )
         model.language_model.lm_head.weight.data[vocab_size:] = torch.stack(
@@ -207,7 +212,9 @@ def convert_llava_to_hf(model_id, pytorch_dump_folder_path, repo_id, push_to_hub
 
     # Load everything back for inference tests in float32 because prev script was written as that
     # Though it's mostly loaded in fp16 as original weights are in fp16
-    model = KinoForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="float16", device_map="cuda:0")
+    model = KinoForConditionalGeneration.from_pretrained(
+        pytorch_dump_folder_path, torch_dtype="float16", device_map="cuda:0"
+    )
     processor = KinoProcessor.from_pretrained(pytorch_dump_folder_path)
     device = model.device
 

@@ -49,10 +49,14 @@ def encoder_forward(
 ):
     expected_seq_length = self.config.max_source_positions * self.conv1.stride[0] * self.conv2.stride[0]
     if input_features.shape[-1] != expected_seq_length:
-        raise ValueError(f"Qwen2Audio expects the mel input features to be of length {expected_seq_length}, but found {input_features.shape[-1]}. Make sure to pad the input mel features to {expected_seq_length}.")
+        raise ValueError(
+            f"Qwen2Audio expects the mel input features to be of length {expected_seq_length}, but found {input_features.shape[-1]}. Make sure to pad the input mel features to {expected_seq_length}."
+        )
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-    output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    output_hidden_states = (
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     # Ignore copy
@@ -75,7 +79,9 @@ def encoder_forward(
 
     # check if head_mask has a correct number of layers specified if desired
     if head_mask is not None:
-        assert head_mask.size()[0] == (len(self.layers)), f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
+        assert head_mask.size()[0] == (
+            len(self.layers)
+        ), f"The head_mask should be specified for {len(self.layers)} layers, but it is for {head_mask.size()[0]}."
 
     for idx, encoder_layer in enumerate(self.layers):
         if output_hidden_states:
@@ -208,7 +214,9 @@ def flash_attn_forward(
             target_dtype = self.q_proj.weight.dtype
 
         logger.warning_once(
-            f"The input hidden states seems to be silently casted in float32, this might be related to" f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in" f" {target_dtype}."
+            f"The input hidden states seems to be silently casted in float32, this might be related to"
+            f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
+            f" {target_dtype}."
         )
 
         query_states = query_states.to(target_dtype)

@@ -91,10 +91,14 @@ class ViTMAEEmbeddings(nn.Module):
     def forward(self, pixel_values, interpolate_pos_encoding: bool = False):
         batch_size, num_channels, height, width = pixel_values.shape
         if num_channels != self.num_channels:
-            raise ValueError("Make sure that the channel dimension of the pixel values match with the one set in the configuration.")
+            raise ValueError(
+                "Make sure that the channel dimension of the pixel values match with the one set in the configuration."
+            )
 
         if not interpolate_pos_encoding and (height != self.image_size[0] or width != self.image_size[1]):
-            raise ValueError(f"Input image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]}).")
+            raise ValueError(
+                f"Input image size ({height}*{width}) doesn't match model ({self.image_size[0]}*{self.image_size[1]})."
+            )
         x = self.projection(pixel_values).flatten(2).transpose(1, 2)
         return x
 
@@ -103,7 +107,10 @@ class ViTMAESelfAttention(nn.Module):
     def __init__(self, config: ViTMAEConfig) -> None:
         super().__init__()
         if config.hidden_size % config.num_attention_heads != 0 and not hasattr(config, "embedding_size"):
-            raise ValueError(f"The hidden size {config.hidden_size} is not a multiple of the number of attention " f"heads {config.num_attention_heads}.")
+            raise ValueError(
+                f"The hidden size {config.hidden_size} is not a multiple of the number of attention "
+                f"heads {config.num_attention_heads}."
+            )
 
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
@@ -294,7 +301,9 @@ class GeneralDecoder(nn.Module):
         decoder_config.num_hidden_layers = config.decoder_num_hidden_layers
         decoder_config.num_attention_heads = config.decoder_num_attention_heads
         decoder_config.intermediate_size = config.decoder_intermediate_size
-        self.decoder_layers = nn.ModuleList([ViTMAELayer(decoder_config) for _ in range(config.decoder_num_hidden_layers)])
+        self.decoder_layers = nn.ModuleList(
+            [ViTMAELayer(decoder_config) for _ in range(config.decoder_num_hidden_layers)]
+        )
 
         self.decoder_norm = nn.LayerNorm(config.decoder_hidden_size, eps=config.layer_norm_eps)
         self.decoder_pred = nn.Linear(
@@ -360,12 +369,17 @@ class GeneralDecoder(nn.Module):
         original_image_size: Optional[Tuple[int, int]] = None,
     ):
         patch_size, num_channels = self.config.patch_size, self.config.num_channels
-        original_image_size = original_image_size if original_image_size is not None else (self.config.image_size, self.config.image_size)
+        original_image_size = (
+            original_image_size if original_image_size is not None else (self.config.image_size, self.config.image_size)
+        )
         original_height, original_width = original_image_size
         num_patches_h = original_height // patch_size
         num_patches_w = original_width // patch_size
         if num_patches_h * num_patches_w != patchified_pixel_values.shape[1]:
-            raise ValueError(f"The number of patches in the patchified pixel values {patchified_pixel_values.shape[1]}, does not match " f"the number of patches on original image {num_patches_h}*{num_patches_w}")
+            raise ValueError(
+                f"The number of patches in the patchified pixel values {patchified_pixel_values.shape[1]}, does not match "
+                f"the number of patches on original image {num_patches_h}*{num_patches_w}"
+            )
 
         batch_size = patchified_pixel_values.shape[0]
         patchified_pixel_values = patchified_pixel_values.reshape(

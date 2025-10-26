@@ -22,8 +22,13 @@ def derivative_approximation(cache_dic: Dict, current: Dict, feature: torch.Tens
     updated_taylor_factors[0] = feature
 
     for i in range(cache_dic["max_order"]):
-        if (cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]].get(i, None) is not None) and (current["step"] > cache_dic["first_enhance"] - 2):
-            updated_taylor_factors[i + 1] = (updated_taylor_factors[i] - cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]][i]) / difference_distance
+        if (
+            cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]].get(i, None) is not None
+        ) and (current["step"] > cache_dic["first_enhance"] - 2):
+            updated_taylor_factors[i + 1] = (
+                updated_taylor_factors[i]
+                - cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]][i]
+            ) / difference_distance
         else:
             break
 
@@ -42,7 +47,11 @@ def taylor_formula(cache_dic: Dict, current: Dict) -> torch.Tensor:
     output = 0
 
     for i in range(len(cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]])):
-        output += (1 / math.factorial(i)) * cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]][i] * (x**i)
+        output += (
+            (1 / math.factorial(i))
+            * cache_dic["cache"][-1][current["stream"]][current["layer"]][current["module"]][i]
+            * (x**i)
+        )
 
     return output
 

@@ -13,7 +13,10 @@ try:
         COMPRESS_TYPE_TO_WEIGHT,
     )
 except ImportError:
-    logger.warning("native_sparse_attention is not installed, please install with" " `uv pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`")
+    logger.warning(
+        "native_sparse_attention is not installed, please install with"
+        " `uv pip install git+https://github.com/XunhaoLai/native-sparse-attention-triton.git`"
+    )
 
 
 def add_g_proj_to_attention_layers(model: Bagel, nsa_config: dict):

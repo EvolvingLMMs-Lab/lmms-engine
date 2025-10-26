@@ -40,4 +40,6 @@ def get_torchdiffeq_odeint() -> Any:
 
         return odeint
     except ImportError as e:
-        raise ImportError("torchdiffeq is required for SiT models.\n" "Install with: pip install lmms_engine[sit]") from e
+        raise ImportError(
+            "torchdiffeq is required for SiT models.\n" "Install with: pip install lmms_engine[sit]"
+        ) from e

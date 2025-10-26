@@ -85,7 +85,9 @@ def prepare_weights_for_kino(
         gc.collect()
         torch.cuda.empty_cache()
 
-    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0")
+    model = KinoQwen2_5_VLForConditionalGeneration.from_pretrained(
+        pytorch_dump_folder_path, torch_dtype="auto", device_map="cuda:0"
+    )
     processor = KinoQwen2_5_VLProcessor.from_pretrained(pytorch_dump_folder_path)
 
     device = model.device

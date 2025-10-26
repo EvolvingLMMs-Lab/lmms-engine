@@ -38,7 +38,9 @@ def calculate_image_tokens(image_path):
     try:
         image = Image.open(image_path)
         width, height = image.size
-        num_tokens = width * height // (14 * 14 * 4)  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
+        num_tokens = (
+            width * height // (14 * 14 * 4)
+        )  # Use Qwen Navit estimation (14, 14) per patch, 4 patches per token
     except Exception as e:
         print(f"Error: {str(e)} when loading {image_path}")
         num_tokens = 500 * 500 // (14 * 14 * 4)  # Default to 500x500 image

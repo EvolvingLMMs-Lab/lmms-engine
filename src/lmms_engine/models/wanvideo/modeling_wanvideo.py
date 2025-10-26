@@ -119,7 +119,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
     def check_resize_height_width(self, height, width, num_frames=None):
         # Shape check
         if height % self.height_division_factor != 0:
-            height = (height + self.height_division_factor - 1) // self.height_division_factor * self.height_division_factor
+            height = (
+                (height + self.height_division_factor - 1) // self.height_division_factor * self.height_division_factor
+            )
             logger.info(f"height % {self.height_division_factor} != 0. We round it up to {height}.")
 
         if width % self.width_division_factor != 0:
@@ -128,8 +130,12 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
         if num_frames is not None:
             if num_frames % self.time_division_factor != self.time_division_remainder:
-                num_frames = (num_frames + self.time_division_factor - 1) // self.time_division_factor * self.time_division_factor + self.time_division_remainder
-                logger.info(f"num_frames % {self.time_division_factor} != {self.time_division_remainder}. We round it up to {num_frames}.")
+                num_frames = (
+                    num_frames + self.time_division_factor - 1
+                ) // self.time_division_factor * self.time_division_factor + self.time_division_remainder
+                logger.info(
+                    f"num_frames % {self.time_division_factor} != {self.time_division_remainder}. We round it up to {num_frames}."
+                )
 
         return height, width, num_frames
 
@@ -160,7 +166,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         ).to(dtype=self.dtype, device=self.device)
         if vace_reference_image is not None:
             vace_reference_image = self.preprocess_video([vace_reference_image])
-            vace_reference_latents = self.vae.encode(vace_reference_image, device=self.device).to(dtype=self.dtype, device=self.device)
+            vace_reference_latents = self.vae.encode(vace_reference_image, device=self.device).to(
+                dtype=self.dtype, device=self.device
+            )
             input_latents = torch.concat([vace_reference_latents, input_latents], dim=2)
         return input_latents
 
@@ -442,7 +450,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
     def forward_preprocess(self, scheduler, data_inputs: dict[str, Any]):
         inputs = data_inputs
-        height, width, num_frames = self.check_resize_height_width(inputs["height"], inputs["width"], inputs["num_frames"])
+        height, width, num_frames = self.check_resize_height_width(
+            inputs["height"], inputs["width"], inputs["num_frames"]
+        )
         inputs.update({"height": height, "width": width, "num_frames": num_frames})
         noise = self.noise_initialize(
             inputs["height"],
@@ -467,7 +477,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
                 latents = scheduler.add_noise(input_latents, noise, timestep=scheduler.timesteps[0])
                 inputs.update({"latents": latents})
             else:
-                inputs.update({"latents": noise, "input_latents": input_latents})  # this 'latents' actually will not be used in training.
+                inputs.update(
+                    {"latents": noise, "input_latents": input_latents}
+                )  # this 'latents' actually will not be used in training.
         else:
             inputs.update({"latents": noise})
         # might need to be checked.
@@ -584,7 +596,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
         control_camera_latents_input: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
     ) -> WanVideoOutput:
-        t = self.dit.time_embedding(sinusoidal_embedding_1d(self.dit.freq_dim, timestep).to(device=self.dit.device, dtype=self.dit.dtype))
+        t = self.dit.time_embedding(
+            sinusoidal_embedding_1d(self.dit.freq_dim, timestep).to(device=self.dit.device, dtype=self.dit.dtype)
+        )
         t_mod = self.dit.time_projection(t).unflatten(1, (6, self.dit.hidden_size))
 
         # Motion Controller
@@ -643,7 +657,9 @@ class WanVideoForConditionalGeneration(WanVideoPreTrainedModel):
 
         x = self.dit.head(x, t)
         # Remove reference latents
-        if reference_latents is not None:  # since we replace the first frame with the reference image, we need to remove the first frame
+        if (
+            reference_latents is not None
+        ):  # since we replace the first frame with the reference image, we need to remove the first frame
             x = x[:, reference_latents.shape[1] :]
             f -= 1
         x = self.dit.unpatchify(x, (f, h, w))

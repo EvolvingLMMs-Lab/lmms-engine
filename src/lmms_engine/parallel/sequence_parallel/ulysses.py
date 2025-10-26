@@ -73,7 +73,11 @@ def patch_vlm_for_ulysses_input_slicing(model_class: type):
 
             current_ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
 
-            slice_now = inputs_embeds is not None and current_ulysses_sp_size > 1 and getattr(self, "_needs_initial_slice", True)
+            slice_now = (
+                inputs_embeds is not None
+                and current_ulysses_sp_size > 1
+                and getattr(self, "_needs_initial_slice", True)
+            )
             if slice_now:
                 # [bs, seq_len, hidden_dim] slice at second dim
                 # [total_seq_len, hidden_dim] slice at first dim
@@ -275,7 +279,9 @@ class Gather(torch.autograd.Function):
 
 
 def gather_outpus_and_unpad(*args, **kwargs):
-    raise RuntimeError("please use verl.utils.ulysses.gather_outputs_and_unpad instead of verl.utils.ulysses.gather_outpus_and_unpad")
+    raise RuntimeError(
+        "please use verl.utils.ulysses.gather_outputs_and_unpad instead of verl.utils.ulysses.gather_outpus_and_unpad"
+    )
 
 
 def gather_outputs_and_unpad(
@@ -367,7 +373,9 @@ def ulysses_pad_and_slice_inputs(
 
 def validate_ulysses_config(num_heads, ulysses_sequence_size):
     if ulysses_sequence_size > 1:
-        assert num_heads % ulysses_sequence_size == 0, f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
+        assert (
+            num_heads % ulysses_sequence_size == 0
+        ), f"num_heads ({num_heads}) must be divisible by ulysses sequence size({ulysses_sequence_size})"
 
 
 def calculate_seq_len_per_rank(seq_len: List[int]):
@@ -610,10 +618,18 @@ def get_visual_embeds_for_rank(
     cumsum_mask = torch.cumsum(original_mask.int(), dim=0)
 
     # Count of True values before this rank's chunk (exclusive)
-    count_before = cumsum_mask[rank_start_in_orig - 1] if rank_start_in_orig > 0 else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    count_before = (
+        cumsum_mask[rank_start_in_orig - 1]
+        if rank_start_in_orig > 0
+        else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    )
 
     # Count of True values up to the end of this rank's chunk (inclusive)
-    count_up_to_end = cumsum_mask[rank_end_in_orig - 1] if rank_end_in_orig > 0 else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    count_up_to_end = (
+        cumsum_mask[rank_end_in_orig - 1]
+        if rank_end_in_orig > 0
+        else torch.tensor(0, device=cumsum_mask.device, dtype=cumsum_mask.dtype)
+    )
 
     # Tensor slicing will implicitly call .item() on the indices, but the computation
     # stayed on GPU. This is more efficient than calling .sum().item() multiple times.

@@ -33,14 +33,14 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for more details.
 
 Your PR will automatically run the following checks:
 
-- **Linting**: Code formatting with `black` (line-length=240) and import sorting with `isort`
+- **Linting**: Code formatting with `black` (line-length=120) and import sorting with `isort`
 - Run `pre-commit run --all-files` locally to verify before pushing
 
 ## Checklist
 
 - [ ] Follow commit message convention (see above)
 - [ ] Run `pre-commit run --all-files` and ensure all checks pass
-- [ ] Format your code with `black` (line-length=240) and `isort`
+- [ ] Format your code with `black` (line-length=120) and `isort`
 - [ ] Add unit tests for new functionality
 - [ ] Update documentation as needed, including docstrings or example tutorials
 - [ ] Ensure all CI/CD checks pass

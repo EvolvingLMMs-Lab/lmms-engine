@@ -63,7 +63,9 @@ def apply_liger_kernel_to_qwen2_5_vl(
         model (PreTrainedModel): The model instance to apply Liger kernels to, if the model has already been
         loaded. Default is None.
     """
-    assert not (cross_entropy and fused_linear_cross_entropy), "cross_entropy and fused_linear_cross_entropy cannot both be True."
+    assert not (
+        cross_entropy and fused_linear_cross_entropy
+    ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
     from transformers.models.qwen2_5_vl import modeling_qwen2_5_vl
     from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLModel
@@ -125,7 +127,9 @@ def apply_liger_kernel_to_qwen2_5_vl(
             vision_model = None
         else:
             # Note: Currently there's no support for patching vision model only. Feel free to raise an issue if needed.
-            raise TypeError(f"Unsupported Qwen2VL model type. `model` must be `Qwen2VLForConditionalGeneration`, `Qwen2VLModel` or `Qwen2VLTextModel`. Got: {type(model)}")
+            raise TypeError(
+                f"Unsupported Qwen2VL model type. `model` must be `Qwen2VLForConditionalGeneration`, `Qwen2VLModel` or `Qwen2VLTextModel`. Got: {type(model)}"
+            )
 
         if vision_model is not None:
             # Patch Qwen2_5_VisionTransformerPretrainedModel

@@ -193,7 +193,10 @@ class TrainUtilities:
         # decoder
         # self attention
         ## qkv projection
-        qkv_proj_flops_fwd = 2 * num_layers * batch_size * seq_len * (hidden_size) * num_heads * hidden_size_per_head + 2 * num_layers * batch_size * seq_len * (hidden_size) * 2 * num_key_value_heads * hidden_size_per_head
+        qkv_proj_flops_fwd = (
+            2 * num_layers * batch_size * seq_len * (hidden_size) * num_heads * hidden_size_per_head
+            + 2 * num_layers * batch_size * seq_len * (hidden_size) * 2 * num_key_value_heads * hidden_size_per_head
+        )
         ## qk logits
         qk_logits_flops_fwd = 2 * num_layers * batch_size * num_heads * seq_len * (hidden_size_per_head) * seq_len
         ## v logits
@@ -206,7 +209,14 @@ class TrainUtilities:
         ## 2nd layer
         ffn_2_flops_fwd = 2 * num_layers * batch_size * seq_len * (ffn_hidden_size) * hidden_size
 
-        flops_fwd = qkv_proj_flops_fwd + qk_logits_flops_fwd + v_logits_flops_fwd + attn_out_flops_fwd + ffn_1_flops_fwd + ffn_2_flops_fwd
+        flops_fwd = (
+            qkv_proj_flops_fwd
+            + qk_logits_flops_fwd
+            + v_logits_flops_fwd
+            + attn_out_flops_fwd
+            + ffn_1_flops_fwd
+            + ffn_2_flops_fwd
+        )
         return flops_fwd
 
     @staticmethod
@@ -285,7 +295,10 @@ class TrainUtilities:
             for checkpoint_key in loaded_keys:
                 model_key = checkpoint_key
 
-                if model_key in model_state_dict and state_dict[checkpoint_key].shape != model_state_dict[model_key].shape:
+                if (
+                    model_key in model_state_dict
+                    and state_dict[checkpoint_key].shape != model_state_dict[model_key].shape
+                ):
                     mismatched_keys.append(
                         (
                             checkpoint_key,
@@ -329,7 +342,9 @@ class TrainUtilities:
         if len(error_msgs) > 0:
             error_msg = "\n\t".join(error_msgs)
             if "size mismatch" in error_msg:
-                error_msg += "\n\tYou may consider adding `ignore_mismatched_sizes=True` in the model `from_pretrained` method."
+                error_msg += (
+                    "\n\tYou may consider adding `ignore_mismatched_sizes=True` in the model `from_pretrained` method."
+                )
             raise RuntimeError(f"Error(s) in loading state_dict for {model.__class__.__name__}:\n\t{error_msg}")
         if len(unexpected_keys) > 0:
             logging.warning(
@@ -357,7 +372,12 @@ class TrainUtilities:
                 " training."
             )
         if len(mismatched_keys) > 0:
-            mismatched_warning = "\n".join([f"- {key}: found shape {shape1} in the checkpoint and {shape2} in the model instantiated" for key, shape1, shape2 in mismatched_keys])
+            mismatched_warning = "\n".join(
+                [
+                    f"- {key}: found shape {shape1} in the checkpoint and {shape2} in the model instantiated"
+                    for key, shape1, shape2 in mismatched_keys
+                ]
+            )
             logging.warning(
                 f"Some weights of {model.__class__.__name__} were not initialized from the model checkpoint at"
                 f" {pretrained_model_path} and are newly initialized because the shapes did not"

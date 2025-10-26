@@ -99,7 +99,9 @@ def matmul_transpose_assign(d_in, d_out):
     assert d_in.dtype == d_out.dtype, "Inputs must have the same data type"
     assert d_in.ndim == 2, "Input `d_in` must be a 2D tensor"
     assert d_out.ndim == 2, "Input `d_out` must be a 2D tensor"
-    assert d_in.size(0) == d_out.size(0) == d_out.size(0), "First dimension of `d_in` must match first and second dimension of `d_out`"
+    assert (
+        d_in.size(0) == d_out.size(0) == d_out.size(0)
+    ), "First dimension of `d_in` must match first and second dimension of `d_out`"
 
     d_in = d_in.contiguous()
     M, K = d_in.shape

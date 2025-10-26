@@ -31,7 +31,7 @@ We use automated tools to maintain code quality and consistency:
 
 The project uses [pre-commit](https://pre-commit.com/) hooks that automatically run on every commit:
 
-- **Black**: Code formatter (line-length=240)
+- **Black**: Code formatter (line-length=120)
 - **isort**: Import statement organizer (black profile)
 
 ```bash
@@ -50,7 +50,7 @@ pre-commit run --files src/lmms_engine/file.py
 
 ```bash
 # Format with black
-black --line-length=240 .
+black --line-length=120 .
 
 # Sort imports
 isort --profile black .
@@ -165,7 +165,7 @@ All pull requests automatically trigger the following checks:
 **Python Version**: 3.9
 
 **Checks performed**:
-1. **Black** - Code formatting (line-length=240)
+1. **Black** - Code formatting (line-length=120)
 2. **isort** - Import organization (black profile)
 
 **How to pass CI checks**:
@@ -175,14 +175,14 @@ All pull requests automatically trigger the following checks:
 pre-commit run --all-files
 
 # Fix any formatting issues
-black --line-length=240 .
+black --line-length=120 .
 isort --profile black .
 ```
 
 **Common CI failures**:
 - Code not formatted with Black
 - Imports not sorted correctly
-- Line length exceeds 240 characters
+- Line length exceeds 120 characters
 
 If CI checks fail, review the GitHub Actions logs and run the formatting tools locally to fix issues.
 

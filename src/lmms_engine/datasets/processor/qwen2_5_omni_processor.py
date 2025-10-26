@@ -122,7 +122,10 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             image_inputs = self.processor.image_processor(images, return_tensors="pt", **output_kwargs["images_kwargs"])
             image_inputs["image_sizes"] = image_inputs.pop("image_grid_thw")
             merge_size = self.processor.image_processor.merge_size
-            num_image_tokens = [(image_size[-2] * image_size[-1]).item() // (merge_size**2) for image_size in image_inputs["image_sizes"]]
+            num_image_tokens = [
+                (image_size[-2] * image_size[-1]).item() // (merge_size**2)
+                for image_size in image_inputs["image_sizes"]
+            ]
         else:
             num_image_tokens = None
 
@@ -139,7 +142,9 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
                 second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / tmp for tmp in fps]
             else:
-                raise ValueError(f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number.")
+                raise ValueError(
+                    f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) must be equal to the length of video_grid_thw ({len(video_grid_thw)}) or fps should be a single number."
+                )
             videos_inputs.update({"video_second_per_grid": torch.tensor(second_per_grid_ts)})
             merge_length = self.processor.video_processor.merge_size**2
             num_video_tokens = [(video_grid_thw[index].prod() // merge_length) for index in range(len(video_grid_thw))]

@@ -109,11 +109,15 @@ def qwen_omni_audio_forward(
     chunk_lengths = torch.where(chunk_lengths == 0, self.n_window * 2, chunk_lengths)
 
     chunk_list = input_features.split(chunk_lengths.tolist(), dim=1)
-    padded_feature, padded_mask, padded_mask_after_cnn = self.padded_and_mask_function(chunk_list, chunk_lengths, padding_value=0, padding_side="right")
+    padded_feature, padded_mask, padded_mask_after_cnn = self.padded_and_mask_function(
+        chunk_list, chunk_lengths, padding_value=0, padding_side="right"
+    )
     padded_embed = nn.functional.gelu(self.conv1(padded_feature)) * padded_mask
     padded_embed = nn.functional.gelu(self.conv2(padded_embed)).transpose(1, 2)
 
-    padded_embed = padded_embed + self.positional_embedding.positional_embedding[: padded_embed.shape[1], :].unsqueeze(0).to(padded_embed.dtype)
+    padded_embed = padded_embed + self.positional_embedding.positional_embedding[: padded_embed.shape[1], :].unsqueeze(
+        0
+    ).to(padded_embed.dtype)
     hidden_states = padded_embed[padded_mask_after_cnn]
     cu_seqlens = torch.cat(
         (
@@ -200,7 +204,11 @@ class AeroPreTrainedModel(PreTrainedModel):
         # important: this ported version of LlavaNext isn't meant for training from scratch - only
         # inference and fine-tuning - so the proper init weights code has been removed - the original codebase
         # https://github.com/haotian-liu/LLaVA/tree/main/llava_next should serve for that purpose
-        std = self.config.initializer_range if hasattr(self.config, "initializer_range") else self.config.text_config.initializer_range
+        std = (
+            self.config.initializer_range
+            if hasattr(self.config, "initializer_range")
+            else self.config.text_config.initializer_range
+        )
 
         if hasattr(module, "class_embedding"):
             module.class_embedding.data.normal_(mean=0.0, std=std)
@@ -285,7 +293,9 @@ class AeroForConditionalGeneration(AeroPreTrainedModel, GenerationMixin):
         # Create mask
         padding_mask = seq_range >= lengths_expand
 
-        audio_attention_mask_ = padding_mask.view(batch_size, 1, 1, max_seq_len).expand(batch_size, 1, max_seq_len, max_seq_len)
+        audio_attention_mask_ = padding_mask.view(batch_size, 1, 1, max_seq_len).expand(
+            batch_size, 1, max_seq_len, max_seq_len
+        )
         audio_attention_mask = audio_attention_mask_.to(
             dtype=self.audio_tower.conv1.weight.dtype,
             device=self.audio_tower.conv1.weight.device,
@@ -323,7 +333,10 @@ class AeroForConditionalGeneration(AeroPreTrainedModel, GenerationMixin):
         # Audio feature is in (bs, max_seq_len, hidden_size)
         # If directly masked scatter, the embed will be place one by one (order is incorret)
         # We remove the padded values first
-        unpadded_audio_features = [audio_feat[:audio_output_length] for audio_feat, audio_output_length in zip(audio_features, audio_output_lengths)]
+        unpadded_audio_features = [
+            audio_feat[:audio_output_length]
+            for audio_feat, audio_output_length in zip(audio_features, audio_output_lengths)
+        ]
         # Concat the audio features
         # Should exactly have audio_mask.sum() values
         unpadded_audio_features = torch.concatenate(unpadded_audio_features, dim=0)
@@ -347,7 +360,9 @@ class AeroForConditionalGeneration(AeroPreTrainedModel, GenerationMixin):
         logits_to_keep: int = 0,
     ) -> Union[Tuple, AeroCausalLMOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         if (input_ids is None) ^ (inputs_embeds is not None):
@@ -383,8 +398,15 @@ class AeroForConditionalGeneration(AeroPreTrainedModel, GenerationMixin):
             n_audio_tokens = (input_ids == self.config.audio_token_index).sum().item()
             n_audio_features = audio_output_lengths.sum()
             if n_audio_tokens != n_audio_features:
-                raise ValueError(f"Audio features and image tokens do not match: tokens: {n_audio_tokens}, features {n_audio_features}")
-            audio_mask = (input_ids == self.config.audio_token_index).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
+                raise ValueError(
+                    f"Audio features and image tokens do not match: tokens: {n_audio_tokens}, features {n_audio_features}"
+                )
+            audio_mask = (
+                (input_ids == self.config.audio_token_index)
+                .unsqueeze(-1)
+                .expand_as(inputs_embeds)
+                .to(inputs_embeds.device)
+            )
             audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
             if self.audio_tower_type == "qwen2_audio_encoder":
                 audio_features = self.prepare_scattered_audio_values(audio_features, audio_output_lengths)

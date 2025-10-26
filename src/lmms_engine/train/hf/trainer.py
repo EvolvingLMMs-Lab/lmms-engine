@@ -82,11 +82,15 @@ class Trainer(HFTrainer):
                 "even_batches",
                 "use_seedable_sampler",
             ]
-            dataloader_config = DataLoaderConfiguration(**{param: accelerator_config.pop(param) for param in dataloader_params})
+            dataloader_config = DataLoaderConfiguration(
+                **{param: accelerator_config.pop(param) for param in dataloader_params}
+            )
             dataloader_config.data_seed = self.args.data_seed
             non_blocking = accelerator_config.pop("non_blocking")
             if non_blocking and not self.args.dataloader_pin_memory:
-                logger.warning("`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both.")
+                logger.warning(
+                    "`non_blocking` is enabled but `dataloader_pin_memory` is not. For the best performance, it's recommended to enable both."
+                )
             dataloader_config.non_blocking = non_blocking
             # this would have been updated above, no need for it anymore
             accelerator_config.pop("gradient_accumulation_kwargs")
@@ -109,15 +113,31 @@ class Trainer(HFTrainer):
             self.is_tp_enabled = getattr(self.accelerator.state, "torch_tp_plugin", None) is not None
 
             # `save_only_model` can't be used with DeepSpeed/FSDP along with `load_best_model_at_end`
-            if self.args.save_only_model and (self.is_deepspeed_enabled or self.is_fsdp_enabled) and self.args.load_best_model_at_end:
+            if (
+                self.args.save_only_model
+                and (self.is_deepspeed_enabled or self.is_fsdp_enabled)
+                and self.args.load_best_model_at_end
+            ):
                 wrapper = "DeepSpeed" if self.is_deepspeed_enabled else "FSDP"
                 raise ValueError(f"{wrapper} can't be used with `save_only_model` along with `load_best_model_at_end`.")
 
             # `auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3
-            if self.is_deepspeed_enabled and self.accelerator.state.deepspeed_plugin.zero_stage == 3 and self.args.auto_find_batch_size:
-                raise ValueError("`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP")
-            if self.args.save_only_model and self.is_fsdp_enabled and "SHARDED_STATE_DICT" in str(self.accelerator.state.fsdp_plugin.state_dict_type):
-                raise ValueError("save_only_model option is not compatible with FSDP state dict type 'SHARDED_STATE_DICT'")
+            if (
+                self.is_deepspeed_enabled
+                and self.accelerator.state.deepspeed_plugin.zero_stage == 3
+                and self.args.auto_find_batch_size
+            ):
+                raise ValueError(
+                    "`auto_find_batch_size` isn't supported yet with DeepSpeed Zero-3. Please consider using Zero-2, Zero-1, or FSDP"
+                )
+            if (
+                self.args.save_only_model
+                and self.is_fsdp_enabled
+                and "SHARDED_STATE_DICT" in str(self.accelerator.state.fsdp_plugin.state_dict_type)
+            ):
+                raise ValueError(
+                    "save_only_model option is not compatible with FSDP state dict type 'SHARDED_STATE_DICT'"
+                )
         else:
             return super().create_accelerator_and_postprocess()
 
@@ -128,7 +148,11 @@ class Trainer(HFTrainer):
         # Build the sampler.
         if self.args.group_by_length:
             if is_datasets_available() and isinstance(self.train_dataset, datasets.Dataset):
-                lengths = self.train_dataset[self.args.length_column_name] if self.args.length_column_name in self.train_dataset.column_names else None
+                lengths = (
+                    self.train_dataset[self.args.length_column_name]
+                    if self.args.length_column_name in self.train_dataset.column_names
+                    else None
+                )
             else:
                 lengths = None
             # Hard code here because we use our own processing class
@@ -288,7 +312,9 @@ class Trainer(HFTrainer):
             # Only save Adapter
             keys_to_match = ["multi_modal_projector", "audio_modal_projector"]
 
-            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(self.model.named_parameters(), keys_to_match)
+            weight_to_save = TrainUtilities.get_mm_adapter_state_maybe_zero_3(
+                self.model.named_parameters(), keys_to_match
+            )
 
             if self.args.local_rank == 0 or self.args.local_rank == -1:
                 self.model.config.save_pretrained(output_dir)
@@ -313,7 +339,9 @@ class Trainer(HFTrainer):
             prev_time = self.cur_time
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
-            flops, promised_flops = model_utils.flops_counter.estimate_flops(self.total_seq_len, delta_time=self.cur_time - prev_time)
+            flops, promised_flops = model_utils.flops_counter.estimate_flops(
+                self.total_seq_len, delta_time=self.cur_time - prev_time
+            )
             flops_tensor = torch.tensor(flops, device=device)
             torch.distributed.all_reduce(flops_tensor, op=torch.distributed.ReduceOp.SUM)
             # Divide by the number of processes and the number of sequence parallel processes

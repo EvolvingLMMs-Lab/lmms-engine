@@ -72,7 +72,9 @@ def apply_liger_kernel_to_qwen2_5_omni(
             loaded. Default is None.
         use_rmpad (bool): Whether to use remove padding optimization. Default is False.
     """
-    assert not (cross_entropy and fused_linear_cross_entropy), "cross_entropy and fused_linear_cross_entropy cannot both be True."
+    assert not (
+        cross_entropy and fused_linear_cross_entropy
+    ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
     from transformers.models.qwen2_5_omni import modeling_qwen2_5_omni
 

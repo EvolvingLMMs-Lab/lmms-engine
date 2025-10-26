@@ -132,7 +132,9 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
             encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
             # Should be 3 if instead of if else, so that can expand for each case
             if self.image_token_id in encode_id:
-                encode_id, used_images = self._expand_encode_id_image_tokens(encode_id, num_image_tokens, image_start_from)
+                encode_id, used_images = self._expand_encode_id_image_tokens(
+                    encode_id, num_image_tokens, image_start_from
+                )
                 image_start_from += used_images
             if self.video_token_id in encode_id:
                 # Qwen3 VL new logic, build timestamp for different video frames
@@ -213,7 +215,12 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
                 elif frame_idx == video_grid_thw[idx + start_from][0] - 1:
                     curr_expand_video_ids = [self.processor.vision_start_token_id] + timestamp_token_id + visual_tokens
                 else:
-                    curr_expand_video_ids = [self.processor.vision_start_token_id] + timestamp_token_id + visual_tokens + [self.processor.vision_end_token_id]
+                    curr_expand_video_ids = (
+                        [self.processor.vision_start_token_id]
+                        + timestamp_token_id
+                        + visual_tokens
+                        + [self.processor.vision_end_token_id]
+                    )
                 expanded_encode_id.extend(curr_expand_video_ids)
             prev = pos + 1
 

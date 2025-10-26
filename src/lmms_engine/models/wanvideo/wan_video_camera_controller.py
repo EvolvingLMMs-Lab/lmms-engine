@@ -226,7 +226,9 @@ def process_pose_file(
         K = torch.as_tensor(intrinsic)[None]  # [1, 1, 4]
         c2ws = get_relative_pose(cam_params)  # Assuming this function is defined elsewhere
         c2ws = torch.as_tensor(c2ws)[None]  # [1, n_frame, 4, 4]
-        plucker_embedding = ray_condition(K, c2ws, height, width, device=device)[0].permute(0, 3, 1, 2).contiguous()  # V, 6, H, W
+        plucker_embedding = (
+            ray_condition(K, c2ws, height, width, device=device)[0].permute(0, 3, 1, 2).contiguous()
+        )  # V, 6, H, W
         plucker_embedding = plucker_embedding[None]
         plucker_embedding = rearrange(plucker_embedding, "b f c h w -> b f h w c")[0]
         return plucker_embedding
