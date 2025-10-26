@@ -18,6 +18,7 @@ test/train/                # Python test implementations (separate folder)
 ├── utils.py              # Utility functions for training tests
 ├── qwen2_5/              # Qwen 2.5 model tests
 ├── qwen2_5_vl/           # Qwen 2.5 VL model tests
+├── qwen2_5_omni/         # Qwen 2.5 Omni model tests
 ├── qwen3_vl/             # Qwen 3 VL model tests
 ├── llava_onevision/      # LLaVA OneVision model tests
 └── bagel/                # Bagel model tests
@@ -83,6 +84,7 @@ pip install -U huggingface_hub
 
 - `qwen2_5` - Qwen 2.5 base model
 - `qwen2_5_vl` - Qwen 2.5 Vision-Language model
+- `qwen2_5_omni` - Qwen 2.5 Omni multimodal model (audio, video, images)
 - `qwen3_vl` - Qwen 3 Vision-Language model
 - `llava_onevision` - LLaVA OneVision model
 - `bagel` - Bagel model

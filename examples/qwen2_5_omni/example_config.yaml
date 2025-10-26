@@ -3,7 +3,7 @@ trainer_type: fsdp2_trainer
 dataset_config:
   extra_kwargs:
     use_audio_in_video: true
-  dataset_type: qwen_omni
+  dataset_type: qwen_omni_iterable
   dataset_format: json
   processor_config:
     processor_name: Qwen/Qwen2.5-Omni-7B
@@ -28,7 +28,6 @@ dataset_config:
   video_sampling_strategy: fps
   video_max_pixels: 602112
   video_max_frames: 512
-  frame_num: 64
   fps: 1
   video_backend: qwen_omni_utils
 
@@ -38,16 +37,12 @@ trainer_args:
   do_train: false
   do_eval: false
   do_predict: false
-  eval_strategy: steps
+  eval_strategy: 'no'
   prediction_loss_only: false
   per_device_train_batch_size: 1
-  per_device_eval_batch_size: 8
-  per_gpu_train_batch_size: null
-  per_gpu_eval_batch_size: null
   gradient_accumulation_steps: 1
   eval_accumulation_steps: null
   eval_delay: 0
-  torch_empty_cache_steps: 10
   learning_rate: 0.00001
   weight_decay: 0.0
   adam_beta1: 0.9
@@ -58,7 +53,7 @@ trainer_args:
   max_steps: 5
   lr_scheduler_type: constant
   lr_scheduler_kwargs: {}
-  warmup_ratio: 0.0
+  warmup_ratio: 0.1
   warmup_steps: 0
   log_level: passive
   log_level_replica: warning
