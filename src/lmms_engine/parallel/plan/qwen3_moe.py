@@ -18,6 +18,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
+import torch.nn.utils
 
 
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
@@ -65,25 +66,25 @@ def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             experts = nn.ModuleList()
             for i in range(num_experts):
                 expert = nn.Module()
-                expert.up_proj = nn.Linear(
-                    up_proj_weight.size(2),
-                    up_proj_weight.size(1),
-                    bias=False,
-                )
+                with torch.nn.utils.skip_init():
+                    expert.up_proj = nn.Linear(
+                        up_proj_weight.size(2),
+                        up_proj_weight.size(1),
+                        bias=False,
+                    )
+                    expert.down_proj = nn.Linear(
+                        down_proj_weight.size(2),
+                        down_proj_weight.size(1),
+                        bias=False,
+                    )
+                    expert.gate_proj = nn.Linear(
+                        gate_proj_weight.size(2),
+                        gate_proj_weight.size(1),
+                        bias=False,
+                    )
+
                 expert.up_proj.weight = nn.Parameter(up_proj_weight[i])
-
-                expert.down_proj = nn.Linear(
-                    down_proj_weight.size(2),
-                    down_proj_weight.size(1),
-                    bias=False,
-                )
                 expert.down_proj.weight = nn.Parameter(down_proj_weight[i])
-
-                expert.gate_proj = nn.Linear(
-                    gate_proj_weight.size(2),
-                    gate_proj_weight.size(1),
-                    bias=False,
-                )
                 expert.gate_proj.weight = nn.Parameter(gate_proj_weight[i])
 
                 expert.act_fn = decoder_layer.mlp.act_fn
