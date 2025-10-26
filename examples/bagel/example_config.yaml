@@ -50,7 +50,7 @@ trainer_args:
   lr_scheduler_type: cosine
   lr_scheduler_kwargs: {}
   warmup_ratio: 0.1
-  warmup_steps: 0
+  warmup_steps: 20
   log_level: passive
   log_level_replica: warning
   log_on_each_node: true
@@ -165,7 +165,7 @@ trainer_args:
   optim_target_modules: null
   batch_eval_metrics: false
   eval_on_start: false
-  use_liger_kernel: true
+  use_liger_kernel: false
   liger_kernel_config: null
   eval_use_gather_object: false
   average_tokens_across_devices: true

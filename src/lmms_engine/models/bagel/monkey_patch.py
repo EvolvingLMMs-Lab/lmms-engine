@@ -38,22 +38,15 @@ except ImportError:
 @MONKEY_PATCHER.register("bagel", "liger")
 def apply_liger_kernel_to_bagel(
     rope: bool = True,
-    cross_entropy: bool = False,
     fused_linear_cross_entropy: bool = True,
     rms_norm: bool = True,
     swiglu: bool = True,
     model: Bagel | None = None,
-    use_rmpad: bool = False,
 ) -> None:
     """
     Apply Liger kernels to replace original implementations in Bagel's Qwen2 backbone.
     NOTE: Liger fused linear cross entropy is applied to the CE head inside Bagel forward pass.
     """
-    liger_fused_ce_available = "LigerFusedLinearCrossEntropyLoss" in globals()
-    if fused_linear_cross_entropy and not liger_fused_ce_available:
-        logger.warning("Liger fused linear cross entropy is unavailable; falling back to standard CE.")
-        fused_linear_cross_entropy = False
-
     from . import qwen2_navit as bagel_qwen2_navit
     from .qwen2 import modeling_qwen2 as bagel_modeling_qwen2
 
@@ -104,9 +97,6 @@ def apply_liger_kernel_to_bagel(
     if swiglu:
         bagel_modeling_qwen2.Qwen2MLP = LigerSwiGLUMLP
         bagel_qwen2_navit.Qwen2MLP = LigerSwiGLUMLP
-
-    if cross_entropy:
-        F.cross_entropy = liger_cross_entropy
 
     if fused_linear_cross_entropy:
         original_ce_loss = Bagel.CrossEntropyLoss
