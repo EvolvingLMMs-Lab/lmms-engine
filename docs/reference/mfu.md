@@ -39,7 +39,7 @@ trainer_args:
 
 ## Image Models (Vision-Language)
 
-### Qwen2.5-VL-7B & Qwen3-VL-7B
+### Qwen2.5-VL-7B & Qwen3-VL-8B
 
 **Configuration:**
 - Packing length: 61,440
