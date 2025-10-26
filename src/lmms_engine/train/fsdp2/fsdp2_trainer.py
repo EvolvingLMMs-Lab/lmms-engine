@@ -34,7 +34,7 @@ from lmms_engine.utils.fsdp2_utils import (
 )
 from lmms_engine.utils.profiler import StepProfiler
 from lmms_engine.utils.tracking import Tracking
-from lmms_engine.parallel.expert_parallel.utils import sync_gradients
+from lmms_engine.parallel.parallelize import Parallelizer
 
 DatasetType = Union[Dataset, IterableDataset]
 
@@ -434,6 +434,7 @@ class FSDP2SFTTrainer:
                 shutil.rmtree(os.path.join(output_path, checkpoint))
 
     def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
+        Parallelizer.revert_checkpoint(self.fsdp2_model)
         rank = dist.get_rank()
         world_size = dist.get_world_size()
         if rank == 0:
