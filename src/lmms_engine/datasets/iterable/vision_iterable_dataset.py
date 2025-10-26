@@ -4,7 +4,7 @@ from typing import Dict
 import torch
 from PIL import Image
 
-from lmms_engine.datasets.collator import VisionCollator
+from lmms_engine.datasets.collator import LLaVACollator, VisionCollator
 from lmms_engine.datasets.iterable.multimodal_iterable_dataset import (
     MultiModalIterableDataset,
 )
@@ -101,4 +101,7 @@ class VisionSFTIterableDataset(MultiModalIterableDataset):
         return inputs
 
     def get_collator(self):
-        return VisionCollator(self.processor)
+        if self.processor_config.processor_type == "llava":
+            return LLaVACollator(self.processor)
+        else:
+            return VisionCollator(self.processor)
