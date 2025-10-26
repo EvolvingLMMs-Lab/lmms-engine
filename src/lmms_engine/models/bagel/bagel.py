@@ -346,32 +346,19 @@ class Bagel(PreTrainedModel):
             has_mse = packed_timesteps > 0
             mse = (packed_mse_preds - target[has_mse]) ** 2
 
-        ce = None
-        if ce_loss_indexes is not None:
-            packed_ce_preds = self.language_model.lm_head(last_hidden_state[ce_loss_indexes])
-            ce = F.cross_entropy(packed_ce_preds, packed_label_ids, reduction="none")
-
-        loss_dict = dict(mse=mse, ce=ce)
+        loss_dict = dict(mse=mse, ce=torch.tensor(0, device=self.device))
 
         loss = 0
-        if ce is not None:
-            total_ce_tokens = torch.tensor(len(ce_loss_indexes), device=self.device)
-            # dist.all_reduce(total_ce_tokens, op=dist.ReduceOp.SUM)
-            if self.config.ce_loss_reweighting:
-                ce_loss_weights = kwargs.get("ce_loss_weights", [])  # TODO: check if this is correct
-                ce = ce * ce_loss_weights
-                total_ce_loss_weights = ce_loss_weights.sum()
-                # dist.all_reduce(total_ce_loss_weights, op=dist.ReduceOp.SUM)
-                # ce = ce.sum() * dist.get_world_size() / total_ce_loss_weights
-                ce = ce.sum() / total_ce_loss_weights
-            else:
-                # ce = ce.sum() * dist.get_world_size() / total_ce_tokens
-                ce = ce.sum() / total_ce_tokens
-            loss_dict["ce"] = ce.detach()
-            loss = loss + ce * self.config.ce_weight
-        else:
-            loss_dict["ce"] = torch.tensor(0, device=self.device)
-            total_ce_tokens = torch.tensor(0, device=self.device)
+        ce_loss_weights = kwargs.get("ce_loss_weights") if self.config.ce_loss_reweighting else None
+        ce_value, total_ce_tokens = self.CrossEntropyLoss(
+            last_hidden_state=last_hidden_state,
+            ce_loss_indexes=ce_loss_indexes,
+            packed_label_ids=packed_label_ids,
+            ce_loss_weights=ce_loss_weights,
+        )
+        if ce_value is not None:
+            loss_dict["ce"] = ce_value.detach()
+            loss = loss + ce_value * self.config.ce_weight
 
         if need_visual_gen:
             mse = loss_dict["mse"]
@@ -393,6 +380,56 @@ class Bagel(PreTrainedModel):
             "total_ce_tokens": total_ce_tokens,
             "total_mse_tokens": total_mse_tokens,
         }
+
+    def CrossEntropyLoss(
+        self,
+        last_hidden_state: torch.Tensor,
+        ce_loss_indexes: Optional[torch.Tensor],
+        packed_label_ids: Optional[torch.LongTensor],
+        ce_loss_weights=None,
+    ) -> tuple[Optional[torch.Tensor], torch.Tensor]:
+        if ce_loss_indexes is None or packed_label_ids is None:
+            return None, torch.tensor(0, device=self.device)
+
+        hidden_states = last_hidden_state[ce_loss_indexes]
+        if hidden_states.numel() == 0:
+            return None, torch.tensor(0, device=self.device)
+
+        logits = self.language_model.lm_head(hidden_states)
+        if not isinstance(packed_label_ids, torch.Tensor):
+            labels = torch.tensor(packed_label_ids, device=logits.device, dtype=torch.long)
+        else:
+            labels = packed_label_ids.to(device=logits.device)
+
+        per_token_loss = F.cross_entropy(logits, labels, reduction="none")
+        total_ce_tokens = self._count_ce_tokens(ce_loss_indexes)
+        if total_ce_tokens.item() == 0:
+            return None, total_ce_tokens
+
+        if self.config.ce_loss_reweighting:
+            if ce_loss_weights is None:
+                raise ValueError("ce_loss_weights must be provided when ce_loss_reweighting=True")
+            if not isinstance(ce_loss_weights, torch.Tensor):
+                ce_loss_weights = torch.tensor(
+                    ce_loss_weights,
+                    device=per_token_loss.device,
+                    dtype=per_token_loss.dtype,
+                )
+            else:
+                ce_loss_weights = ce_loss_weights.to(device=per_token_loss.device, dtype=per_token_loss.dtype)
+            total_ce_loss_weights = ce_loss_weights.sum().clamp_min(torch.finfo(per_token_loss.dtype).eps)
+            ce_value = (per_token_loss * ce_loss_weights).sum() / total_ce_loss_weights
+        else:
+            ce_value = per_token_loss.sum() / total_ce_tokens
+
+        return ce_value, total_ce_tokens
+
+    def _count_ce_tokens(self, ce_loss_indexes) -> torch.Tensor:
+        if isinstance(ce_loss_indexes, torch.Tensor):
+            if ce_loss_indexes.dtype == torch.bool:
+                return ce_loss_indexes.to(device=self.device, dtype=torch.float32).sum()
+            return torch.tensor(float(ce_loss_indexes.numel()), device=self.device)
+        return torch.tensor(float(len(ce_loss_indexes)), device=self.device)
 
     def prepare_prompts(self, curr_kvlens, curr_rope, prompts, tokenizer, new_token_ids):
         packed_text_ids = list()

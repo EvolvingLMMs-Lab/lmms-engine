@@ -21,6 +21,9 @@ except ImportError:
 
 try:
     from liger_kernel.transformers.functional import liger_cross_entropy
+    from liger_kernel.transformers.fused_linear_cross_entropy import (
+        LigerFusedLinearCrossEntropyLoss,
+    )
     from liger_kernel.transformers.monkey_patch import (
         _patch_rms_norm_module,
         _patch_swiglu_module,
@@ -36,7 +39,7 @@ except ImportError:
 def apply_liger_kernel_to_bagel(
     rope: bool = True,
     cross_entropy: bool = False,
-    fused_linear_cross_entropy: bool = False,
+    fused_linear_cross_entropy: bool = True,
     rms_norm: bool = True,
     swiglu: bool = True,
     model: Bagel | None = None,
@@ -44,11 +47,12 @@ def apply_liger_kernel_to_bagel(
 ) -> None:
     """
     Apply Liger kernels to replace original implementations in Bagel's Qwen2 backbone.
-    NOTE: Fused linear cross entropy is currently not supported for Bagel because classification
-    loss is computed outside the language model head.
+    NOTE: Liger fused linear cross entropy is applied to the CE head inside Bagel forward pass.
     """
-    if fused_linear_cross_entropy:
-        raise ValueError("fused_linear_cross_entropy is not supported for Bagel yet.")
+    liger_fused_ce_available = "LigerFusedLinearCrossEntropyLoss" in globals()
+    if fused_linear_cross_entropy and not liger_fused_ce_available:
+        logger.warning("Liger fused linear cross entropy is unavailable; falling back to standard CE.")
+        fused_linear_cross_entropy = False
 
     from . import qwen2_navit as bagel_qwen2_navit
     from .qwen2 import modeling_qwen2 as bagel_modeling_qwen2
@@ -103,6 +107,43 @@ def apply_liger_kernel_to_bagel(
 
     if cross_entropy:
         F.cross_entropy = liger_cross_entropy
+
+    if fused_linear_cross_entropy:
+        original_ce_loss = Bagel.CrossEntropyLoss
+
+        def liger_cross_entropy_loss(
+            self,
+            last_hidden_state,
+            ce_loss_indexes,
+            packed_label_ids,
+            ce_loss_weights=None,
+        ):
+            if ce_loss_indexes is None or packed_label_ids is None:
+                return None, torch.tensor(0, device=self.device)
+            if self.config.ce_loss_reweighting or ce_loss_weights is not None:
+                return original_ce_loss(
+                    self,
+                    last_hidden_state,
+                    ce_loss_indexes,
+                    packed_label_ids,
+                    ce_loss_weights=ce_loss_weights,
+                )
+            hidden_states = last_hidden_state[ce_loss_indexes]
+            if hidden_states.numel() == 0:
+                return None, torch.tensor(0, device=self.device)
+            if not hasattr(self, "_liger_fused_ce_module"):
+                self._liger_fused_ce_module = LigerFusedLinearCrossEntropyLoss(reduction="mean")
+            labels = (
+                packed_label_ids
+                if isinstance(packed_label_ids, torch.Tensor)
+                else torch.tensor(packed_label_ids, device=hidden_states.device, dtype=torch.long)
+            )
+            labels = labels.to(device=hidden_states.device)
+            loss = self._liger_fused_ce_module(self.language_model.lm_head.weight, hidden_states, labels)
+            total_ce_tokens = self._count_ce_tokens(ce_loss_indexes)
+            return loss, total_ce_tokens
+
+        Bagel.CrossEntropyLoss = liger_cross_entropy_loss
 
     if model is not None:
         if not isinstance(model, Bagel):
