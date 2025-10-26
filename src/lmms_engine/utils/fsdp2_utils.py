@@ -14,7 +14,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.fsdp import fully_shard
-from torch.distributed.tensor import DTensor, distribute_tensor
+from torch.distributed.tensor import DTensor, Replicate, distribute_tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR, LinearLR
 
@@ -71,7 +71,10 @@ def fsdp2_load_full_state_dict(
         for param_name, full_tensor in full_state.items():
             sharded_meta_param = meta_sharded_sd.get(param_name)
             if isinstance(full_tensor, DTensor):
-                full_tensor = full_tensor.to_local()
+                full_tensor = full_tensor.redistribute(
+                    device_mesh=full_tensor.device_mesh,
+                    placements=[Replicate()] * len(full_tensor.placements),
+                ).to_local()
             sharded_tensor = distribute_tensor(
                 full_tensor,
                 sharded_meta_param.device_mesh,
