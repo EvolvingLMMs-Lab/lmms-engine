@@ -6,18 +6,12 @@ Thank you for your interest in contributing to LMMs Engine! We appreciate your e
 
 ### Development Setup
 
+#### Prerequisite: Install `uv` (optional)
+
+The following instructions use the [`uv`](https://github.com/astral-sh/uv) package manager for faster and more reliable installs. If you don't have `uv` installed, you can install it with:
+
 ```bash
-# Clone the repository
-git clone https://github.com/lmms-lab/lmms-engine.git
-cd lmms-engine
-
-# Install with development dependencies
-uv pip install -e ".[all]"
-
-# Optional performance optimizations
-uv pip install flash-attn --no-build-isolation
-uv pip install liger-kernel
-
+pip install uv
 # Install pre-commit hooks
 pip install pre-commit
 pre-commit install
