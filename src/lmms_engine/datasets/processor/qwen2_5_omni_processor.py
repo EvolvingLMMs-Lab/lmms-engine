@@ -42,6 +42,9 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
         if audio_max_length and hasattr(processor, "audio_processor"):
             processor.audio_processor.max_length = audio_max_length
 
+        if audio_max_length is not None:
+            processor.audio_max_length = audio_max_length
+
         return processor
 
     def build(self):
@@ -96,6 +99,17 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
         else:
             output_kwargs = kwargs
 
+        # Pop Qwen2.5-Omni specific parameters
+        use_audio_in_video = output_kwargs.get("videos_kwargs", {}).pop(
+            "use_audio_in_video", False
+        )
+        seconds_per_chunk = output_kwargs.get("videos_kwargs", {}).pop(
+            "seconds_per_chunk", None
+        )
+        position_id_per_seconds = output_kwargs.get("videos_kwargs", {}).pop(
+            "position_id_per_seconds", None
+        )
+
         image_inputs = {}
         videos_inputs = {}
         audio_inputs = {}
@@ -132,8 +146,7 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
                 return_tensors="pt",
             )
             video_grid_thw = videos_inputs["video_grid_thw"]
-
-            fps = output_kwargs["videos_kwargs"].pop("fps", 2.0)
+            fps = output_kwargs["videos_kwargs"].get("fps", 2.0)
             if isinstance(fps, (int, float)):
                 second_per_grid_ts = [
                     self.processor.video_processor.temporal_patch_size / fps
@@ -159,13 +172,20 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
             num_video_tokens = None
 
         if audios is not None:
+            if "audio_kwargs" not in output_kwargs:
+                output_kwargs["audio_kwargs"] = {}
+            output_kwargs["audio_kwargs"]["padding"] = "max_length"
+            output_kwargs["audio_kwargs"]["return_attention_mask"] = True
+            output_kwargs["audio_kwargs"]["return_tensors"] = "pt"
+            if (
+                sampling_rate is not None
+                and "sampling_rate" not in output_kwargs["audio_kwargs"]
+            ):
+                output_kwargs["audio_kwargs"]["sampling_rate"] = sampling_rate
+
             audio_inputs = self.audio_processor(
                 audios,
-                sampling_rate=sampling_rate,
-                return_attention_mask=True,
-                padding="max_length",
-                return_tensors="pt",
-                **kwargs,
+                **output_kwargs["audio_kwargs"],
             )
             audio_inputs["feature_attention_mask"] = audio_inputs.pop("attention_mask")
             audio_inputs["audio_feature_lengths"] = (
@@ -194,7 +214,6 @@ class Qwen2_5OmniDataProcessor(BaseQwen2_5_DataProcessor):
         if videos is not None:
             for key, value in videos_inputs.items():
                 inputs[key] = value
-        if "use_audio_in_video" in kwargs:
-            inputs["use_audio_in_video"] = kwargs["use_audio_in_video"]
+        inputs["use_audio_in_video"] = use_audio_in_video
 
         return inputs
