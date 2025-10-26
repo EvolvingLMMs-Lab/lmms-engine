@@ -358,8 +358,13 @@ class FSDP2SFTTrainer:
 
         pbar.close()
         # Save the final checkpoint
-        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
-        self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
+        output_dir = os.path.join(
+            self.args.output_dir, f"checkpoint-{self.global_step}"
+        )
+        Parallelizer.revert_checkpoint(self.fsdp2_model)
+        self.save_checkpoints(
+            output_dir, self.global_step, total_limit=self.args.save_total_limit
+        )
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
@@ -376,7 +381,6 @@ class FSDP2SFTTrainer:
                 shutil.rmtree(os.path.join(output_path, checkpoint))
 
     def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
-        Parallelizer.revert_checkpoint(self.fsdp2_model)
         rank = dist.get_rank()
         world_size = dist.get_world_size()
         if rank == 0:
