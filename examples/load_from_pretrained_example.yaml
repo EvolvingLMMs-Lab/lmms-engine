@@ -7,7 +7,7 @@
     
     # Dataset configuration - now includes the actual dataset definitions
     dataset_config:
-      dataset_type: vision_iterable
+      dataset_type: vision
       dataset_format: yaml  # Uses 'yaml' format for both external files and inline definitions
       
       # Inline dataset definitions (no dataset_path needed)
