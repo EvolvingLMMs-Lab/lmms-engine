@@ -9,29 +9,32 @@ class Parallelizer:
     revert_methods = {
         "qwen3_moe": unstack_expert_params,
     }
+    _model_type = None
 
-    def apply_parallelize(
-        self, model, model_type, ep_mesh=None, tp_mesh=None, **kwargs
-    ):
+    @classmethod
+    def apply_parallelize(cls, model, model_type, ep_mesh=None, tp_mesh=None, **kwargs):
         if model_type is None:
             return
-        if model_type not in Parallelizer.methods:
+        if model_type not in cls.methods:
             raise ValueError(f"Model type {model_type} not supported")
-        self.model_type = model_type
-        return Parallelizer.methods[model_type](
-            model, ep_mesh=ep_mesh, tp_mesh=tp_mesh, **kwargs
-        )
+        cls._model_type = model_type
+        return cls.methods[model_type](model, ep_mesh=ep_mesh, tp_mesh=tp_mesh, **kwargs)
 
-    def revert_checkpoint(self, model, **kwargs):
-        model_type = self.model_type
+    @classmethod
+    def revert_checkpoint(cls, model, **kwargs):
+        # Allow callers to explicitly set the model_type if needed, otherwise
+        # fall back to the most recently applied one.
+        model_type = kwargs.pop("model_type", None) or cls._model_type
         if model_type is None:
             return
-        if model_type not in Parallelizer.revert_methods:
+        if model_type not in cls.revert_methods:
             raise ValueError(f"Model type {model_type} not supported")
-        return Parallelizer.revert_methods[model_type](model, **kwargs)
+        return cls.revert_methods[model_type](model, **kwargs)
 
-    def register_parallelize(self, model_type, parallelize_fn):
-        self.methods[model_type] = parallelize_fn
+    @classmethod
+    def register_parallelize(cls, model_type, parallelize_fn):
+        cls.methods[model_type] = parallelize_fn
 
-    def register_revert(self, model_type, revert_fn):
-        self.revert_methods[model_type] = revert_fn
+    @classmethod
+    def register_revert(cls, model_type, revert_fn):
+        cls.revert_methods[model_type] = revert_fn
