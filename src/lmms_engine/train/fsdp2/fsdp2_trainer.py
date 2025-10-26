@@ -21,6 +21,7 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.parallel.parallelize import Parallelizer
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import TrainUtilities
@@ -34,7 +35,6 @@ from lmms_engine.utils.fsdp2_utils import (
 )
 from lmms_engine.utils.profiler import StepProfiler
 from lmms_engine.utils.tracking import Tracking
-from lmms_engine.parallel.parallelize import Parallelizer
 
 DatasetType = Union[Dataset, IterableDataset]
 
