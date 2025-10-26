@@ -45,7 +45,6 @@ def apply_liger_kernel_to_bagel(
 ) -> None:
     """
     Apply Liger kernels to replace original implementations in Bagel's Qwen2 backbone.
-    NOTE: Liger fused linear cross entropy is applied to the CE head inside Bagel forward pass.
     """
     from . import qwen2_navit as bagel_qwen2_navit
     from .qwen2 import modeling_qwen2 as bagel_modeling_qwen2
