@@ -33,23 +33,40 @@ class Qwen3MoeParallelStyle(ParallelStyle):
     def _partition_fn(name, mod, device_mesh):
         if isinstance(mod, Qwen3MoeSparseMoeBlock):
             # Distribute the expert parameters across the expert parallel mesh
-            expert_parallel_dim = 0  # Assuming experts are sharded along the first dimension
+            expert_parallel_dim = (
+                0  # Assuming experts are sharded along the first dimension
+            )
 
-            mod.register_parameter("up_proj", nn.Parameter(distribute_tensor(
-                mod.up_proj,
-                device_mesh,
-                [Shard(expert_parallel_dim)],
-            )))
-            mod.register_parameter("down_proj", nn.Parameter(distribute_tensor(
-                mod.down_proj,
-                device_mesh,
-                [Shard(expert_parallel_dim)],
-            )))
-            mod.register_parameter("gate_proj", nn.Parameter(distribute_tensor(
-                mod.gate_proj,
-                device_mesh,
-                [Shard(expert_parallel_dim)],
-            )))
+            mod.register_parameter(
+                "up_proj",
+                nn.Parameter(
+                    distribute_tensor(
+                        mod.up_proj,
+                        device_mesh,
+                        [Shard(expert_parallel_dim)],
+                    )
+                ),
+            )
+            mod.register_parameter(
+                "down_proj",
+                nn.Parameter(
+                    distribute_tensor(
+                        mod.down_proj,
+                        device_mesh,
+                        [Shard(expert_parallel_dim)],
+                    )
+                ),
+            )
+            mod.register_parameter(
+                "gate_proj",
+                nn.Parameter(
+                    distribute_tensor(
+                        mod.gate_proj,
+                        device_mesh,
+                        [Shard(expert_parallel_dim)],
+                    )
+                ),
+            )
 
     # The token all to all dispatch will be handled in the ops
     # Check the lmms_engine/models/qwen3_moe/qwen3_moe_ops.py
