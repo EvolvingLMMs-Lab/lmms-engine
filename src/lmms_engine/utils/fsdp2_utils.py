@@ -58,7 +58,8 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
         full_state (`dict`): The full state dict to load, can only be on rank 0
     """
     # If we are applying other parallelism, load state dict in sharded way
-    if pgm.process_group_manager.dp_world_size < pgm.process_group_manager.world_size:
+    # TODO: add logic for other parallelism
+    if pgm.process_group_manager.ep_world_size > 1:
         meta_sharded_sd = model.state_dict()
         sharded_sd = {}
         for param_name, full_tensor in full_state.items():
@@ -88,9 +89,7 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
             model = model.to_empty(device=torch.cuda.current_device())
 
         cpu_offload = cpu_offload is not None
-        options = StateDictOptions(
-            full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True
-        )
+        options = StateDictOptions(full_state_dict=True, cpu_offload=cpu_offload, broadcast_from_rank0=True)
         set_model_state_dict(model, full_state, options=options)
 
         # rotary_emb is not in state_dict, so we need to broadcast it manually
@@ -224,9 +223,7 @@ def get_constant_schedule(
     )
 
 
-def fsdp2_clip_grad_norm_(
-    parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None
-):
+def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
     """
     torch.nn.utils.clip_grad_norm_ can't run on cpu parameter DTensor.
     This function groups parameters by device mesh and clips grad norm for each group separately.
@@ -261,12 +258,8 @@ def fsdp2_clip_grad_norm_(
     for mesh_key, mesh_params in mesh_groups.items():
         grads = [p.grad for p in mesh_params]
         if grads:
-            mesh_total_norm = _get_total_norm(
-                grads, norm_type, error_if_nonfinite, foreach
-            )
-            mesh_total_norm = mesh_total_norm.to(
-                torch.cuda.current_device(), non_blocking=True
-            )
+            mesh_total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+            mesh_total_norm = mesh_total_norm.to(torch.cuda.current_device(), non_blocking=True)
             _clip_grads_with_norm_(mesh_params, max_norm, mesh_total_norm, foreach)
             total_norms.append(mesh_total_norm)
 
@@ -274,15 +267,9 @@ def fsdp2_clip_grad_norm_(
     if non_dtensor_params:
         grads = [p.grad for p in non_dtensor_params]
         if grads:
-            non_dtensor_total_norm = _get_total_norm(
-                grads, norm_type, error_if_nonfinite, foreach
-            )
-            non_dtensor_total_norm = non_dtensor_total_norm.to(
-                torch.cuda.current_device(), non_blocking=True
-            )
-            _clip_grads_with_norm_(
-                non_dtensor_params, max_norm, non_dtensor_total_norm, foreach
-            )
+            non_dtensor_total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+            non_dtensor_total_norm = non_dtensor_total_norm.to(torch.cuda.current_device(), non_blocking=True)
+            _clip_grads_with_norm_(non_dtensor_params, max_norm, non_dtensor_total_norm, foreach)
             total_norms.append(non_dtensor_total_norm)
 
     # Combine all norms - sum individual norm components then compute final norm
