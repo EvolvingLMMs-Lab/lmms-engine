@@ -98,7 +98,6 @@ class Qwen3MoeParallelStyle(ParallelStyle):
     def _output_fn(output_layouts, use_local_output, mod, output, device_mesh):
         if isinstance(output, DTensor):
             output = output.redistribute(placements=output_layouts, async_op=True)
-            output = output.wait()
             if use_local_output:
                 output = output.to_local()
         return output

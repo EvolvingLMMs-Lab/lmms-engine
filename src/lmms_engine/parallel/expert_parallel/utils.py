@@ -60,27 +60,34 @@ def _token_combine(routed_output, input_splits, output_splits):
     )
     return routed_output
 
+def _compute_permute_indices(
+    num_tokens_per_expert: torch.Tensor,
+    num_ranks: int,
+    num_experts: int,
+) -> torch.Tensor:
+    device = num_tokens_per_expert.device
+    total_tokens = num_tokens_per_expert.sum().item()
 
-def sync_gradients(model):
-    shared_params = []
-    for name, param in model.named_parameters():
-        if param.requires_grad and "expert" in name:
-            shared_params.append(param)
-    world_size = dist.get_world_size()
-    buffer_size = sum(p.numel() for p in shared_params)
-    buffer = torch.zeros(buffer_size, device=shared_params[0].device)
-    with torch.no_grad():
-        offset = 0
-        for param in shared_params:
-            if param.grad is not None:
-                numel = param.grad.numel()
-                buffer[offset : offset + numel].copy_(param.grad.view(-1))
-                offset += numel
-        dist.all_reduce(buffer, op=dist.ReduceOp.SUM)
-        buffer /= world_size
-        offset = 0
-        for param in shared_params:
-            if param.grad is not None:
-                numel = param.grad.numel()
-                param.grad.copy_(buffer[offset : offset + numel].view_as(param))
-                offset += numel
+    source_counts_2d = num_tokens_per_expert.view(num_ranks, num_experts)
+    source_offsets_flat = torch.cumsum(num_tokens_per_expert, dim=0) - num_tokens_per_expert
+    source_offsets_2d = source_offsets_flat.view(num_ranks, num_experts)
+
+    # 2.2. 转置并展平为 1D (Expert主序)
+    counts_t_flat = source_counts_2d.transpose(0, 1).flatten()
+    offsets_t_flat = source_offsets_2d.transpose(0, 1).flatten()
+
+    # 2.3. 生成基准偏移量
+    # [off(0,0), ..., off(1,0), ..., off(R-1,E-1)]
+    # 其中 off(j,i) 重复 count(j,i) 次
+    repeated_offsets = torch.repeat_interleave(offsets_t_flat, counts_t_flat)
+
+    # 2.4. 生成局部偏移量 (0, 1, ..., n1-1, 0, 1, ..., n2-1, ...)
+    # 这是最巧妙的部分
+    group_ends = torch.cumsum(counts_t_flat, dim=0)
+    group_starts = group_ends - counts_t_flat
+    all_indices = torch.arange(total_tokens, device=device)
+    local_indices = all_indices - torch.repeat_interleave(group_starts, counts_t_flat)
+
+    # 2.5. 相加得到最终索引
+    permute_indices_alt = repeated_offsets + local_indices
+    return permute_indices_alt, source_counts_2d.sum(dim=0).tolist()
