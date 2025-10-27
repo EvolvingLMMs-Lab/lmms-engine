@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.utils
 from loguru import logger
@@ -10,6 +11,7 @@ from torch.distributed.tensor.parallel import (
     PrepareModuleInputOutput,
     parallelize_module,
 )
+from tqdm import tqdm
 from transformers import Qwen3MoeForCausalLM
 from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeAttention,
@@ -24,30 +26,20 @@ from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
     logger.info("Stacking expert parameters for Qwen3Moe model")
     with torch.no_grad():
-        for decoder_layer in model.model.layers:
-            up_proj_weights = [
-                expert.up_proj.weight for expert in decoder_layer.mlp.experts
-            ]
+        for decoder_layer in tqdm(
+            model.model.layers, desc="Stacking expert parameters", disable=not dist.get_rank() == 0
+        ):
+            up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_up_proj = torch.stack(up_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter(
-                "up_proj", nn.Parameter(stacked_up_proj)
-            )
+            decoder_layer.mlp.register_parameter("up_proj", nn.Parameter(stacked_up_proj))
 
-            down_proj_weights = [
-                expert.down_proj.weight for expert in decoder_layer.mlp.experts
-            ]
+            down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_down_proj = torch.stack(down_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter(
-                "down_proj", nn.Parameter(stacked_down_proj)
-            )
+            decoder_layer.mlp.register_parameter("down_proj", nn.Parameter(stacked_down_proj))
 
-            gate_proj_weights = [
-                expert.gate_proj.weight for expert in decoder_layer.mlp.experts
-            ]
+            gate_proj_weights = [expert.gate_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_gate_proj = torch.stack(gate_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter(
-                "gate_proj", nn.Parameter(stacked_gate_proj)
-            )
+            decoder_layer.mlp.register_parameter("gate_proj", nn.Parameter(stacked_gate_proj))
             decoder_layer.mlp.act_fn = decoder_layer.mlp.experts[0].act_fn
 
             del decoder_layer.mlp.experts

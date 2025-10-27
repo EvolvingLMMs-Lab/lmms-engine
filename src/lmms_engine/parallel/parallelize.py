@@ -18,9 +18,7 @@ class Parallelizer:
         if model_type not in cls.methods:
             raise ValueError(f"Model type {model_type} not supported")
         cls._model_type = model_type
-        return cls.methods[model_type](
-            model, ep_mesh=ep_mesh, tp_mesh=tp_mesh, **kwargs
-        )
+        return cls.methods[model_type](model, ep_mesh=ep_mesh, tp_mesh=tp_mesh, **kwargs)
 
     @classmethod
     def revert_checkpoint(cls, model, **kwargs):
