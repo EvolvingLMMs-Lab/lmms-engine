@@ -141,9 +141,11 @@ def apply_qwen3_moe_parallel(
         #     )
         # No need to prepare input for the norm layer in model
         if (
-            isinstance(module, nn.Linear)
-            or isinstance(module, Qwen3MoeMLP)
-            or isinstance(module, Qwen3MoeRMSNorm)
+            (
+                isinstance(module, nn.Linear)
+                or isinstance(module, Qwen3MoeMLP)
+                or isinstance(module, Qwen3MoeRMSNorm)
+            )
             and name != "norm"
         ):
             linear_parallel_style = PrepareModuleInputOutput(
