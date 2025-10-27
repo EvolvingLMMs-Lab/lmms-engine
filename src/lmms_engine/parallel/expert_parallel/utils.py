@@ -75,22 +75,15 @@ def _compute_permute_indices(
     )
     source_offsets_2d = source_offsets_flat.view(num_ranks, num_experts)
 
-    # 2.2. 转置并展平为 1D (Expert主序)
     counts_t_flat = source_counts_2d.transpose(0, 1).flatten()
     offsets_t_flat = source_offsets_2d.transpose(0, 1).flatten()
 
-    # 2.3. 生成基准偏移量
-    # [off(0,0), ..., off(1,0), ..., off(R-1,E-1)]
-    # 其中 off(j,i) 重复 count(j,i) 次
     repeated_offsets = torch.repeat_interleave(offsets_t_flat, counts_t_flat)
 
-    # 2.4. 生成局部偏移量 (0, 1, ..., n1-1, 0, 1, ..., n2-1, ...)
-    # 这是最巧妙的部分
     group_ends = torch.cumsum(counts_t_flat, dim=0)
     group_starts = group_ends - counts_t_flat
     all_indices = torch.arange(total_tokens, device=device)
     local_indices = all_indices - torch.repeat_interleave(group_starts, counts_t_flat)
 
-    # 2.5. 相加得到最终索引
     permute_indices_alt = repeated_offsets + local_indices
     return permute_indices_alt, source_counts_2d.sum(dim=0).tolist()
