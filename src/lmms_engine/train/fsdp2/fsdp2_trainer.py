@@ -81,13 +81,7 @@ class FSDP2SFTTrainer:
             "pin_memory": self.args.dataloader_pin_memory,
             "persistent_workers": self.args.dataloader_persistent_workers,
         }
-        if pgm.process_group_manager.ep_world_size > 1:
-            sampler = DistributedSampler(
-                dataset,
-                num_replicas=pgm.process_group_manager.ep_world_size,
-                rank=pgm.process_group_manager.ep_rank,
-            )
-        elif isinstance(dataset, IterableDataset):
+        if isinstance(dataset, IterableDataset):
             sampler = None
         elif self.args.group_by_length:
             sampler = DistributedLengthGroupedSampler(
@@ -208,9 +202,7 @@ class FSDP2SFTTrainer:
             loss = loss.mean()
         loss_item = loss.item()
         loss.backward()
-        grad_norm = fsdp2_clip_grad_norm_(
-            self.fsdp2_model.parameters(), self.args.max_grad_norm
-        )
+        grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
         # if grad_norm is not finite, skip the update
         if not torch.isfinite(grad_norm):
             print(f"WARN: grad_norm is not finite: {grad_norm}")
@@ -358,13 +350,9 @@ class FSDP2SFTTrainer:
 
         pbar.close()
         # Save the final checkpoint
-        output_dir = os.path.join(
-            self.args.output_dir, f"checkpoint-{self.global_step}"
-        )
+        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
         Parallelizer.revert_checkpoint(self.fsdp2_model)
-        self.save_checkpoints(
-            output_dir, self.global_step, total_limit=self.args.save_total_limit
-        )
+        self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")

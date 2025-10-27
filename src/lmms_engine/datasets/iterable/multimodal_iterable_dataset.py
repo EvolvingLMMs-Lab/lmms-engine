@@ -4,11 +4,11 @@ import random
 import traceback
 from copy import deepcopy
 
+import torch.distributed as dist
 from datasets import Dataset as HFDataset
 from datasets import load_dataset, load_from_disk
 from loguru import logger
 from torch.utils.data import get_worker_info
-import torch.distributed as dist
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.datasets.multimodal_mixin import MultiModalDataLoadingMixin

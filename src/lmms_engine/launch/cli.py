@@ -32,6 +32,7 @@ def create_train_task(config):
     trainer_args = config.get("trainer_args")
     sp_degree = trainer_args.get("sp_ulysses_degree", 1)
     ep_degree = trainer_args.get("ep_degree", 1)
+    # DP size actually will not be affected by ep_degree, but kept for initialization here
     dp_size = world_size // sp_degree // ep_degree
 
     # For now, we haven't implement the tp and pp
@@ -55,9 +56,7 @@ def create_train_task(config):
             init_method=f"env://",
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
-    setup_process_group_manager(
-        tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree
-    )
+    setup_process_group_manager(tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree)
 
     trainer_args = config.pop("trainer_args")
     trainer_args = TrainingArguments(**trainer_args)
