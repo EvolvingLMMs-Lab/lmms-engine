@@ -13,7 +13,7 @@ try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
         LigerFusedLinearCrossEntropyLoss,
     )
-except:
+except ImportError:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
 
 
