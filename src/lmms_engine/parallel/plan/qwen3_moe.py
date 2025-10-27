@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.utils
 from loguru import logger
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor, Replicate, Shard
@@ -18,7 +19,6 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
-import torch.nn.utils
 
 
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:

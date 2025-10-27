@@ -60,6 +60,7 @@ def _token_combine(routed_output, input_splits, output_splits):
     )
     return routed_output
 
+
 def _compute_permute_indices(
     num_tokens_per_expert: torch.Tensor,
     num_ranks: int,
@@ -69,7 +70,9 @@ def _compute_permute_indices(
     total_tokens = num_tokens_per_expert.sum().item()
 
     source_counts_2d = num_tokens_per_expert.view(num_ranks, num_experts)
-    source_offsets_flat = torch.cumsum(num_tokens_per_expert, dim=0) - num_tokens_per_expert
+    source_offsets_flat = (
+        torch.cumsum(num_tokens_per_expert, dim=0) - num_tokens_per_expert
+    )
     source_offsets_2d = source_offsets_flat.view(num_ranks, num_experts)
 
     # 2.2. 转置并展平为 1D (Expert主序)

@@ -19,7 +19,11 @@ from lmms_engine.models.sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _unpad_input,
 )
-from lmms_engine.parallel.expert_parallel.utils import _token_combine, _token_dispatch, _compute_permute_indices
+from lmms_engine.parallel.expert_parallel.utils import (
+    _compute_permute_indices,
+    _token_combine,
+    _token_dispatch,
+)
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -292,7 +296,7 @@ def moe_sparse_layer_forward(
         permute_indices, split_sizes = _compute_permute_indices(
             torch.tensor(num_tokens_per_expert_group, device=routed_input.device),
             pgm.process_group_manager.ep_world_size,
-            self.num_experts//pgm.process_group_manager.ep_world_size,
+            self.num_experts // pgm.process_group_manager.ep_world_size,
         )
         routed_input = routed_input[permute_indices]
         routed_input = torch.split(
