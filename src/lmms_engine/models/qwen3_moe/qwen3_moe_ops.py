@@ -53,14 +53,10 @@ def model_forward(
 
     if cu_seq_lens is None and input_ids is not None:
         original_inputs = input_ids
-        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
-            input_ids, attention_mask
-        )
+        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(input_ids, attention_mask)
     elif cu_seq_lens is None and inputs_embeds is not None:
         original_inputs = inputs_embeds
-        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(
-            inputs_embeds, attention_mask
-        )
+        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(inputs_embeds, attention_mask)
     bs, seqlen = original_inputs.shape[:2]
 
     if use_cache and past_key_values is None:
@@ -70,9 +66,7 @@ def model_forward(
         inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
-        past_seen_tokens = (
-            past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seqlen,
@@ -83,9 +77,9 @@ def model_forward(
         position_ids = cache_position.unsqueeze(0)
     position_ids = position_ids.repeat_interleave(bs, dim=0)
 
-    position_ids = index_first_axis(
-        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-    ).transpose(0, 1)
+    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(
+        0, 1
+    )
     original_position_ids = position_ids
 
     hidden_states = inputs_embeds
@@ -201,12 +195,8 @@ def attn_forward(
     input_shape = hidden_states.shape[:-1]
     hidden_shape = (*input_shape, -1, self.head_dim)
 
-    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(
-        1, 2
-    )
-    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(
-        1, 2
-    )
+    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
     value_states = self.v_proj(hidden_states).view(hidden_shape)
 
     cos, sin = position_embeddings
@@ -219,9 +209,7 @@ def attn_forward(
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     window_size = (-1, -1)
 
     attn_output = flash_attn_varlen_func(
@@ -242,9 +230,7 @@ def attn_forward(
     return attn_output, None
 
 
-def moe_sparse_layer_forward(
-    self: Qwen3MoeSparseMoeBlock, hidden_states: torch.Tensor, **kwargs
-) -> torch.Tensor:
+def moe_sparse_layer_forward(self: Qwen3MoeSparseMoeBlock, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
     """
     Modified from the original code to support parallelization, similar to the MoE in torchtitan
     """
@@ -264,9 +250,7 @@ def moe_sparse_layer_forward(
 
     # Calculate the number of tokens per expert
     # [num_tokens on expert_0, num_tokens on expert_1, ...]
-    num_tokens_per_expert = torch.histc(
-        selected_experts, bins=self.num_experts, min=0, max=self.num_experts
-    )
+    num_tokens_per_expert = torch.histc(selected_experts, bins=self.num_experts, min=0, max=self.num_experts)
     # Histc does not support half tensor or int64, so we cast to float32 and cast back to int64
     selected_experts = selected_experts.to(torch.int64)
     num_tokens_per_expert = num_tokens_per_expert.to(torch.int64)
@@ -279,12 +263,8 @@ def moe_sparse_layer_forward(
     # [token_index_on_expert_0, token_index_on_expert_1, ...]
     token_indices_experts_sorted = token_indices_experts_sorted // self.top_k
 
-    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(
-        -1, hidden_dim
-    )
-    routed_input = torch.gather(
-        hidden_states, dim=0, index=token_indices_experts_sorted
-    )
+    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
+    routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
     # print(routed_input)
     if pgm.process_group_manager.ep_world_size > 1:
         (
@@ -327,18 +307,12 @@ def moe_sparse_layer_forward(
 
     if pgm.process_group_manager.ep_world_size > 1:
         out_experts_split[permute_indices] = out_experts_split.clone()
-        out_experts_split = _token_combine(
-            out_experts_split, input_splits, output_splits
-        )
+        out_experts_split = _token_combine(out_experts_split, input_splits, output_splits)
 
     # Gather the output from the experts
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
     final_hidden_states = torch.zeros_like(hidden_states)
-    final_hidden_states = final_hidden_states.scatter_add(
-        dim=0, index=token_indices_experts_sorted, src=routed_output
-    )
+    final_hidden_states = final_hidden_states.scatter_add(dim=0, index=token_indices_experts_sorted, src=routed_output)
 
-    final_hidden_states = final_hidden_states.reshape(
-        batch_size, sequence_length, hidden_dim
-    )
+    final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
     return final_hidden_states, router_logits

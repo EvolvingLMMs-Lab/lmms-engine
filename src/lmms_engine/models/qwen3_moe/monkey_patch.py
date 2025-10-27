@@ -14,9 +14,7 @@ try:
     from liger_kernel.transformers.rope import liger_rotary_pos_emb
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
-    print(
-        "liger kernel not installed, please install it with `pip install liger-kernel`"
-    )
+    print("liger kernel not installed, please install it with `pip install liger-kernel`")
 
 import transformers
 from transformers import PreTrainedModel
@@ -92,9 +90,7 @@ def apply_liger_kernel_to_qwen3_moe(
         from .qwen3_moe_ops import model_forward as qwen3_moe_ops_model_forward
 
         modeling_qwen3_moe.Qwen3MoeModel.forward = qwen3_moe_ops_model_forward
-        modeling_qwen3_moe.Qwen3MoeDecoderLayer.forward = (
-            qwen3_moe_ops_decoder_layer_forward
-        )
+        modeling_qwen3_moe.Qwen3MoeDecoderLayer.forward = qwen3_moe_ops_decoder_layer_forward
         modeling_qwen3_moe.Qwen3MoeAttention.forward = qwen3_moe_ops_attn_forward
 
     if model is not None:
@@ -119,6 +115,4 @@ def apply_liger_kernel_to_qwen3_moe(
         moe_sparse_layer_forward as qwen3_moe_ops_moe_sparse_layer_forward,
     )
 
-    modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = (
-        qwen3_moe_ops_moe_sparse_layer_forward
-    )
+    modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = qwen3_moe_ops_moe_sparse_layer_forward
