@@ -104,28 +104,25 @@ class ProcessGroupManager:
                 for e in range(ep_size)
             ]
         )[0]
+        self.dp_ep_group = dist.new_subgroups_by_enumeration(
+            [
+                self.grid[:, p, c, t, :].flatten().tolist()
+                for p in range(pp_size)
+                for c in range(cp_size)
+                for t in range(tp_size)
+            ]
+        )[0]
 
         self.world_group = dist.group.WORLD
 
         # Update group IDs with new grid ordering
-        self.tp_group_ids = self.grid[
-            self.dp_rank, self.pp_rank, self.cp_rank, :, self.ep_rank
-        ].tolist()
-        self.cp_group_ids = self.grid[
-            self.dp_rank, self.pp_rank, :, self.tp_rank, self.ep_rank
-        ].tolist()
-        self.pp_group_ids = self.grid[
-            self.dp_rank, :, self.cp_rank, self.tp_rank, self.ep_rank
-        ].tolist()
-        self.dp_group_ids = self.grid[
-            :, self.pp_rank, self.cp_rank, self.tp_rank, self.ep_rank
-        ].tolist()
-        self.ep_group_ids = self.grid[
-            self.dp_rank, self.pp_rank, self.cp_rank, self.tp_rank, :
-        ].tolist()
-        self.cp_dp_group_ids = (
-            self.grid[:, self.pp_rank, :, self.tp_rank, self.ep_rank].flatten().tolist()
-        )
+        self.tp_group_ids = self.grid[self.dp_rank, self.pp_rank, self.cp_rank, :, self.ep_rank].tolist()
+        self.cp_group_ids = self.grid[self.dp_rank, self.pp_rank, :, self.tp_rank, self.ep_rank].tolist()
+        self.pp_group_ids = self.grid[self.dp_rank, :, self.cp_rank, self.tp_rank, self.ep_rank].tolist()
+        self.dp_group_ids = self.grid[:, self.pp_rank, self.cp_rank, self.tp_rank, self.ep_rank].tolist()
+        self.ep_group_ids = self.grid[self.dp_rank, self.pp_rank, self.cp_rank, self.tp_rank, :].tolist()
+        self.cp_dp_group_ids = self.grid[:, self.pp_rank, :, self.tp_rank, self.ep_rank].flatten().tolist()
+        self.dp_ep_group_ids = self.grid[:, self.pp_rank, self.cp_rank, self.tp_rank, :].flatten().tolist()
 
         # Tensor parallelism
         self.tp_world_size = dist.get_world_size(group=self.tp_group)
@@ -173,9 +170,12 @@ class ProcessGroupManager:
         )
 
         # Data parallelism
-        self.dp_world_size = dist.get_world_size(group=self.dp_group)
-        self.dp_first_rank = self.dp_group_ids[0]
-        self.dp_last_rank = self.dp_group_ids[-1]
+        self.dp_world_size = dist.get_world_size(group=self.dp_ep_group)
+        self.dp_first_rank = self.dp_ep_group_ids[0]
+        self.dp_last_rank = self.dp_ep_group_ids[-1]
+        # Update the dp rank to the flattened mesh rank
+        self.dp_ep_grid = torch.arange(self.world_size).view(dp_size, ep_size)
+        self.dp_rank, _ = (self.dp_ep_grid == self.global_rank).nonzero().flatten().tolist()
 
         # Expert parallelism
         self.ep_world_size = dist.get_world_size(group=self.ep_group)
@@ -191,6 +191,4 @@ class ProcessGroupManager:
 
 def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size=1):
     global process_group_manager
-    process_group_manager = ProcessGroupManager(
-        tp_size, cp_size, pp_size, dp_size, ep_size
-    )
+    process_group_manager = ProcessGroupManager(tp_size, cp_size, pp_size, dp_size, ep_size)

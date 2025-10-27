@@ -33,9 +33,7 @@ class Qwen3MoeParallelStyle(ParallelStyle):
     def _partition_fn(name, mod, device_mesh):
         if isinstance(mod, Qwen3MoeSparseMoeBlock):
             # Distribute the expert parameters across the expert parallel mesh
-            expert_parallel_dim = (
-                0  # Assuming experts are sharded along the first dimension
-            )
+            expert_parallel_dim = 0  # Assuming experts are sharded along the first dimension
 
             mod.register_parameter(
                 "up_proj",
