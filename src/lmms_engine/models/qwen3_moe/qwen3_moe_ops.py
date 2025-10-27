@@ -19,7 +19,7 @@ from lmms_engine.models.sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _unpad_input,
 )
-from lmms_engine.parallel.expert_parallel.utils import _token_combine, _token_dispatch
+from lmms_engine.parallel.expert_parallel.utils import _token_combine, _token_dispatch, _compute_permute_indices
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -289,11 +289,18 @@ def moe_sparse_layer_forward(
             output_splits,
             num_tokens_per_expert_group,
         ) = _token_dispatch(routed_input, num_tokens_per_expert)
+        permute_indices, split_sizes = _compute_permute_indices(
+            torch.tensor(num_tokens_per_expert_group, device=routed_input.device),
+            pgm.process_group_manager.ep_world_size,
+            self.num_experts//pgm.process_group_manager.ep_world_size,
+        )
+        routed_input = routed_input[permute_indices]
         routed_input = torch.split(
             routed_input[: sum(output_splits)],
-            split_size_or_sections=num_tokens_per_expert_group,
+            split_size_or_sections=split_sizes,
             dim=0,
         )
+
     else:
         routed_input = torch.split(
             routed_input,
@@ -307,15 +314,15 @@ def moe_sparse_layer_forward(
     out_experts_split = []
 
     for idx, x in enumerate(routed_input):
-        expert_idx = idx % num_experts
-        hidden = self.act_fn(torch.matmul(x, gate_proj[expert_idx].transpose(-2, -1)))
-        hidden = hidden * torch.matmul(x, up_proj[expert_idx].transpose(-2, -1))
-        hidden = torch.matmul(hidden, down_proj[expert_idx].transpose(-2, -1))
+        hidden = self.act_fn(torch.matmul(x, gate_proj[idx].transpose(-2, -1)))
+        hidden = hidden * torch.matmul(x, up_proj[idx].transpose(-2, -1))
+        hidden = torch.matmul(hidden, down_proj[idx].transpose(-2, -1))
         out_experts_split.append(hidden)
 
     out_experts_split = torch.cat(out_experts_split, dim=0)
 
     if pgm.process_group_manager.ep_world_size > 1:
+        out_experts_split[permute_indices] = out_experts_split.clone()
         out_experts_split = _token_combine(
             out_experts_split, input_splits, output_splits
         )
