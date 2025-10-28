@@ -45,53 +45,56 @@ def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             del decoder_layer.mlp.experts
 
 
-def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
-    logger.info("Unstacking expert parameters for Qwen3Moe model")
-    with torch.no_grad():
-        for decoder_layer in model.model.layers:
-            num_experts = decoder_layer.mlp.up_proj.size(0)
+def _unstack_expert_params_post_hook(module, destination, prefix, local_metadata):
+    """Post-hook to unstack expert parameters in the state dict.
 
-            up_proj_weight = decoder_layer.mlp.up_proj
-            down_proj_weight = decoder_layer.mlp.down_proj
-            gate_proj_weight = decoder_layer.mlp.gate_proj
+    This hook is called after state_dict() is generated and transforms stacked expert
+    parameters (shape: [num_experts, ...]) into individual expert parameters
+    (shape: [1, ...] for each expert).
 
-            experts = nn.ModuleList()
-            for i in range(num_experts):
-                expert = nn.Module()
-                with torch.nn.utils.skip_init():
-                    expert.up_proj = nn.Linear(
-                        up_proj_weight.size(2),
-                        up_proj_weight.size(1),
-                        bias=False,
-                    )
-                    expert.down_proj = nn.Linear(
-                        down_proj_weight.size(2),
-                        down_proj_weight.size(1),
-                        bias=False,
-                    )
-                    expert.gate_proj = nn.Linear(
-                        gate_proj_weight.size(2),
-                        gate_proj_weight.size(1),
-                        bias=False,
-                    )
+    Args:
+        module: The module being hooked
+        destination: The state dictionary to modify
+        prefix: The prefix for module names
+        local_metadata: The local metadata dictionary
+    """
+    logger.info("Unstacking expert parameters in state_dict for Qwen3Moe model")
 
-                expert.up_proj.weight = nn.Parameter(up_proj_weight[i])
-                expert.down_proj.weight = nn.Parameter(down_proj_weight[i])
-                expert.gate_proj.weight = nn.Parameter(gate_proj_weight[i])
+    # Process stacked expert parameters and unstack them
+    keys_to_remove = []
+    keys_to_add = {}
 
-                expert.act_fn = decoder_layer.mlp.act_fn
-                experts.append(expert)
+    for key in list(destination.keys()):
+        # Check if this is an expert parameter that needs unstacking
+        if "mlp." in key and any(proj in key for proj in ["up_proj.weight", "down_proj.weight", "gate_proj.weight"]):
+            value = destination[key]
 
-            decoder_layer.mlp.experts = experts
+            # Check if this is a stacked parameter (3D tensor with num_experts as first dimension)
+            if isinstance(value, torch.Tensor) and len(value.shape) == 3:
+                num_experts = value.shape[0]
 
-            del decoder_layer.mlp.up_proj
-            del decoder_layer.mlp.down_proj
-            del decoder_layer.mlp.gate_proj
+                # Extract the parameter type
+                param_type = None
+                for proj_type in ["up_proj", "down_proj", "gate_proj"]:
+                    if proj_type in key:
+                        param_type = proj_type
+                        break
 
+                if param_type is not None:
+                    # Mark this key for removal
+                    keys_to_remove.append(key)
 
-def qwen3_moe_save_pretrained(self, *args, **kwargs):
-    unstack_expert_params(self)
-    return super().save_pretrained(*args, **kwargs)
+                    # Create unstacked parameters for each expert
+                    for i in range(num_experts):
+                        expert_key = key.replace(f"mlp.{param_type}", f"mlp.experts.{i}.{param_type}")
+                        keys_to_add[expert_key] = value[i]
+
+    # Remove original stacked parameters
+    for key in keys_to_remove:
+        del destination[key]
+
+    # Add unstacked parameters
+    destination.update(keys_to_add)
 
 
 def apply_qwen3_moe_parallel(
@@ -165,6 +168,6 @@ def apply_qwen3_moe_parallel(
                 device_mesh=ep_mesh,
                 parallelize_plan=linear_parallel_style,
             )
-    model.save_pretrained = qwen3_moe_save_pretrained
+    model.register_state_dict_post_hook(_unstack_expert_params_post_hook)
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
