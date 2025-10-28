@@ -21,7 +21,6 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
-from lmms_engine.parallel.parallelize import Parallelizer
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import TrainUtilities
@@ -351,7 +350,6 @@ class FSDP2SFTTrainer:
         pbar.close()
         # Save the final checkpoint
         output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
-        Parallelizer.revert_checkpoint(self.fsdp2_model)
         self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
 
     def evaluate(self):
