@@ -20,7 +20,9 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock,
 )
 
-from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
+import lmms_engine.parallel.process_group_manager as pgm
+
+from .style import Qwen3MoeParallelStyle
 
 
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
@@ -43,50 +45,6 @@ def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             decoder_layer.mlp.act_fn = decoder_layer.mlp.experts[0].act_fn
 
             del decoder_layer.mlp.experts
-
-
-def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
-    logger.info("Unstacking expert parameters for Qwen3Moe model")
-    with torch.no_grad():
-        for decoder_layer in model.model.layers:
-            num_experts = decoder_layer.mlp.up_proj.size(0)
-
-            up_proj_weight = decoder_layer.mlp.up_proj
-            down_proj_weight = decoder_layer.mlp.down_proj
-            gate_proj_weight = decoder_layer.mlp.gate_proj
-
-            experts = nn.ModuleList()
-            for i in range(num_experts):
-                expert = nn.Module()
-                with torch.nn.utils.skip_init():
-                    expert.up_proj = nn.Linear(
-                        up_proj_weight.size(2),
-                        up_proj_weight.size(1),
-                        bias=False,
-                    )
-                    expert.down_proj = nn.Linear(
-                        down_proj_weight.size(2),
-                        down_proj_weight.size(1),
-                        bias=False,
-                    )
-                    expert.gate_proj = nn.Linear(
-                        gate_proj_weight.size(2),
-                        gate_proj_weight.size(1),
-                        bias=False,
-                    )
-
-                expert.up_proj.weight = nn.Parameter(up_proj_weight[i])
-                expert.down_proj.weight = nn.Parameter(down_proj_weight[i])
-                expert.gate_proj.weight = nn.Parameter(gate_proj_weight[i])
-
-                expert.act_fn = decoder_layer.mlp.act_fn
-                experts.append(expert)
-
-            decoder_layer.mlp.experts = experts
-
-            del decoder_layer.mlp.up_proj
-            del decoder_layer.mlp.down_proj
-            del decoder_layer.mlp.gate_proj
 
 
 def apply_qwen3_moe_parallel(
@@ -141,13 +99,8 @@ def apply_qwen3_moe_parallel(
         #     )
         # No need to prepare input for the norm layer in model
         if (
-            (
-                isinstance(module, nn.Linear)
-                or isinstance(module, Qwen3MoeMLP)
-                or isinstance(module, Qwen3MoeRMSNorm)
-            )
-            and name != "norm"
-        ):
+            isinstance(module, nn.Linear) or isinstance(module, Qwen3MoeMLP) or isinstance(module, Qwen3MoeRMSNorm)
+        ) and name != "norm":
             linear_parallel_style = PrepareModuleInputOutput(
                 input_layouts=Shard(0),
                 desired_input_layouts=Shard(0),
