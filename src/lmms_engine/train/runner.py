@@ -19,7 +19,7 @@ from lmms_engine.mapping_func import (
 )
 from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
-from lmms_engine.parallel.parallelize import Parallelizer
+from lmms_engine.parallel.parallelize import apply_parallelize
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
@@ -230,6 +230,6 @@ class TrainRunner:
         ep_mesh = pgm.process_group_manager.device_mesh["ep"]
         apply_parallel = ep_degree > 1
         if apply_parallel and model_type is not None:
-            Parallelizer.apply_parallelize(self.model, model_type, ep_mesh=ep_mesh)
+            apply_parallelize(self.model, model_type, ep_mesh=ep_mesh)
         else:
             logger.info(f"No parallelism applied on model")
