@@ -20,6 +20,8 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock,
 )
 
+import lmms_engine.parallel.process_group_manager as pgm
+
 from .style import Qwen3MoeParallelStyle
 
 
@@ -61,16 +63,16 @@ def _unstack_expert_params_post_hook(module, destination, prefix, local_metadata
     logger.info("Unstacking expert parameters in state_dict for Qwen3Moe model")
 
     # Process stacked expert parameters and unstack them
-    keys_to_remove = []
-    keys_to_add = {}
-
+    # Iterate over a copy of keys to avoid modifying dict during iteration
     for key in list(destination.keys()):
         # Check if this is an expert parameter that needs unstacking
-        if "mlp." in key and any(proj in key for proj in ["up_proj.weight", "down_proj.weight", "gate_proj.weight"]):
+        if "mlp." in key and any(proj in key for proj in ["up_proj", "down_proj", "gate_proj"]):
             value = destination[key]
 
             # Check if this is a stacked parameter (3D tensor with num_experts as first dimension)
             if isinstance(value, torch.Tensor) and len(value.shape) == 3:
+                if isinstance(value, DTensor):
+                    value = value.to_local()
                 num_experts = value.shape[0]
 
                 # Extract the parameter type
@@ -81,20 +83,15 @@ def _unstack_expert_params_post_hook(module, destination, prefix, local_metadata
                         break
 
                 if param_type is not None:
-                    # Mark this key for removal
-                    keys_to_remove.append(key)
-
-                    # Create unstacked parameters for each expert
+                    # Create unstacked parameters for each expert and add them one by one
                     for i in range(num_experts):
-                        expert_key = key.replace(f"mlp.{param_type}", f"mlp.experts.{i}.{param_type}")
-                        keys_to_add[expert_key] = value[i]
+                        expert_index = pgm.process_group_manager.ep_group.rank() * num_experts + i
+                        expert_key = key.replace(f"mlp.{param_type}", f"mlp.experts.{expert_index}.{param_type}")
+                        # Create the unstacked tensor and immediately add it
+                        destination[expert_key] = value[i]
 
-    # Remove original stacked parameters
-    for key in keys_to_remove:
-        del destination[key]
-
-    # Add unstacked parameters
-    destination.update(keys_to_add)
+                    # Now delete the original stacked parameter after all experts are added
+                    del destination[key]
 
 
 def apply_qwen3_moe_parallel(
@@ -149,13 +146,8 @@ def apply_qwen3_moe_parallel(
         #     )
         # No need to prepare input for the norm layer in model
         if (
-            (
-                isinstance(module, nn.Linear)
-                or isinstance(module, Qwen3MoeMLP)
-                or isinstance(module, Qwen3MoeRMSNorm)
-            )
-            and name != "norm"
-        ):
+            isinstance(module, nn.Linear) or isinstance(module, Qwen3MoeMLP) or isinstance(module, Qwen3MoeRMSNorm)
+        ) and name != "norm":
             linear_parallel_style = PrepareModuleInputOutput(
                 input_layouts=Shard(0),
                 desired_input_layouts=Shard(0),
