@@ -20,7 +20,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock,
 )
 
-from lmms_engine.parallel.expert_parallel import Qwen3MoeParallelStyle
+from .style import Qwen3MoeParallelStyle
 
 
 def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
@@ -87,6 +87,11 @@ def unstack_expert_params(model: Qwen3MoeForCausalLM) -> None:
             del decoder_layer.mlp.up_proj
             del decoder_layer.mlp.down_proj
             del decoder_layer.mlp.gate_proj
+
+
+def qwen3_moe_save_pretrained(self, *args, **kwargs):
+    unstack_expert_params(self)
+    return super().save_pretrained(*args, **kwargs)
 
 
 def apply_qwen3_moe_parallel(
@@ -160,5 +165,6 @@ def apply_qwen3_moe_parallel(
                 device_mesh=ep_mesh,
                 parallelize_plan=linear_parallel_style,
             )
+    model.save_pretrained = qwen3_moe_save_pretrained
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
