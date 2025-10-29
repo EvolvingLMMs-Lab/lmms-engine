@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import math
 import os
 
 import torch
 import torch.distributed as dist
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 
 class ProcessGroupManager:
@@ -25,168 +26,77 @@ class ProcessGroupManager:
         self.local_rank = int(os.environ.get("LOCAL_RANK", self.global_rank % self.world_size))
 
         assert (
-            self.world_size == tp_size * cp_size * pp_size * dp_size * ep_size
-        ), f"World size ({self.world_size}) != TP ({tp_size}) * CP ({cp_size}) * PP ({pp_size}) * DP ({dp_size}) * EP ({ep_size})"
+            self.world_size == tp_size * cp_size * pp_size * dp_size
+        ), f"World size ({self.world_size}) != TP ({tp_size}) * CP ({cp_size}) * PP ({pp_size}) * DP ({dp_size})"
+
+        assert pp_size == 1, "PP size must be 1 for now"
+        assert ep_size % (cp_size * tp_size) == 0 and (dp_size * cp_size * tp_size) % ep_size == 0
+
+        self.tp_size = tp_size
+        self.cp_size = cp_size
+        self.pp_size = pp_size
+        self.dp_size = dp_size
+        self.ep_size = ep_size
 
         self.device_mesh = init_device_mesh(
             "cuda",
-            (dp_size, pp_size, cp_size, tp_size, ep_size),
-            mesh_dim_names=["dp", "pp", "cp", "tp", "ep"],
+            (dp_size, pp_size, cp_size, tp_size),
+            mesh_dim_names=["dp", "pp", "cp", "tp"],
         )
 
+        # Currently pp and tp is always 1, so fsdp is the same as dp
+        # TODO: support pp > 1
+        fsdp_size = dp_size * cp_size
+
+        if ep_size > 1:
+            assert self.world_size % ep_size == 0, "ep_size must be a factor of world_size"
+            ep_fsdp_size = self.world_size // ep_size
+            with torch.device("cpu"):
+                mesh = torch.arange(math.prod((ep_size, ep_fsdp_size)), dtype=torch.int).view(ep_fsdp_size, ep_size)
+                self.ep_fsdp_device_mesh = DeviceMesh(
+                    "cuda",
+                    mesh,
+                    mesh_dim_names=["ep_fsdp", "ep"],
+                )
+            self.ep_world_size = ep_size
+
         self.grid = torch.arange(self.world_size).view(
-            dp_size, pp_size, cp_size, tp_size, ep_size
+            dp_size, pp_size, cp_size, tp_size
         )  # DP * PP * CP * TP * EP grid
         # Find the position of the current process in the grid
-        self.dp_rank, self.pp_rank, self.cp_rank, self.tp_rank, self.ep_rank = (
+        self.dp_rank, self.pp_rank, self.cp_rank, self.tp_rank = (
             (self.grid == self.global_rank).nonzero().flatten().tolist()
         )
 
         # Process group creation - Update indexing to match new grid order
         self.tp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[d, p, c, :, e].tolist()
-                for d in range(dp_size)
-                for p in range(pp_size)
-                for c in range(cp_size)
-                for e in range(ep_size)
-            ]
+            [self.grid[d, p, c, :].tolist() for d in range(dp_size) for p in range(pp_size) for c in range(cp_size)]
         )[0]
         self.cp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[d, p, :, t, e].tolist()
-                for d in range(dp_size)
-                for p in range(pp_size)
-                for t in range(tp_size)
-                for e in range(ep_size)
-            ]
+            [self.grid[d, p, :, t].tolist() for d in range(dp_size) for p in range(pp_size) for t in range(tp_size)]
         )[0]
         self.pp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[d, :, c, t, e].tolist()
-                for d in range(dp_size)
-                for c in range(cp_size)
-                for t in range(tp_size)
-                for e in range(ep_size)
-            ]
+            [self.grid[d, :, c, t].tolist() for d in range(dp_size) for c in range(cp_size) for t in range(tp_size)]
         )[0]
         self.dp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[:, p, c, t, e].tolist()
-                for p in range(pp_size)
-                for c in range(cp_size)
-                for t in range(tp_size)
-                for e in range(ep_size)
-            ]
-        )[0]
-        self.ep_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[d, p, c, t, :].tolist()
-                for d in range(dp_size)
-                for p in range(pp_size)
-                for c in range(cp_size)
-                for t in range(tp_size)
-            ]
-        )[0]
-        self.cp_dp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[:, p, :, t, e].flatten().tolist()
-                for p in range(pp_size)
-                for t in range(tp_size)
-                for e in range(ep_size)
-            ]
-        )[0]
-        self.pp_dp_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[:, :, c, t, e].flatten().tolist()
-                for c in range(cp_size)
-                for t in range(tp_size)
-                for e in range(ep_size)
-            ]
-        )[0]
-        self.dp_ep_group = dist.new_subgroups_by_enumeration(
-            [
-                self.grid[:, p, c, t, :].flatten().tolist()
-                for p in range(pp_size)
-                for c in range(cp_size)
-                for t in range(tp_size)
-            ]
+            [self.grid[:, p, c, t].tolist() for p in range(pp_size) for c in range(cp_size) for t in range(tp_size)]
         )[0]
 
         self.world_group = dist.group.WORLD
 
         # Update group IDs with new grid ordering
-        self.tp_group_ids = self.grid[self.dp_rank, self.pp_rank, self.cp_rank, :, self.ep_rank].tolist()
-        self.cp_group_ids = self.grid[self.dp_rank, self.pp_rank, :, self.tp_rank, self.ep_rank].tolist()
-        self.pp_group_ids = self.grid[self.dp_rank, :, self.cp_rank, self.tp_rank, self.ep_rank].tolist()
-        self.dp_group_ids = self.grid[:, self.pp_rank, self.cp_rank, self.tp_rank, self.ep_rank].tolist()
-        self.ep_group_ids = self.grid[self.dp_rank, self.pp_rank, self.cp_rank, self.tp_rank, :].tolist()
-        self.cp_dp_group_ids = self.grid[:, self.pp_rank, :, self.tp_rank, self.ep_rank].flatten().tolist()
-        self.dp_ep_group_ids = self.grid[:, self.pp_rank, self.cp_rank, self.tp_rank, :].flatten().tolist()
-
-        # Tensor parallelism
-        self.tp_world_size = dist.get_world_size(group=self.tp_group)
-        self.tp_first_rank = self.tp_group_ids[0]
-        self.tp_last_rank = self.tp_group_ids[-1]
-
-        # Context parallelism
-        self.cp_world_size = dist.get_world_size(group=self.cp_group)
-        self.cp_first_rank = self.cp_group_ids[0]
-        self.cp_last_rank = self.cp_group_ids[-1]
-        self.cp_send_rank = self.cp_group_ids[(self.cp_rank + 1) % self.cp_world_size]
-        self.cp_recv_rank = self.cp_group_ids[(self.cp_rank - 1) % self.cp_world_size]
-
-        # Pipeline parallelism
-        self.pp_world_size = dist.get_world_size(group=self.pp_group)
-        self.pp_first_rank = self.pp_group_ids[0]
-        self.pp_last_rank = self.pp_group_ids[-1]
-        self.pp_is_first_stage = self.pp_rank == 0
-        self.pp_is_last_stage = self.pp_rank == self.pp_world_size - 1
-        self.pp_next_rank = (
-            None
-            if self.pp_rank == self.pp_world_size - 1
-            else int(
-                self.grid[
-                    self.dp_rank,
-                    self.pp_rank + 1,
-                    self.cp_rank,
-                    self.tp_rank,
-                    self.ep_rank,
-                ].item()
-            )
-        )
-        self.pp_prev_rank = (
-            None
-            if self.pp_rank == 0
-            else int(
-                self.grid[
-                    self.dp_rank,
-                    self.pp_rank - 1,
-                    self.cp_rank,
-                    self.tp_rank,
-                    self.ep_rank,
-                ].item()
-            )
-        )
+        self.tp_group_ids = self.grid[self.dp_rank, self.pp_rank, self.cp_rank, :].tolist()
+        self.cp_group_ids = self.grid[self.dp_rank, self.pp_rank, :, self.tp_rank].tolist()
+        self.pp_group_ids = self.grid[self.dp_rank, :, self.cp_rank, self.tp_rank].tolist()
+        self.dp_group_ids = self.grid[:, self.pp_rank, self.cp_rank, self.tp_rank].tolist()
 
         # Data parallelism
-        self.dp_world_size = dist.get_world_size(group=self.dp_ep_group)
-        self.dp_first_rank = self.dp_ep_group_ids[0]
-        self.dp_last_rank = self.dp_ep_group_ids[-1]
-        # Update the dp rank to the flattened mesh rank
-        self.dp_ep_grid = torch.arange(self.world_size).view(dp_size, ep_size)
-        self.dp_rank, _ = (self.dp_ep_grid == self.global_rank).nonzero().flatten().tolist()
-
-        # Expert parallelism
-        self.ep_world_size = dist.get_world_size(group=self.ep_group)
-        self.ep_first_rank = self.ep_group_ids[0]
-        self.ep_last_rank = self.ep_group_ids[-1]
-
-        # Context + Data paralellism
-        self.cp_dp_world_size = dist.get_world_size(group=self.cp_dp_group)
+        self.dp_world_size = dist.get_world_size(group=self.dp_group)
+        self.dp_first_rank = self.dp_group_ids[0]
+        self.dp_last_rank = self.dp_group_ids[-1]
 
     def __str__(self):
-        return f"TP({self.tp_world_size})-CP({self.cp_world_size})-PP({self.pp_world_size})-DP({self.dp_world_size})-EP({self.ep_world_size})-Rank({self.global_rank})"
+        return f"TP({self.tp_size})-CP({self.cp_size})-PP({self.pp_size})-DP({self.dp_size})-EP({self.ep_size})-Rank({self.global_rank})"
 
 
 def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size=1):

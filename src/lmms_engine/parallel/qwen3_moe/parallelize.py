@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.utils
 from loguru import logger
 from torch.distributed.device_mesh import DeviceMesh
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.distributed.tensor import DTensor, Replicate, Shard
 from torch.distributed.tensor.parallel import (
     ParallelStyle,
@@ -21,6 +22,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.train.config import TrainingArguments
 
 from .style import Qwen3MoeParallelStyle
 
@@ -115,3 +117,69 @@ def apply_qwen3_moe_parallel(
             )
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
+
+
+def apply_qwen3_moe_fsdp2(
+    model: Qwen3MoeForCausalLM,
+    train_args: TrainingArguments,
+    ep_fsdp_mesh: DeviceMesh,
+    **kwargs,
+):
+    if not train_args.fsdp_config.get("transformer_layer_cls_to_wrap", None):
+        logger.warning(
+            "By default, we wrap the decoder layers for Qwen3Moe, the transformer_layer_cls_to_wrap will be ignored"
+        )
+
+    if train_args.bf16:
+        param_dtype = torch.bfloat16
+    else:
+        param_dtype = torch.float16
+
+    if train_args.gradient_checkpointing:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+    reduce_dtype = getattr(torch, train_args.reduce_dtype)
+    output_dtype = getattr(torch, train_args.output_dtype)
+    mp_policy = MixedPrecisionPolicy(
+        param_dtype=param_dtype,
+        reduce_dtype=reduce_dtype,
+        output_dtype=output_dtype,
+    )
+
+    fsdp_kwargs = {
+        "reshard_after_forward": getattr(train_args, "fsdp_config", {}).get("reshard_after_forward", True),
+        "mp_policy": mp_policy,
+        "mesh": pgm.process_group_manager.fsdp_device_mesh,
+    }
+
+    ep_fsdp_mesh = getattr(pgm.process_group_manager, "ep_fsdp_device_mesh", None)
+
+    if ep_fsdp_mesh is not None:
+        # Prefer dim-1 sharding for expert weights when composing with EP shard on dim-0
+        def _experts_shard_placement_fn(param):
+            return Shard(1)
+
+        expert_fsdp_kwargs = dict(fsdp_kwargs)
+        expert_fsdp_kwargs["mesh"] = ep_fsdp_mesh["ep_fsdp"]
+        expert_fsdp_kwargs["shard_placement_fn"] = _experts_shard_placement_fn
+
+    for decoder_layer in model.model.layers:
+        expert_mod = decoder_layer.mlp
+
+        if ep_fsdp_mesh is not None:
+            fully_shard(expert_mod, **expert_fsdp_kwargs)
+
+        fully_shard(decoder_layer, **fsdp_kwargs)
+
+
+def apply_qwen3_moe_parallelize_fn(
+    model: Qwen3MoeForCausalLM,
+    train_args: TrainingArguments,
+    **kwargs,
+):
+    ep_fsdp_mesh = getattr(pgm.process_group_manager, "ep_fsdp_device_mesh", None)
+    if ep_fsdp_mesh is not None:
+        ep_mesh = ep_fsdp_mesh["ep"]
+        apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
+
+    apply_qwen3_moe_fsdp2(model, train_args, ep_fsdp_mesh=ep_fsdp_mesh, **kwargs)
