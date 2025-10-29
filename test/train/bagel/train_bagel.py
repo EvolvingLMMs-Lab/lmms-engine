@@ -58,7 +58,7 @@ def main():
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
-            "use_liger_kernel": False,
+            "use_liger_kernel": True,
             "use_rmpad": False,
             "fsdp2": True,
             "group_by_length": True,
