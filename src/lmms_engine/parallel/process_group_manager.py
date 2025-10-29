@@ -49,15 +49,16 @@ class ProcessGroupManager:
         fsdp_size = dp_size * cp_size
 
         if ep_size > 1:
-            assert self.world_size % ep_size == 0, "ep_size must be a factor of world_size"
-            ep_fsdp_size = self.world_size // ep_size
-            with torch.device("cpu"):
-                mesh = torch.arange(math.prod((ep_size, ep_fsdp_size)), dtype=torch.int).view(ep_fsdp_size, ep_size)
-                self.ep_fsdp_device_mesh = DeviceMesh(
-                    "cuda",
-                    mesh,
-                    mesh_dim_names=["ep_fsdp", "ep"],
-                )
+            assert self.cp_size == 1, "Currently only support cp = 1 for EP"
+            dp_shard_mod_ep = self.dp_size * self.cp_size * self.tp_size // self.ep_size
+            dp_shard_in_ep = self.ep_size // (self.cp_size * self.tp_size)
+            self.device_mesh = init_device_mesh(
+                "cuda",
+                (dp_shard_mod_ep, dp_shard_in_ep),
+                mesh_dim_names=["dp_shard_mod_ep", "dp_shard_in_ep"],
+            )
+            self.device_mesh["dp_shard_mod_ep", "dp_shard_in_ep"]._flatten(mesh_dim_name="fsdp")
+            self.device_mesh["dp_shard_in_ep"]._flatten(mesh_dim_name="ep")
             self.ep_world_size = ep_size
 
         self.grid = torch.arange(self.world_size).view(
@@ -82,6 +83,12 @@ class ProcessGroupManager:
             [self.grid[:, p, c, t].tolist() for p in range(pp_size) for c in range(cp_size) for t in range(tp_size)]
         )[0]
 
+        if ep_size > 1:
+            self.ep_grid = torch.arange(ep_size).view(dp_shard_mod_ep, dp_shard_in_ep)
+            self.ep_group = dist.new_subgroups_by_enumeration(
+                [self.ep_grid[d, :].tolist() for d in range(dp_shard_mod_ep)]
+            )[0]
+
         self.world_group = dist.group.WORLD
 
         # Update group IDs with new grid ordering
@@ -94,6 +101,21 @@ class ProcessGroupManager:
         self.dp_world_size = dist.get_world_size(group=self.dp_group)
         self.dp_first_rank = self.dp_group_ids[0]
         self.dp_last_rank = self.dp_group_ids[-1]
+
+        self.cp_world_size = dist.get_world_size(group=self.cp_group)
+        self.cp_first_rank = self.cp_group_ids[0]
+        self.cp_last_rank = self.cp_group_ids[-1]
+
+        self.pp_world_size = dist.get_world_size(group=self.pp_group)
+        self.pp_first_rank = self.pp_group_ids[0]
+        self.pp_last_rank = self.pp_group_ids[-1]
+
+        self.tp_world_size = dist.get_world_size(group=self.tp_group)
+        self.tp_first_rank = self.tp_group_ids[0]
+        self.tp_last_rank = self.tp_group_ids[-1]
+
+        if ep_size > 1:
+            self.ep_world_size = dist.get_world_size(group=self.ep_group)
 
     def __str__(self):
         return f"TP({self.tp_size})-CP({self.cp_size})-PP({self.pp_size})-DP({self.dp_size})-EP({self.ep_size})-Rank({self.global_rank})"

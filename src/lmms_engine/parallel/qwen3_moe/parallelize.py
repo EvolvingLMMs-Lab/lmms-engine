@@ -23,6 +23,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.train.config import TrainingArguments
+from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
 
 from .style import Qwen3MoeParallelStyle
 
@@ -58,71 +59,37 @@ def apply_qwen3_moe_parallel(
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3Moe"
 
     stack_expert_params(model)
+    full_state_dict = model.state_dict()
 
     for decoder_layer in model.model.layers:
-        module = decoder_layer
+        module = decoder_layer.mlp
         ep_plan = Qwen3MoeParallelStyle()
         parallelize_module(
             module,
             device_mesh=ep_mesh,
             parallelize_plan=ep_plan,
         )
-
-    for name, module in model.model.named_modules():
-        if isinstance(module, Qwen3MoeSparseMoeBlock):
-            parallel_style = PrepareModuleInput(
-                input_layouts=Shard(0),
-                desired_input_layouts=Shard(0),
-                use_local_output=True,
-            )
-            parallelize_module(
-                module,
-                device_mesh=ep_mesh,
-                parallelize_plan=parallel_style,
-            )
-        # if isinstance(module, Qwen3MoeAttention):
-        #     attention_parallel_style = PrepareModuleInputOutput(
-        #         input_kwarg_layouts={
-        #             "hidden_states": Replicate(),
-        #             "position_embeddings": Replicate(),
-        #         },
-        #         desired_input_kwarg_layouts={
-        #             "hidden_states": Replicate(),
-        #             "position_embeddings": Replicate(),
-        #         },
-        #         output_layouts=(Replicate(), None),
-        #         desired_output_layouts=(Replicate(), None),
-        #         use_local_output=True,
-        #     )
-        #     parallelize_module(
-        #         module,
-        #         device_mesh=ep_mesh,
-        #         parallelize_plan=attention_parallel_style,
-        #     )
-        # No need to prepare input for the norm layer in model
-        if (
-            isinstance(module, nn.Linear) or isinstance(module, Qwen3MoeMLP) or isinstance(module, Qwen3MoeRMSNorm)
-        ) and name != "norm":
-            linear_parallel_style = PrepareModuleInputOutput(
-                input_layouts=Shard(0),
-                desired_input_layouts=Shard(0),
-                output_layouts=Shard(0),
-                desired_output_layouts=Shard(0),
-                use_local_output=True,
-            )
-            parallelize_module(
-                module,
-                device_mesh=ep_mesh,
-                parallelize_plan=linear_parallel_style,
-            )
+        # Prepare input for the gate projection
+        linear_parallel_style = PrepareModuleInputOutput(
+            input_layouts=Shard(0),
+            desired_input_layouts=Shard(0),
+            output_layouts=Shard(0),
+            desired_output_layouts=Shard(0),
+            use_local_output=True,
+        )
+        parallelize_module(
+            module.gate,
+            device_mesh=ep_mesh,
+            parallelize_plan=linear_parallel_style,
+        )
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
+    return full_state_dict
 
 
 def apply_qwen3_moe_fsdp2(
     model: Qwen3MoeForCausalLM,
     train_args: TrainingArguments,
-    ep_fsdp_mesh: DeviceMesh,
     **kwargs,
 ):
     if not train_args.fsdp_config.get("transformer_layer_cls_to_wrap", None):
@@ -146,30 +113,36 @@ def apply_qwen3_moe_fsdp2(
         output_dtype=output_dtype,
     )
 
+    dp_mesh = pgm.process_group_manager.device_mesh["fsdp"]
+
     fsdp_kwargs = {
         "reshard_after_forward": getattr(train_args, "fsdp_config", {}).get("reshard_after_forward", True),
         "mp_policy": mp_policy,
-        "mesh": pgm.process_group_manager.fsdp_device_mesh,
+        "mesh": dp_mesh,
     }
 
-    ep_fsdp_mesh = getattr(pgm.process_group_manager, "ep_fsdp_device_mesh", None)
-
-    if ep_fsdp_mesh is not None:
+    ep_size = pgm.process_group_manager.ep_size
+    if ep_size > 1:
         # Prefer dim-1 sharding for expert weights when composing with EP shard on dim-0
         def _experts_shard_placement_fn(param):
             return Shard(1)
 
         expert_fsdp_kwargs = dict(fsdp_kwargs)
-        expert_fsdp_kwargs["mesh"] = ep_fsdp_mesh["ep_fsdp"]
+        expert_fsdp_kwargs["mesh"] = pgm.process_group_manager.device_mesh["dp_shard_mod_ep"]
         expert_fsdp_kwargs["shard_placement_fn"] = _experts_shard_placement_fn
 
     for decoder_layer in model.model.layers:
         expert_mod = decoder_layer.mlp
 
-        if ep_fsdp_mesh is not None:
+        if ep_size > 1:
             fully_shard(expert_mod, **expert_fsdp_kwargs)
 
-        fully_shard(decoder_layer, **fsdp_kwargs)
+        fully_shard(decoder_layer.self_attn, **fsdp_kwargs)
+
+    # Shard the embed tokens
+    fully_shard(model.model.embed_tokens, **fsdp_kwargs)
+    # Shard the root model
+    fully_shard(model, **fsdp_kwargs)
 
 
 def apply_qwen3_moe_parallelize_fn(
@@ -177,9 +150,11 @@ def apply_qwen3_moe_parallelize_fn(
     train_args: TrainingArguments,
     **kwargs,
 ):
-    ep_fsdp_mesh = getattr(pgm.process_group_manager, "ep_fsdp_device_mesh", None)
-    if ep_fsdp_mesh is not None:
-        ep_mesh = ep_fsdp_mesh["ep"]
-        apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
+    ep_size = pgm.process_group_manager.ep_size
+    full_state_dict = model.state_dict()
+    if ep_size > 1:
+        ep_mesh = pgm.process_group_manager.device_mesh["ep"]
+        full_state_dict = apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
 
-    apply_qwen3_moe_fsdp2(model, train_args, ep_fsdp_mesh=ep_fsdp_mesh, **kwargs)
+    apply_qwen3_moe_fsdp2(model, train_args, **kwargs)
+    fsdp2_load_full_state_dict(model, full_state_dict)
