@@ -113,13 +113,8 @@ class FSDP2SFTTrainer:
     def prepare_model(self):
         model_type = getattr(self.model.config, "model_type", None)
         if model_type in MODEL_TO_PARALLEL_METHOD:
-            full_state = self.model.state_dict()
             apply_parallelize(self.model, model_type, self.args)
-            fsdp2_load_full_state_dict(self.model, full_state)
             self.fsdp2_model = self.model
-            del full_state
-            gc.collect()
-            torch.cuda.empty_cache()
             return
 
         if self.args.bf16:
@@ -141,7 +136,6 @@ class FSDP2SFTTrainer:
         fsdp_kwargs = {
             "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
             "mp_policy": mp_policy,
-            "mesh": pgm.process_group_manager.device_mesh["dp"],
         }
 
         transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)
