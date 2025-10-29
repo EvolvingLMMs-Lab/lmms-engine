@@ -69,11 +69,14 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
                     device_mesh=full_tensor.device_mesh,
                     placements=[Replicate()] * len(full_tensor.placements),
                 ).to_local()
-            sharded_tensor = distribute_tensor(
-                full_tensor,
-                sharded_meta_param.device_mesh,
-                sharded_meta_param.placements,
-            )
+            if isinstance(sharded_meta_param, DTensor):
+                sharded_tensor = distribute_tensor(
+                    full_tensor,
+                    sharded_meta_param.device_mesh,
+                    sharded_meta_param.placements,
+                )
+            else:
+                sharded_tensor = full_tensor
             sharded_sd[param_name] = nn.Parameter(sharded_tensor)
         model.load_state_dict(sharded_sd, assign=True)
     else:
