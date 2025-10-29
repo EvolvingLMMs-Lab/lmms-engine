@@ -59,7 +59,7 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
     """
     # If we are applying other parallelism, load state dict in sharded way
     # TODO: add logic for other parallelism
-    if pgm.process_group_manager.ep_world_size > 1:
+    if pgm.process_group_manager.enable_parallel:
         meta_sharded_sd = model.state_dict()
         sharded_sd = {}
         for param_name, full_tensor in full_state.items():

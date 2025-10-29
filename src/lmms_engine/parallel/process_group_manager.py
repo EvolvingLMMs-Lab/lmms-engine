@@ -60,6 +60,9 @@ class ProcessGroupManager:
             self.device_mesh["dp_shard_mod_ep", "dp_shard_in_ep"]._flatten(mesh_dim_name="fsdp")
             self.device_mesh["dp_shard_in_ep"]._flatten(mesh_dim_name="ep")
             self.ep_world_size = ep_size
+        else:
+            self.device_mesh["dp", "cp"]._flatten(mesh_dim_name="fsdp")
+            self.ep_world_size = 1
 
         self.grid = torch.arange(self.world_size).view(
             dp_size, pp_size, cp_size, tp_size
@@ -119,6 +122,26 @@ class ProcessGroupManager:
 
     def __str__(self):
         return f"TP({self.tp_size})-CP({self.cp_size})-PP({self.pp_size})-DP({self.dp_size})-EP({self.ep_size})-Rank({self.global_rank})"
+
+    @property
+    def enable_tp(self):
+        return self.tp_size > 1
+
+    @property
+    def enable_cp(self):
+        return self.cp_size > 1
+
+    @property
+    def enable_pp(self):
+        return self.pp_size > 1
+
+    @property
+    def enable_ep(self):
+        return self.ep_size > 1
+
+    @property
+    def enable_parallel(self):
+        return self.enable_tp or self.enable_pp or self.enable_ep
 
 
 def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size=1):
