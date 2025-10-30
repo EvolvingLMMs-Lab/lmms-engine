@@ -65,7 +65,7 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 
 | Model | Quick Start | FSDP2 | USP | Muon | Liger | Packing | NSA | Highlights |
 |-------|-------------|-------|-----|------|-------|---------|-----|------------------|
-| **[BAGEL](src/lmms_engine/models/bagel)** | [run.sh](examples/bagel/run.sh) | ✅ | TBD | ✅ | ❌ | ✅ | ✅ | Unified visual understanding & generation |
+| **[BAGEL](src/lmms_engine/models/bagel)** | [run.sh](examples/bagel/run.sh) | ✅ | TBD | ✅ | ✅ | ✅ | ✅ | Unified visual understanding & generation |
 | **[Qwen2.5](src/lmms_engine/models/qwen2)** | [run.sh](examples/qwen2_5_llm/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Large Language Model |
 | **[Qwen2.5-VL](src/lmms_engine/models/qwen2_5_vl/)** | [run.sh](examples/qwen2_5_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Multimodal Model |
 | **[Qwen2.5-Omni](examples/qwen2_5_omni)** | [run.sh](examples/qwen2_5_omni/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | Unified multimodal (image, audio, text) |
