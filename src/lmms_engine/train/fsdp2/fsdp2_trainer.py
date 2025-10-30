@@ -21,6 +21,7 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.parallel.parallelize import MODEL_TO_PARALLEL_METHOD, apply_parallelize
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import TrainUtilities
@@ -110,6 +111,12 @@ class FSDP2SFTTrainer:
         return dataloader
 
     def prepare_model(self):
+        model_type = getattr(self.model.config, "model_type", None)
+        if model_type in MODEL_TO_PARALLEL_METHOD:
+            apply_parallelize(self.model, model_type, self.args)
+            self.fsdp2_model = self.model
+            return
+
         if self.args.bf16:
             param_dtype = torch.bfloat16
         else:
@@ -129,7 +136,6 @@ class FSDP2SFTTrainer:
         fsdp_kwargs = {
             "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
             "mp_policy": mp_policy,
-            "mesh": pgm.process_group_manager.device_mesh["dp"],
         }
 
         transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)

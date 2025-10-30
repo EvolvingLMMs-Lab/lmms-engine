@@ -58,7 +58,6 @@ class TrainRunner:
             self.eval_dataset = None
         self.train_dataset = self._build_train_dataset()
         self._apply_monkey_patch()
-        self.apply_parallelism_on_model()
         self.trainer = self._build_trainer()
 
     def _build_model(self):
@@ -222,14 +221,3 @@ class TrainRunner:
             cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
             del state_dict
             trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
-
-    def apply_parallelism_on_model(self):
-        model_config = self.model.config
-        model_type = getattr(model_config, "model_type", None)
-        ep_degree = self.config.trainer_args.ep_degree
-        ep_mesh = pgm.process_group_manager.device_mesh["ep"]
-        apply_parallel = ep_degree > 1
-        if apply_parallel and model_type is not None:
-            apply_parallelize(self.model, model_type, ep_mesh=ep_mesh)
-        else:
-            logger.info(f"No parallelism applied on model")

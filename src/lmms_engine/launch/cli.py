@@ -33,7 +33,7 @@ def create_train_task(config):
     sp_degree = trainer_args.get("sp_ulysses_degree", 1)
     ep_degree = trainer_args.get("ep_degree", 1)
     # DP size actually will not be affected by ep_degree, but kept for initialization here
-    dp_size = world_size // sp_degree // ep_degree
+    dp_size = world_size // sp_degree
 
     # For now, we haven't implement the tp and pp
     use_cpu = trainer_args.get("use_cpu", False)

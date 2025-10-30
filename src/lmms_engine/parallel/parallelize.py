@@ -1,13 +1,13 @@
-from .qwen3_moe import apply_qwen3_moe_parallel
+from lmms_engine.train.config import TrainingArguments
+
+from .qwen3_moe.parallelize import apply_qwen3_moe_parallelize_fn
 
 MODEL_TO_PARALLEL_METHOD = {
-    "qwen3_moe": apply_qwen3_moe_parallel,
+    "qwen3_moe": apply_qwen3_moe_parallelize_fn,
 }
 
 
-def apply_parallelize(model, model_type, ep_mesh=None, tp_mesh=None, **kwargs):
-    if model_type is None:
-        return
+def apply_parallelize(model, model_type, train_args: TrainingArguments, **kwargs):
     if model_type not in MODEL_TO_PARALLEL_METHOD:
         raise ValueError(f"Model type {model_type} not supported")
-    return MODEL_TO_PARALLEL_METHOD[model_type](model, ep_mesh=ep_mesh, tp_mesh=tp_mesh, **kwargs)
+    return MODEL_TO_PARALLEL_METHOD[model_type](model, train_args, **kwargs)
