@@ -58,9 +58,6 @@ def apply_qwen3_moe_parallel(
 ):
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3Moe"
 
-    stack_expert_params(model)
-    full_state_dict = model.state_dict()
-
     for decoder_layer in model.model.layers:
         module = decoder_layer.mlp
         ep_plan = Qwen3MoeParallelStyle()
@@ -84,7 +81,6 @@ def apply_qwen3_moe_parallel(
         )
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
-    return full_state_dict
 
 
 def apply_qwen3_moe_fsdp2(
@@ -151,10 +147,11 @@ def apply_qwen3_moe_parallelize_fn(
     **kwargs,
 ):
     ep_size = pgm.process_group_manager.ep_size
+    stack_expert_params(model)
     full_state_dict = model.state_dict()
     if ep_size > 1:
         ep_mesh = pgm.process_group_manager.device_mesh["ep"]
-        full_state_dict = apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
+        apply_qwen3_moe_parallel(model, ep_mesh=ep_mesh, **kwargs)
 
     apply_qwen3_moe_fsdp2(model, train_args, **kwargs)
     fsdp2_load_full_state_dict(model, full_state_dict)

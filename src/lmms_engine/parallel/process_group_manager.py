@@ -87,7 +87,7 @@ class ProcessGroupManager:
         )[0]
 
         if ep_size > 1:
-            self.ep_grid = torch.arange(ep_size).view(dp_shard_mod_ep, dp_shard_in_ep)
+            self.ep_grid = torch.arange(dp_size).view(dp_shard_mod_ep, dp_shard_in_ep)
             self.ep_group = dist.new_subgroups_by_enumeration(
                 [self.ep_grid[d, :].tolist() for d in range(dp_shard_mod_ep)]
             )[0]
