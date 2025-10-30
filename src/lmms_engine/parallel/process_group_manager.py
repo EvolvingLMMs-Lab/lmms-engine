@@ -30,7 +30,8 @@ class ProcessGroupManager:
         ), f"World size ({self.world_size}) != TP ({tp_size}) * CP ({cp_size}) * PP ({pp_size}) * DP ({dp_size})"
 
         assert pp_size == 1, "PP size must be 1 for now"
-        assert ep_size % (cp_size * tp_size) == 0 and (dp_size * cp_size * tp_size) % ep_size == 0
+        if ep_size > 1:
+            assert ep_size % (cp_size * tp_size) == 0 and (dp_size * cp_size * tp_size) % ep_size == 0
 
         self.tp_size = tp_size
         self.cp_size = cp_size
