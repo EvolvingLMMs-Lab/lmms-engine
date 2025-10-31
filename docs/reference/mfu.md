@@ -127,6 +127,34 @@ trainer_args:
 
 ---
 
+## Unified Models
+
+### Bagel
+
+**Configuration:**
+
+- 4 Node x 8 H100 GPU
+- Packing length: 10,240
+- Optimization: Liger kernel + Iterable dataset
+- Training mode: FSDP distributed + Ulysses Sequence Parallel
+
+**Achieved MFU: 0.25-0.30 (25-30%)**
+
+**Key settings:**
+```yaml
+dataset_config:
+  packing: true
+  packing_strategy: first_fit
+  packing_length: 10240
+
+trainer_args:
+  use_rmpad: false
+  use_liger_kernel: true
+  fsdp2: true
+```
+
+---
+
 ## Important Considerations
 
 ### ViT FLOPs Not Included in MFU Calculation
