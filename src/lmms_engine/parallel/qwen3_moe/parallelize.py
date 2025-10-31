@@ -22,6 +22,7 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 )
 
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.models.qwen3_moe.qwen3_moe_experts import Qwen3MoeExperts
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
 
@@ -34,20 +35,27 @@ def stack_expert_params(model: Qwen3MoeForCausalLM) -> None:
         for decoder_layer in tqdm(
             model.model.layers, desc="Stacking expert parameters", disable=not dist.get_rank() == 0
         ):
+            new_experts = Qwen3MoeExperts(
+                num_experts=len(decoder_layer.mlp.experts),
+                hidden_dim=decoder_layer.mlp.experts[0].down_proj.weight.size(0),
+                intermediate_size=decoder_layer.mlp.experts[0].down_proj.weight.size(1),
+                act_fn=decoder_layer.mlp.experts[0].act_fn,
+            )
+
             up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_up_proj = torch.stack(up_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("up_proj", nn.Parameter(stacked_up_proj))
+            new_experts.up_proj = nn.Parameter(stacked_up_proj)
 
             down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_down_proj = torch.stack(down_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("down_proj", nn.Parameter(stacked_down_proj))
+            new_experts.down_proj = nn.Parameter(stacked_down_proj)
 
             gate_proj_weights = [expert.gate_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_gate_proj = torch.stack(gate_proj_weights, dim=0)
-            decoder_layer.mlp.register_parameter("gate_proj", nn.Parameter(stacked_gate_proj))
-            decoder_layer.mlp.act_fn = decoder_layer.mlp.experts[0].act_fn
+            new_experts.gate_proj = nn.Parameter(stacked_gate_proj)
 
             del decoder_layer.mlp.experts
+            decoder_layer.mlp.add_module("experts", new_experts)
 
 
 def apply_qwen3_moe_parallel(
@@ -62,23 +70,11 @@ def apply_qwen3_moe_parallel(
         module = decoder_layer.mlp
         ep_plan = Qwen3MoeParallelStyle()
         parallelize_module(
-            module,
+            module.experts,
             device_mesh=ep_mesh,
             parallelize_plan=ep_plan,
         )
-        # Prepare input for the gate projection
-        linear_parallel_style = PrepareModuleInputOutput(
-            input_layouts=Shard(0),
-            desired_input_layouts=Shard(0),
-            output_layouts=Shard(0),
-            desired_output_layouts=Shard(0),
-            use_local_output=True,
-        )
-        parallelize_module(
-            module.gate,
-            device_mesh=ep_mesh,
-            parallelize_plan=linear_parallel_style,
-        )
+
     logger.info(f"Applied Qwen3MoeParallelStyle to {len(model.model.layers)} layers")
     logger.info(f"Model: {model}")
 

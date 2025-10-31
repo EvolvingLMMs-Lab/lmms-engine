@@ -265,49 +265,8 @@ def moe_sparse_layer_forward(self: Qwen3MoeSparseMoeBlock, hidden_states: torch.
 
     token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
     routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
-    # print(routed_input)
-    if pgm.process_group_manager.ep_world_size > 1:
-        (
-            routed_input,
-            input_splits,
-            output_splits,
-            num_tokens_per_expert_group,
-        ) = _token_dispatch(routed_input, num_tokens_per_expert)
-        permute_indices, split_sizes = _compute_permute_indices(
-            torch.tensor(num_tokens_per_expert_group, device=routed_input.device),
-            pgm.process_group_manager.ep_world_size,
-            self.num_experts // pgm.process_group_manager.ep_world_size,
-        )
-        routed_input = routed_input[permute_indices]
-        routed_input = torch.split(
-            routed_input[: sum(output_splits)],
-            split_size_or_sections=split_sizes,
-            dim=0,
-        )
 
-    else:
-        routed_input = torch.split(
-            routed_input,
-            split_size_or_sections=num_tokens_per_expert.tolist(),
-            dim=0,
-        )
-    down_proj = self.down_proj.to_local()
-    up_proj = self.up_proj.to_local()
-    gate_proj = self.gate_proj.to_local()
-    num_experts = down_proj.shape[0]
-    out_experts_split = []
-
-    for idx, x in enumerate(routed_input):
-        hidden = self.act_fn(torch.matmul(x, gate_proj[idx].transpose(-2, -1)))
-        hidden = hidden * torch.matmul(x, up_proj[idx].transpose(-2, -1))
-        hidden = torch.matmul(hidden, down_proj[idx].transpose(-2, -1))
-        out_experts_split.append(hidden)
-
-    out_experts_split = torch.cat(out_experts_split, dim=0)
-
-    if pgm.process_group_manager.ep_world_size > 1:
-        out_experts_split[permute_indices] = out_experts_split.clone()
-        out_experts_split = _token_combine(out_experts_split, input_splits, output_splits)
+    out_experts_split = self.experts(routed_input, num_tokens_per_expert)
 
     # Gather the output from the experts
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
