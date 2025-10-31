@@ -1,6 +1,6 @@
 # Model FLOPs Utilization (MFU) Reference
 
-This document contains MFU metrics for various model training configurations using LMMs-Engine, measured with FSDP distributed training across multiple GPUs. All the experiment are being conducted with 4*8 A800 80G SXM.
+This document contains MFU metrics for various model training configurations using LMMs-Engine, measured with FSDP distributed training across multiple GPUs. All the experiment are being conducted with 4*8 A800 80G SXM using `fsdp2_trainer` with `vision_iterable` dataset for on-the-fly stream packing.
 
 ## Overview
 
