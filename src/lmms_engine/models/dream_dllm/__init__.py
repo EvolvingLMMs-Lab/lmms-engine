@@ -16,8 +16,8 @@
 
 from lmms_engine.mapping_func import register_model
 
-from .configuration_llada_dllm import LLaDADLLMConfig
-from .modeling_llada_dllm import LLaDADLLMForMaskedLM
+from .configuration_dream_dllm import DreamDLLMConfig
+from .modeling_dream_dllm import DreamDLLMForMaskedLM
 
 register_model(
     "dream_dllm",
