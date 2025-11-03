@@ -67,7 +67,7 @@ def main():
                 "reshard_after_forward": False,
             },
             "sp_ulysses_degree": 1,
-            "print_batch_input_steps": 5,
+            "print_batch_input_steps": -1,
         },
     }
 
