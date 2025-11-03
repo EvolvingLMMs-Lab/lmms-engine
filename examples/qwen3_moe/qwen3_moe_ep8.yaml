@@ -1,0 +1,76 @@
+# Unified LMMs Engine Training Configuration
+# This example shows how to combine dataset definitions directly in the config
+
+
+trainer_type: fsdp2_trainer
+    
+# Dataset configuration - now includes the actual dataset definitions
+dataset_config:
+  dataset_type: vision_iterable
+  dataset_format: yaml  # Uses 'yaml' format for both external files and inline definitions
+      
+  # Inline dataset definitions (no dataset_path needed)
+  datasets:
+    - path: data/lmms_engine_test/text_example/open_thoughts_5k_parquet
+      data_folder: ""
+      data_type: parquet
+      
+  # Processor configuration
+  processor_config:
+    processor_name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    processor_type: "qwen2"
+      
+  # Packing configuration
+  packing: false 
+  packing_strategy: first_fit
+  packing_length: 10240 
+  video_backend: qwen_vl_utils
+  filter_overlong: true
+    
+# Model configuration
+model_config:
+  load_from_pretrained_path: "Qwen/Qwen3-VL-30B-A3B-Instruct"
+  attn_implementation: "flash_attention_2"
+  monkey_patch_kwargs:
+      patch_type: ["liger"]
+      use_rmpad: true
+      rope: false
+      swiglu: false
+      cross_entropy: false
+      fused_linear_cross_entropy: true
+      rms_norm: false
+    
+# Training arguments, mostly compatible with HuggingFace Trainer
+trainer_args:
+  per_device_train_batch_size: 1
+  learning_rate: 1.0e-06 # we should use 1.0 to makes YAML recognize it as a float
+  weight_decay: 0.0
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  max_steps: 500
+  num_train_epochs: 1
+  save_steps: 100
+  save_total_limit: 1
+  report_to: "none"
+  output_dir: "./output/debug/test"
+  warmup_ratio: 0.0
+  warmup_steps: 100
+  run_name: "debug"
+  eval_strategy: "no"
+  logging_steps: 1
+  group_by_length: false 
+  dataloader_num_workers: 0
+  bf16: true
+  lr_scheduler_type: "constant"
+  use_liger_kernel: true
+  use_rmpad: true
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap: ["Qwen3MoeDecoderLayer"]
+    reshard_after_forward: false
+  sp_ulysses_degree: 1
+  ep_degree: 8
+  enable_profiler: false
+  profiler_config:
+    start_step: 1
+    end_step: 3

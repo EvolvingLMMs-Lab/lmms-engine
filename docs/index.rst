@@ -19,6 +19,12 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
    user_guide/peak_perf
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Tutorial
+
+   tutorial/index
+
+.. toctree::
    :maxdepth: 1
    :caption: Developer Guide
 
