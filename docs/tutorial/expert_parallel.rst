@@ -295,6 +295,7 @@ Configuration in Training Arguments
 To enable expert parallelism in your training config:
 
 .. code-block:: yaml
+
    ep_degree: 8
 
 Summary
