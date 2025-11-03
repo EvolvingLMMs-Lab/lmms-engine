@@ -31,6 +31,8 @@ dataset_config:
 model_config:
   load_from_pretrained_path: "Qwen/Qwen3-VL-30B-A3B-Instruct"
   attn_implementation: "flash_attention_2"
+  # Only use fused linear cross entropy for expert parallel since liger kernel
+  # does not support ops on DTensor
   monkey_patch_kwargs:
       patch_type: ["liger"]
       use_rmpad: true
