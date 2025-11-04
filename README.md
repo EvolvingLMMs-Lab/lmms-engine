@@ -54,6 +54,17 @@ uv pip install flash-attn --no-build-isolation
 uv pip install liger-kernel
 ```
 
+### Docker
+We provide [Docker images](https://hub.docker.com/r/fatbao55/lmms-engine/tags) with pre-built environments including PyTorch, CUDA, and all necessary dependencies.
+
+```bash
+docker run --gpus all -it --rm \
+  -v $(pwd):/workspace \
+  -w /workspace \  
+  fatbao55/lmms-engine:v1.0 \
+  bash
+```
+
 ### Launch Training
 
 **Recommended: torchrun (native PyTorch)**
