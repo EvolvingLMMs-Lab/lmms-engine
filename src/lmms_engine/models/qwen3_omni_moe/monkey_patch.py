@@ -27,10 +27,12 @@ except:
 
 import transformers
 from transformers import PreTrainedModel
+from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
     Qwen3OmniMoeAudioEncoder,
     Qwen3OmniMoeThinkerForConditionalGeneration,
     Qwen3OmniMoeThinkerTextModel,
+    Qwen3OmniMoeThinkerTextSparseMoeBlock,
     Qwen3OmniMoeVisionEncoder,
 )
 
@@ -59,21 +61,6 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     model: PreTrainedModel = None,
     use_rmpad: bool = True,
 ) -> None:
-    """
-    Apply Liger kernels to replace original implementation in HuggingFace Qwen3-Omni MoE models.
-    Args:
-        cross_entropy (bool): Whether to apply Liger's cross entropy loss. Default is False.
-        fused_linear_cross_entropy (bool):
-            Whether to apply Liger's fused linear cross entropy loss. Default is True.
-            `cross_entropy` and `fused_linear_cross_entropy` cannot both be True.
-            If `fused_linear_cross_entropy` is True, the logits will not be materialized but more memory efficient.
-        rms_norm (bool): Whether to apply Liger's RMSNorm. Default is True.
-        layer_norm (bool): Whether to apply Liger's LayerNorm. Default is True.
-        swiglu (bool): Whether to apply Liger's SwiGLU MLP. Default is True.
-        model (PreTrainedModel): The model instance to apply Liger kernels to, if the model has already been
-            loaded. Default is None.
-        use_rmpad (bool): Whether to use remove padding optimization. Default is False.
-    """
     assert not (
         cross_entropy and fused_linear_cross_entropy
     ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
@@ -81,6 +68,7 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 
     from .qwen3_omni_moe_liger import lce_forward as qwen3_omni_moe_lce_forward
+    from .qwen3_omni_moe_ops import moe_sparse_layer_forward as qwen3_omni_moe_moe_sparse_layer_forward
 
     def wrap_forward(func):
         @wraps(func)
@@ -94,15 +82,17 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     if rope:
         Logging.warning("RoPE optimization not supported for Qwen3-Omni MoE, skipping")
     if rms_norm:
-        modeling_qwen3_omni_moe.Qwen2RMSNorm = LigerRMSNorm
+        modeling_qwen3_omni_moe.Qwen3OmniMoeRMSNorm = LigerRMSNorm
+        
     if cross_entropy:
         modeling_qwen3_omni_moe.CrossEntropyLoss = LigerCrossEntropyLoss
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextRMSNorm = LigerRMSNorm
     if fused_linear_cross_entropy:
         modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerForConditionalGeneration.forward = (
             qwen3_omni_moe_lce_forward
         )
     if swiglu:
-        modeling_qwen3_omni_moe.Qwen2MLP = LigerSwiGLUMLP
+        modeling_qwen3_omni_moe.Qwen3OmniMoeMLP = LigerSwiGLUMLP
     if use_rmpad:
         from .qwen3_omni_moe_ops import attn_forward as qwen3_omni_moe_attn_forward
         from .qwen3_omni_moe_ops import (
@@ -115,10 +105,10 @@ def apply_liger_kernel_to_qwen3_omni_moe(
         modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextModel.forward = (
             qwen3_omni_moe_text_model_forward
         )
-        modeling_qwen3_omni_moe.Qwen3OmniMoeDecoderLayer.forward = (
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextDecoderLayer.forward = (
             qwen3_omni_moe_decoder_layer_forward
         )
-        modeling_qwen3_omni_moe.Qwen3OmniMoeAttention.forward = qwen3_omni_moe_attn_forward
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextAttention.forward = qwen3_omni_moe_attn_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
         patch_vlm_for_ulysses_input_slicing(
@@ -144,8 +134,8 @@ def apply_liger_kernel_to_qwen3_omni_moe(
 
         if vision_model is not None and rms_norm:
             for vision_block in vision_model.blocks:
-                _patch_rms_norm_module(vision_block.norm1)
-                _patch_rms_norm_module(vision_block.norm2)
+                _patch_layer_norm_module(vision_block.norm1)
+                _patch_layer_norm_module(vision_block.norm2)
         if audio_model is not None and layer_norm:
             if hasattr(audio_model, "layers"):
                 for audio_layer in audio_model.layers:
@@ -156,14 +146,15 @@ def apply_liger_kernel_to_qwen3_omni_moe(
                 _patch_rms_norm_module(text_model.norm)
             for decoder_layer in text_model.layers:
                 if swiglu:
-                    # Patch SwiGLU in MoE experts
                     if hasattr(decoder_layer.mlp, 'experts'):
-                        # MoE block - patch each expert
                         for expert in decoder_layer.mlp.experts:
                             _patch_swiglu_module(expert, LigerSwiGLUMLP)
                     else:
-                        # Regular MLP block
                         _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
                 if rms_norm:
                     _patch_rms_norm_module(decoder_layer.input_layernorm)
                     _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
+
+    modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextSparseMoeBlock.forward = (
+        qwen3_omni_moe_moe_sparse_layer_forward
+    )

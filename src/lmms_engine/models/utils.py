@@ -31,6 +31,7 @@ VALID_CONFIG_TYPE = {
     "qwen3",
     "qwen3_dllm",
     "qwen3_moe",
+    "qwen3_omni_moe_thinker",
     "qwen3_vl",
     "deepseek_v3",
     "minicpmv",
@@ -66,6 +67,7 @@ class FlopsCounter:
             "qwen3": self._estimate_qwen2_flops,
             "qwen3_dllm": self._estimate_qwen2_flops,
             "qwen3_moe": self._estimate_qwen2_moe_flops,
+            "qwen3_omni_moe_thinker": self._estimate_qwen2_moe_flops,
             "qwen3_vl": self._estimate_qwen2_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
@@ -78,6 +80,7 @@ class FlopsCounter:
             "qwen3_vl",
             "qwen2_5_omni",
             "qwen2_5_omni_thinker",
+            "qwen3_omni_moe_thinker",
         ]:
             self.config = config.text_config
             self.config.model_type = config.model_type

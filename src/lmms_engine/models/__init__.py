@@ -13,6 +13,11 @@ from .qwen2_5_vl import apply_liger_kernel_to_qwen2_5_vl
 from .qwen2_audio import apply_liger_kernel_to_qwen2_audio
 from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
 from .qwen3_moe import apply_liger_kernel_to_qwen3_moe
+from .qwen3_omni_moe import (
+    Qwen3OmniMoeThinkerConfig,
+    Qwen3OmniMoeThinkerForConditionalGeneration,
+    apply_liger_kernel_to_qwen3_omni_moe,
+)
 from .qwen3_vl import apply_liger_kernel_to_qwen3_vl
 from .rae_siglip import RaeSiglipConfig, RaeSiglipModel
 from .sit import SiT, SiTConfig, SiTModel
@@ -38,6 +43,9 @@ __all__ = [
     "apply_liger_kernel_to_qwen2_audio",
     "apply_liger_kernel_to_qwen3_vl",
     "apply_liger_kernel_to_qwen3_moe",
+    "Qwen3OmniMoeThinkerConfig",
+    "Qwen3OmniMoeThinkerForConditionalGeneration",
+    "apply_liger_kernel_to_qwen3_omni_moe",
     "WanVideoConfig",
     "WanVideoForConditionalGeneration",
     "WanVideoProcessor",
