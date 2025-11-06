@@ -46,7 +46,7 @@ def main():
     parser.add_argument(
         "--max_steps",
         type=int,
-        default=10000000,
+        default=10,
         help="Maximum number of training steps for CI/CD",
     )
     parser.add_argument(
@@ -91,7 +91,7 @@ def main():
         "trainer_args": {
             "per_device_train_batch_size": 1,
             "gradient_checkpointing": True,
-            "num_train_epochs": 10000,
+            "num_train_epochs": 1,
             "max_steps": args.max_steps,
             "report_to": "none",
             "output_dir": args.output_dir,
@@ -115,8 +115,6 @@ def main():
             },
             "ep_degree": args.ep_degree,  
             "sp_ulysses_degree": 1,
-            "reduce_dtype": "bfloat16",
-            "output_dtype": "bfloat16",
         },
     }
 

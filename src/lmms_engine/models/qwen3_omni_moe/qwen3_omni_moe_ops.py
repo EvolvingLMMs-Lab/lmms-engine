@@ -575,9 +575,24 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
     #   - routed_input: [total_routed_tokens, hidden_dim] (tokens sorted by expert)
     #   - num_tokens_per_expert: [num_experts] token counts per expert
     # If EP enabled: Qwen3OmniMoeParallelStyle._input_fn intercepts, does all-to-all and splits
-    # If EP disabled: experts.forward will handle the split internally
+    # If EP disabled: We need to split manually before calling experts
     # Output: [total_routed_tokens, hidden_dim] (expert outputs)
-    out_experts_split = self.experts(routed_input, num_tokens_per_expert)
+
+    # Check if EP is enabled by checking if expert params are DTensors
+    from torch.distributed._tensor import DTensor
+    if isinstance(self.experts.gate_proj, DTensor):
+        # EP is enabled - ParallelStyle._input_fn will handle the split
+        out_experts_split = self.experts(routed_input, num_tokens_per_expert)
+    else:
+        # EP is disabled - need to split routed_input manually
+        # Split into separate tensors for each expert based on token counts
+        routed_input_split = torch.split(
+            routed_input,
+            split_size_or_sections=num_tokens_per_expert.tolist(),
+            dim=0,
+        )
+        # Pass split tensors as separate arguments
+        out_experts_split = self.experts(*routed_input_split)
 
     # === Step 8: Apply Routing Weights ===
     # Weight each expert's output by its routing weight for the token

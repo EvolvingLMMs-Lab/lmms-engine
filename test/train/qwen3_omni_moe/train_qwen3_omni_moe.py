@@ -16,7 +16,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Training configuration for Qwen3-Omni MoE
     cfg = {
         "trainer_type": "fsdp2_trainer",
         "dataset_config": {
@@ -39,17 +38,17 @@ def main():
         "model_config": {
             "load_from_pretrained_path": "ngqtrung/Qwen3-Omni-Thinker-30B-Instruct",
             "attn_implementation": "flash_attention_2",
-            # model_type is auto-detected from checkpoint
         },
         "trainer_args": {
             "per_device_train_batch_size": 1,
             "gradient_checkpointing": True,
             "num_train_epochs": 1,
-            "max_steps": 10,  # Small number of steps for CI/CD testing
+            "max_steps": 10,
             "report_to": "none",
             "output_dir": args.output_dir,
             "warmup_ratio": 0.0,
             "eval_strategy": "no",
+            "save_strategy": "no",
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
@@ -59,13 +58,13 @@ def main():
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3OmniMoeThinkerTextDecoderLayer",  # Text decoder layer (MoE)
-                    "Qwen3OmniMoeAudioEncoderLayer",  # Audio encoder layer
-                    "Qwen3OmniMoeVisionBlock",  # Vision encoder block
+                    "Qwen3OmniMoeThinkerTextDecoderLayer",
+                    "Qwen3OmniMoeAudioEncoderLayer",
+                    "Qwen3OmniMoeVisionBlock",
                 ],
                 "reshard_after_forward": False,
             },
-            "sp_ulysses_degree": 1,  # No sequence parallelism in base test
+            "sp_ulysses_degree": 1,
         },
     }
 

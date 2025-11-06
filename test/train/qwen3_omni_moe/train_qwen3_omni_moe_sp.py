@@ -48,6 +48,7 @@ def main():
             "output_dir": args.output_dir,
             "warmup_ratio": 0.0,
             "eval_strategy": "no",
+            "save_strategy": "no",
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
