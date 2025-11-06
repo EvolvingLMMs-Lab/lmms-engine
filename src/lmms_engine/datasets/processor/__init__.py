@@ -4,6 +4,7 @@ from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
 from .pure_text_processor import PureTextDataProcessor
+from .qwen2_5_omni_processor import Qwen2_5OmniDataProcessor
 from .qwen3_omni_moe_processor import Qwen3OmniMoeDataProcessor
 from .qwen2_5_vl_processor import Qwen2_5_VLDataProcessor
 from .qwen2_processor import Qwen2DataProcessor
@@ -18,6 +19,7 @@ __all__ = [
     "AeroDataProcessor",
     "BaseQwen2_5_DataProcessor",
     "LLaVADataProcessor",
+    "Qwen2_5OmniDataProcessor",
     "Qwen3OmniMoeDataProcessor",
     "Qwen2_5_VLDataProcessor",
     "Qwen2VLDataProcessor",
