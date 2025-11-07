@@ -21,9 +21,7 @@ try:
     from liger_kernel.transformers.rope import liger_rotary_pos_emb
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
-    print(
-        "liger kernel not installed, please install it with `pip install liger-kernel`"
-    )
+    print("liger kernel not installed, please install it with `pip install liger-kernel`")
 
 import transformers
 from transformers import PreTrainedModel
@@ -68,7 +66,9 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 
     from .qwen3_omni_moe_liger import lce_forward as qwen3_omni_moe_lce_forward
-    from .qwen3_omni_moe_ops import moe_sparse_layer_forward as qwen3_omni_moe_moe_sparse_layer_forward
+    from .qwen3_omni_moe_ops import (
+        moe_sparse_layer_forward as qwen3_omni_moe_moe_sparse_layer_forward,
+    )
 
     def wrap_forward(func):
         @wraps(func)
@@ -83,14 +83,12 @@ def apply_liger_kernel_to_qwen3_omni_moe(
         Logging.warning("RoPE optimization not supported for Qwen3-Omni MoE, skipping")
     if rms_norm:
         modeling_qwen3_omni_moe.Qwen3OmniMoeRMSNorm = LigerRMSNorm
-        
+
     if cross_entropy:
         modeling_qwen3_omni_moe.CrossEntropyLoss = LigerCrossEntropyLoss
         modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextRMSNorm = LigerRMSNorm
     if fused_linear_cross_entropy:
-        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerForConditionalGeneration.forward = (
-            qwen3_omni_moe_lce_forward
-        )
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerForConditionalGeneration.forward = qwen3_omni_moe_lce_forward
     if swiglu:
         modeling_qwen3_omni_moe.Qwen3OmniMoeMLP = LigerSwiGLUMLP
     if use_rmpad:
@@ -102,18 +100,12 @@ def apply_liger_kernel_to_qwen3_omni_moe(
             text_model_forward as qwen3_omni_moe_text_model_forward,
         )
 
-        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextModel.forward = (
-            qwen3_omni_moe_text_model_forward
-        )
-        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextDecoderLayer.forward = (
-            qwen3_omni_moe_decoder_layer_forward
-        )
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextModel.forward = qwen3_omni_moe_text_model_forward
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextDecoderLayer.forward = qwen3_omni_moe_decoder_layer_forward
         modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextAttention.forward = qwen3_omni_moe_attn_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
-        patch_vlm_for_ulysses_input_slicing(
-            modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextModel
-        )
+        patch_vlm_for_ulysses_input_slicing(modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextModel)
 
     if model is not None:
         if isinstance(model, Qwen3OmniMoeThinkerForConditionalGeneration):
@@ -146,7 +138,7 @@ def apply_liger_kernel_to_qwen3_omni_moe(
                 _patch_rms_norm_module(text_model.norm)
             for decoder_layer in text_model.layers:
                 if swiglu:
-                    if hasattr(decoder_layer.mlp, 'experts'):
+                    if hasattr(decoder_layer.mlp, "experts"):
                         for expert in decoder_layer.mlp.experts:
                             _patch_swiglu_module(expert, LigerSwiGLUMLP)
                     else:
@@ -155,6 +147,4 @@ def apply_liger_kernel_to_qwen3_omni_moe(
                     _patch_rms_norm_module(decoder_layer.input_layernorm)
                     _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
-    modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextSparseMoeBlock.forward = (
-        qwen3_omni_moe_moe_sparse_layer_forward
-    )
+    modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextSparseMoeBlock.forward = qwen3_omni_moe_moe_sparse_layer_forward

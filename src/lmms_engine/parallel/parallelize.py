@@ -2,10 +2,13 @@ from lmms_engine.train.config import TrainingArguments
 
 from .qwen3_moe.parallelize import apply_qwen3_moe_parallelize_fn
 
+
 # Lazy import to avoid circular dependency
 def _get_qwen3_omni_moe_parallelize_fn():
     from .qwen3_omni_moe.parallelize import apply_qwen3_omni_moe_parallelize_fn
+
     return apply_qwen3_omni_moe_parallelize_fn
+
 
 MODEL_TO_PARALLEL_METHOD = {
     "qwen3_moe": apply_qwen3_moe_parallelize_fn,

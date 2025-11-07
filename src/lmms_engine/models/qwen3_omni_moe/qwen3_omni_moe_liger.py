@@ -23,9 +23,7 @@ if is_flash_attn_2_available():
         from einops import rearrange
         from flash_attn.bert_padding import index_first_axis
     except:
-        raise ModuleNotFoundError(
-            "flash_attn is not available. Please install it via `pip install flash_attn`."
-        )
+        raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
@@ -62,40 +60,24 @@ def lce_forward(
     use_rmpad: Optional[bool] = False,
     **kwargs,
 ) -> Union[Tuple, Qwen3OmniMoeThinkerCausalLMOutputWithPast]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
     output_router_logits = (
-        output_router_logits
-        if output_router_logits is not None
-        else self.config.text_config.output_router_logits
+        output_router_logits if output_router_logits is not None else self.config.text_config.output_router_logits
     )
 
     tokens_count = attention_mask.sum().item()
     n_image_tokens = (
-        (input_ids == self.config.image_token_id).sum().item()
-        if hasattr(self.config, "image_token_id")
-        else 0
+        (input_ids == self.config.image_token_id).sum().item() if hasattr(self.config, "image_token_id") else 0
     )
     n_video_tokens = (
-        (input_ids == self.config.video_token_id).sum().item()
-        if hasattr(self.config, "video_token_id")
-        else 0
+        (input_ids == self.config.video_token_id).sum().item() if hasattr(self.config, "video_token_id") else 0
     )
     n_audio_tokens = (
-        (input_ids == self.config.audio_token_id).sum().item()
-        if hasattr(self.config, "audio_token_id")
-        else 0
+        (input_ids == self.config.audio_token_id).sum().item() if hasattr(self.config, "audio_token_id") else 0
     )
     visual_tokens = n_image_tokens + n_video_tokens
 
@@ -106,9 +88,7 @@ def lce_forward(
         # input_ids is 2D [batch, seq_len]
         original_input_ids = input_ids
         # unpad input_ids: 2D [batch, seq_len] -> 1D [total_non_pad_tokens]
-        input_ids, indices, cu_seq_lens, _ = _unpad_input(
-            input_ids, attention_mask=attention_mask
-        )
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(input_ids, attention_mask=attention_mask)
         if attention_mask is not None and position_ids is None:
             if (
                 cache_position is None
@@ -139,24 +119,14 @@ def lce_forward(
                 self.rope_deltas = rope_deltas
             else:
                 batch_size, seq_length = original_input_ids.shape
-                delta = (
-                    cache_position[0] + self.rope_deltas
-                    if cache_position is not None
-                    else 0
-                )
-                position_ids = torch.arange(
-                    seq_length, device=original_input_ids.device
-                )
+                delta = cache_position[0] + self.rope_deltas if cache_position is not None else 0
+                position_ids = torch.arange(seq_length, device=original_input_ids.device)
                 position_ids = position_ids.view(1, -1).expand(batch_size, -1)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
 
         position_ids = (
-            index_first_axis(
-                rearrange(position_ids, "c b s ... -> (b s) c ..."), indices
-            )
-            .transpose(0, 1)
-            .unsqueeze(1)
+            index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
         )
 
         if get_ulysses_sequence_parallel_world_size() > 1:
@@ -193,10 +163,7 @@ def lce_forward(
                 f"This indicates a mismatch between the audio encoder output and placeholder tokens."
             )
         audio_mask = (
-            (input_ids == self.config.audio_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
+            (input_ids == self.config.audio_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         )
         inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
 
@@ -211,10 +178,7 @@ def lce_forward(
             )
 
         image_mask = (
-            (input_ids == self.config.image_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
+            (input_ids == self.config.image_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         )
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
@@ -230,10 +194,7 @@ def lce_forward(
             )
 
         video_mask = (
-            (input_ids == self.config.video_token_id)
-            .unsqueeze(-1)
-            .expand_as(inputs_embeds)
-            .to(inputs_embeds.device)
+            (input_ids == self.config.video_token_id).unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
         )
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
     outputs = self.model(
@@ -262,11 +223,7 @@ def lce_forward(
     logits = None
     labels_unpad = labels.view(-1)[word_idx.long()]
     if get_ulysses_sequence_parallel_world_size() > 1:
-        seq_lens = (
-            calculate_seq_len_per_rank(seq_lens.tolist())
-            if seq_lens is not None
-            else None
-        )
+        seq_lens = calculate_seq_len_per_rank(seq_lens.tolist()) if seq_lens is not None else None
         labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
     labels = labels_unpad
     if labels is not None:
@@ -287,9 +244,7 @@ def lce_forward(
             shift_labels = labels[..., 1:].contiguous()
 
         hidden_size = (
-            self.config.text_config.hidden_size
-            if hasattr(self.config, "text_config")
-            else self.config.hidden_size
+            self.config.text_config.hidden_size if hasattr(self.config, "text_config") else self.config.hidden_size
         )
         shift_hidden_states = shift_hidden_states.view(-1, hidden_size)
         shift_labels = shift_labels.view(-1)
@@ -314,7 +269,7 @@ def lce_forward(
 
     # MoE auxiliary loss handling
     aux_loss = None
-    if output_router_logits and hasattr(outputs, 'router_logits'):
+    if output_router_logits and hasattr(outputs, "router_logits"):
         aux_loss = load_balancing_loss_func(
             outputs.router_logits,
             self.num_experts,

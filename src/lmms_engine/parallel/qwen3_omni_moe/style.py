@@ -86,7 +86,7 @@ class Qwen3OmniMoeParallelStyle(ParallelStyle):
     def _partition_fn(name, mod, device_mesh):
         if isinstance(mod, Qwen3OmniMoeExperts):
             expert_parallel_dim = 0
-            
+
             mod.register_parameter(
                 "gate_proj",
                 nn.Parameter(
@@ -97,7 +97,7 @@ class Qwen3OmniMoeParallelStyle(ParallelStyle):
                     )
                 ),
             )
-            
+
             mod.register_parameter(
                 "up_proj",
                 nn.Parameter(

@@ -36,14 +36,14 @@ def main():
             "video_backend": "qwen_vl_utils",
         },
         "model_config": {
-            "load_from_pretrained_path": "ngqtrung/Qwen3-Omni-Thinker-30B-Instruct", 
+            "load_from_pretrained_path": "ngqtrung/Qwen3-Omni-Thinker-30B-Instruct",
             "attn_implementation": "flash_attention_2",
         },
         "trainer_args": {
             "per_device_train_batch_size": 1,
             "gradient_checkpointing": True,
             "num_train_epochs": 1,
-            "max_steps": 10,  
+            "max_steps": 10,
             "report_to": "none",
             "output_dir": args.output_dir,
             "warmup_ratio": 0.0,

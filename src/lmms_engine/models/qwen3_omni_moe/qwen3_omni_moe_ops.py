@@ -9,6 +9,17 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
+from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+    Qwen3OmniMoeThinkerCausalLMOutputWithPast as HFQwen3OmniMoeModelOutputWithPast,
+)
+from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+    Qwen3OmniMoeThinkerForConditionalGeneration,
+    Qwen3OmniMoeThinkerTextAttention,
+    Qwen3OmniMoeThinkerTextDecoderLayer,
+    Qwen3OmniMoeThinkerTextModel,
+    apply_rotary_pos_emb,
+    rotate_half,
+)
 from transformers.utils import is_flash_attn_2_available
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
@@ -28,18 +39,6 @@ from ..sequence_packing_utils import (
     _unpad_input,
 )
 
-from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
-    Qwen3OmniMoeThinkerTextAttention,
-    Qwen3OmniMoeThinkerTextDecoderLayer,
-    Qwen3OmniMoeThinkerForConditionalGeneration,
-    Qwen3OmniMoeThinkerTextModel,
-    apply_rotary_pos_emb,
-    rotate_half,
-)
-from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
-    Qwen3OmniMoeThinkerCausalLMOutputWithPast as HFQwen3OmniMoeModelOutputWithPast,
-)
-
 if is_flash_attn_2_available():
     try:
         from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -50,13 +49,9 @@ if is_flash_attn_2_available():
             unpad_input,
         )
 
-        _flash_supports_window_size = "window_size" in list(
-            inspect.signature(flash_attn_func).parameters
-        )
+        _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
     except:
-        raise ModuleNotFoundError(
-            "flash_attn is not available. Please install it via `pip install flash_attn`."
-        )
+        raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 
 def _get_module_attr(module, attr_name):
@@ -76,11 +71,11 @@ def _get_module_attr(module, attr_name):
             return cls.__dict__[attr_name]
 
     # Try accessing through FSDP wrapped module (FSDP1 style)
-    if hasattr(module, '_fsdp_wrapped_module'):
+    if hasattr(module, "_fsdp_wrapped_module"):
         return getattr(module._fsdp_wrapped_module, attr_name)
 
     # If still not found, raise error with helpful debugging info
-    available_attrs = [x for x in dir(module) if not x.startswith('__')][:20]
+    available_attrs = [x for x in dir(module) if not x.startswith("__")][:20]
     raise AttributeError(
         f"Module {type(module).__name__} has no attribute '{attr_name}'. "
         f"Available attributes (first 20): {available_attrs}"
@@ -109,20 +104,12 @@ def text_model_forward(
     indices: Optional[torch.IntTensor] = None,
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
-    output_attentions = (
-        output_attentions
-        if output_attentions is not None
-        else self.config.output_attentions
-    )
+    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
-        output_hidden_states
-        if output_hidden_states is not None
-        else self.config.output_hidden_states
+        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     use_cache = use_cache if use_cache is not None else self.config.use_cache
-    return_dict = (
-        return_dict if return_dict is not None else self.config.use_return_dict
-    )
+    return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
@@ -139,15 +126,11 @@ def text_model_forward(
         inputs_embeds = self.embed_tokens(input_ids)
 
     if cache_position is None:
-        past_seen_tokens = (
-            past_key_values.get_seq_length() if past_key_values is not None else 0
-        )
+        past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         if cu_seq_lens is not None and indices is not None:
             seq_len_for_cache = inputs_embeds.shape[0]  # 1D case, total unpadded tokens
         else:
-            seq_len_for_cache = inputs_embeds.shape[
-                1
-            ]  # 2D case, sequence length dimension
+            seq_len_for_cache = inputs_embeds.shape[1]  # 2D case, sequence length dimension
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seq_len_for_cache,
@@ -161,9 +144,7 @@ def text_model_forward(
             # but lce_forward already provides position_ids
             position_ids = cache_position.view(1, 1, -1).expand(3, 1, -1)
         else:
-            position_ids = cache_position.view(1, 1, -1).expand(
-                3, inputs_embeds.shape[0], -1
-            )
+            position_ids = cache_position.view(1, 1, -1).expand(3, inputs_embeds.shape[0], -1)
     elif position_ids.dim() == 2:
         # if position_ids is provided but only 2D [batch, seq_len], expand to 3D [3, batch, seq_len]
         # by adding the TMRoPE dimension at the front
@@ -181,7 +162,7 @@ def text_model_forward(
             hidden_states = torch.utils.checkpoint.checkpoint(
                 decoder_layer.__call__,
                 hidden_states,
-                position_embeddings, 
+                position_embeddings,
                 attention_mask,
                 position_ids,
                 past_key_values,
@@ -209,11 +190,7 @@ def text_model_forward(
         all_hidden_states += (hidden_states,)
 
     if not return_dict:
-        return tuple(
-            v
-            for v in [hidden_states, past_key_values, all_hidden_states, all_attentions]
-            if v is not None
-        )
+        return tuple(v for v in [hidden_states, past_key_values, all_hidden_states, all_attentions] if v is not None)
 
     return BaseModelOutputWithPastAndRmpad(
         last_hidden_state=hidden_states,
@@ -285,15 +262,11 @@ def attn_forward(
     if cu_seq_lens is not None:
         q_len = (cu_seq_lens[1:] - cu_seq_lens[:-1]).max().item()
     else:
-        q_len = (
-            hidden_states.shape[0]
-            if hidden_states.ndim == 2
-            else hidden_states.shape[1]
-        )
+        q_len = hidden_states.shape[0] if hidden_states.ndim == 2 else hidden_states.shape[1]
     kv_seq_len = q_len
 
-    head_dim = _get_module_attr(self, 'head_dim')
-    config = _get_module_attr(self, 'config')
+    head_dim = _get_module_attr(self, "head_dim")
+    config = _get_module_attr(self, "config")
 
     num_heads = config.num_attention_heads
     num_key_value_heads = config.num_key_value_heads
@@ -307,9 +280,7 @@ def attn_forward(
     value_states = self.v_proj(hidden_states).view(hidden_shape)
     ########## AlltoAll for Ulysses ##########
     if ulysses_sp_size > 1:
-        assert (
-            position_ids is not None
-        ), "position_ids is required for Ulysses sequence parallelism"
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
         # query_states, key_states, value_states are (total_tokens, num_heads, head_dim)
         repeats = max(ulysses_sp_size // key_states.size(1), 1)
         key_states = repeat_kv(key_states, repeats)
@@ -324,9 +295,7 @@ def attn_forward(
     cos, sin = position_embeddings
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-    max_seqlen = (
-        torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    )
+    max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
 
     query_states = query_states.transpose(1, 2).squeeze(0)
     key_states = key_states.transpose(1, 2).squeeze(0)
@@ -362,26 +331,23 @@ def attn_forward(
 def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     import torch.nn.functional as F
 
-    gate = _get_module_attr(self, 'gate')
+    gate = _get_module_attr(self, "gate")
     num_experts = gate.out_features
-    num_experts_per_tok = _get_module_attr(self, 'num_experts_per_tok')
-    norm_topk_prob = _get_module_attr(self, 'norm_topk_prob')
+    num_experts_per_tok = _get_module_attr(self, "num_experts_per_tok")
+    norm_topk_prob = _get_module_attr(self, "norm_topk_prob")
 
     # Handle both 3D [batch, seq, hidden] and 1D [total_tokens, hidden] inputs
     is_3d = hidden_states.ndim == 3
     if is_3d:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states = hidden_states.view(-1, hidden_dim) 
+        hidden_states = hidden_states.view(-1, hidden_dim)
     else:
         hidden_dim = hidden_states.shape[-1]
 
-
     router_logits = self.gate(hidden_states)
-    
+
     routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-    routing_weights, selected_experts = torch.topk(
-        routing_weights, num_experts_per_tok, dim=-1
-    )
+    routing_weights, selected_experts = torch.topk(routing_weights, num_experts_per_tok, dim=-1)
 
     # Convert to float32 for histogram
     selected_experts = selected_experts.to(torch.float32)
@@ -391,9 +357,7 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
 
     routing_weights = routing_weights.to(hidden_states.dtype)
 
-    num_tokens_per_expert = torch.histc(
-        selected_experts, bins=num_experts, min=0, max=num_experts
-    )
+    num_tokens_per_expert = torch.histc(selected_experts, bins=num_experts, min=0, max=num_experts)
     selected_experts = selected_experts.to(torch.int64)
     num_tokens_per_expert = num_tokens_per_expert.to(torch.int64)
 
@@ -402,14 +366,13 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
 
     top_scores_experts_sorted = routing_weights.view(-1)[token_indices_experts_sorted]
     token_indices_experts_sorted = token_indices_experts_sorted // num_experts_per_tok
-    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(
-        -1, hidden_dim
-    )
-    
+    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
+
     routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
 
     # Check if EP is enabled by checking if expert params are DTensors
     from torch.distributed._tensor import DTensor
+
     if isinstance(self.experts.gate_proj, DTensor):
         # EP is enabled - ParallelStyle._input_fn will handle the split
         out_experts_split = self.experts(routed_input, num_tokens_per_expert)
@@ -424,14 +387,10 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
 
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
     final_hidden_states = torch.zeros_like(hidden_states)
-    final_hidden_states = final_hidden_states.scatter_add(
-        dim=0, index=token_indices_experts_sorted, src=routed_output
-    )
+    final_hidden_states = final_hidden_states.scatter_add(dim=0, index=token_indices_experts_sorted, src=routed_output)
 
     # If input was 3D, reshape back
     if is_3d:
-        final_hidden_states = final_hidden_states.reshape(
-            batch_size, sequence_length, hidden_dim
-        )
+        final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
 
     return final_hidden_states, router_logits

@@ -31,9 +31,7 @@ def stack_expert_params_qwen3_omni_moe(model: Qwen3OmniMoeThinkerForConditionalG
 
     with torch.no_grad():
         for decoder_layer in tqdm(
-            model.model.layers,
-            desc="Stacking expert parameters",
-            disable=not dist.get_rank() == 0
+            model.model.layers, desc="Stacking expert parameters", disable=not dist.get_rank() == 0
         ):
             # Check if this layer has MoE structure
             if not isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
@@ -59,11 +57,11 @@ def stack_expert_params_qwen3_omni_moe(model: Qwen3OmniMoeThinkerForConditionalG
             up_proj_weights = [expert.up_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_up_proj = torch.stack(up_proj_weights, dim=0)
             new_experts.up_proj = nn.Parameter(stacked_up_proj)
-            
+
             down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_down_proj = torch.stack(down_proj_weights, dim=0)
             new_experts.down_proj = nn.Parameter(stacked_down_proj)
-            
+
             gate_proj_weights = [expert.gate_proj.weight for expert in decoder_layer.mlp.experts]
             stacked_gate_proj = torch.stack(gate_proj_weights, dim=0)
             new_experts.gate_proj = nn.Parameter(stacked_gate_proj)
@@ -138,6 +136,7 @@ def apply_qwen3_omni_moe_fsdp2(
 
     ep_size = pgm.process_group_manager.ep_size
     if ep_size > 1:
+
         def _experts_shard_placement_fn(param):
             return Shard(1)
 

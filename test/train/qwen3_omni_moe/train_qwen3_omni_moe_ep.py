@@ -27,9 +27,7 @@ from lmms_engine.launch.cli import create_train_task
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Train Qwen3-Omni MoE model with Expert Parallelism"
-    )
+    parser = argparse.ArgumentParser(description="Train Qwen3-Omni MoE model with Expert Parallelism")
     parser.add_argument(
         "--output_dir",
         type=str,
@@ -82,7 +80,7 @@ def main():
             "torch_dtype": "bfloat16",
             "monkey_patch_kwargs": {
                 "patch_type": ["liger"],
-                "fused_linear_cross_entropy": True, 
+                "fused_linear_cross_entropy": True,
                 "rms_norm": True,
                 "layer_norm": True,
                 "swiglu": True,
@@ -97,7 +95,7 @@ def main():
             "output_dir": args.output_dir,
             "warmup_ratio": 0.0,
             "eval_strategy": "no",
-            "save_strategy": "no", 
+            "save_strategy": "no",
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
@@ -107,13 +105,13 @@ def main():
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3OmniMoeThinkerTextDecoderLayer", 
-                    "Qwen3OmniMoeAudioEncoderLayer", 
-                    "Qwen3OmniMoeVisionBlock", 
+                    "Qwen3OmniMoeThinkerTextDecoderLayer",
+                    "Qwen3OmniMoeAudioEncoderLayer",
+                    "Qwen3OmniMoeVisionBlock",
                 ],
                 "reshard_after_forward": False,
             },
-            "ep_degree": args.ep_degree,  
+            "ep_degree": args.ep_degree,
             "sp_ulysses_degree": 1,
         },
     }

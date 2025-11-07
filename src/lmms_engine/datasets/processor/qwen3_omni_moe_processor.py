@@ -16,11 +16,7 @@ class Qwen3OmniMoeDataProcessor(BaseQwen2_5_DataProcessor):
         model_path = getattr(self.config, "processor_path", self.config.processor_name)
 
         # Use AutoProcessor to load the correct Qwen3OmniMoeProcessor
-        processor = AutoProcessor.from_pretrained(
-            model_path,
-            trust_remote_code=True,
-            local_files_only=False
-        )
+        processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True, local_files_only=False)
 
         # Set image processor parameters
         image_max_pixels = self.config.extra_kwargs.get("image_max_pixels", None)
@@ -130,9 +126,7 @@ class Qwen3OmniMoeDataProcessor(BaseQwen2_5_DataProcessor):
             images = new_images
 
             image_inputs = self.processor.image_processor(
-                images,
-                return_tensors="pt",
-                **output_kwargs.get("images_kwargs", {})
+                images, return_tensors="pt", **output_kwargs.get("images_kwargs", {})
             )
             image_inputs["image_sizes"] = image_inputs.pop("image_grid_thw")
             merge_size = self.processor.image_processor.merge_size
@@ -154,14 +148,9 @@ class Qwen3OmniMoeDataProcessor(BaseQwen2_5_DataProcessor):
 
             fps = videos_kwargs.get("fps", 1.0)
             if isinstance(fps, (int, float)):
-                second_per_grid_ts = [
-                    self.processor.video_processor.temporal_patch_size / fps
-                ] * len(video_grid_thw)
+                second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / fps] * len(video_grid_thw)
             elif hasattr(fps, "__len__") and len(fps) == len(video_grid_thw):
-                second_per_grid_ts = [
-                    self.processor.video_processor.temporal_patch_size / tmp
-                    for tmp in fps
-                ]
+                second_per_grid_ts = [self.processor.video_processor.temporal_patch_size / tmp for tmp in fps]
             else:
                 raise ValueError(
                     f"The length of fps ({len(fps) if hasattr(fps, '__len__') else fps}) "
@@ -170,10 +159,7 @@ class Qwen3OmniMoeDataProcessor(BaseQwen2_5_DataProcessor):
                 )
             videos_inputs.update({"video_second_per_grid": torch.tensor(second_per_grid_ts)})
             merge_length = self.processor.video_processor.merge_size**2
-            num_video_tokens = [
-                (video_grid_thw[index].prod() // merge_length)
-                for index in range(len(video_grid_thw))
-            ]
+            num_video_tokens = [(video_grid_thw[index].prod() // merge_length) for index in range(len(video_grid_thw))]
         else:
             num_video_tokens = None
 
@@ -197,9 +183,7 @@ class Qwen3OmniMoeDataProcessor(BaseQwen2_5_DataProcessor):
             input_lengths = audio_inputs["feature_attention_mask"].sum(-1)
             input_lengths_leave = input_lengths % 100
             feat_lengths = (input_lengths_leave - 1) // 2 + 1
-            audio_feature_lengths = (
-                ((feat_lengths - 1) // 2 + 1 - 1) // 2 + 1 + (input_lengths // 100) * 13
-            )
+            audio_feature_lengths = ((feat_lengths - 1) // 2 + 1 - 1) // 2 + 1 + (input_lengths // 100) * 13
             audio_inputs["audio_feature_lengths"] = audio_feature_lengths
             num_audio_tokens = (audio_inputs["audio_feature_lengths"] - 2) // 2 + 1
         else:

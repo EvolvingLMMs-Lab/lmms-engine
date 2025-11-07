@@ -21,6 +21,7 @@ def test_model_imports():
         from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
             Qwen3OmniMoeThinkerForConditionalGeneration,
         )
+
         print("✅ Model classes imported successfully from transformers")
         return True
     except ImportError as e:
@@ -41,22 +42,26 @@ def test_lmms_engine_imports():
         from lmms_engine.models.qwen3_omni_moe import (
             apply_liger_kernel_to_qwen3_omni_moe,
         )
+
         print("✅ Monkey patch function imported successfully")
 
         # Test processor imports
         from lmms_engine.datasets.processor.qwen3_omni_moe_processor import (
             Qwen3OmniMoeDataProcessor,
         )
+
         print("✅ Processor class imported successfully")
 
         # Test dataset imports (should reuse existing qwen_omni)
         from lmms_engine.datasets.naive.qwen_omni_dataset import QwenOmniDataset
+
         print("✅ Dataset class imported successfully")
 
         return True
     except ImportError as e:
         print(f"❌ Failed to import LMMs Engine components: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -83,6 +88,7 @@ def test_model_registration():
     except Exception as e:
         print(f"❌ Error checking model registration: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -108,6 +114,7 @@ def test_processor_registration():
     except Exception as e:
         print(f"❌ Error checking processor registration: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

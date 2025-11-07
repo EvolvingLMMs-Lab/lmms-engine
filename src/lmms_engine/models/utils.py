@@ -31,7 +31,7 @@ VALID_CONFIG_TYPE = {
     "qwen3",
     "qwen3_dllm",
     "qwen3_moe",
-    "qwen3_omni_moe", 
+    "qwen3_omni_moe",
     "qwen3_omni_moe_thinker",
     "qwen3_vl",
     "deepseek_v3",

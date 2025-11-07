@@ -43,5 +43,5 @@ class Qwen3OmniMoeExperts(nn.Module):
             hidden = hidden * torch.matmul(x, up_proj[idx].transpose(-2, -1))
             hidden = torch.matmul(hidden, down_proj[idx].transpose(-2, -1))
             out_experts_split.append(hidden)
-            
+
         return torch.cat(out_experts_split, dim=0)
