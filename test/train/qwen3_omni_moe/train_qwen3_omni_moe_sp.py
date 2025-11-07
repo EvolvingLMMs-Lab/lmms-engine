@@ -30,7 +30,7 @@ def main():
             ],
             "processor_config": {
                 "processor_name": "ngqtrung/Qwen3-Omni-Thinker-30B-Instruct",
-                "processor_type": "Qwen3OmniMoeProcessor",  # Qwen3-Omni MoE processor type
+                "processor_type": "Qwen3OmniMoeProcessor",
             },
             "packing": False,
             "video_backend": "qwen_vl_utils",
@@ -58,9 +58,9 @@ def main():
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3OmniMoeThinkerTextDecoderLayer",  # Text decoder layer (MoE)
-                    "Qwen3OmniMoeAudioEncoderLayer",  # Audio encoder layer
-                    "Qwen3OmniMoeVisionBlock",  # Vision encoder block
+                    "Qwen3OmniMoeThinkerTextDecoderLayer",
+                    "Qwen3OmniMoeAudioEncoderLayer",
+                    "Qwen3OmniMoeVisionBlock",
                 ],
                 "reshard_after_forward": False,
             },
