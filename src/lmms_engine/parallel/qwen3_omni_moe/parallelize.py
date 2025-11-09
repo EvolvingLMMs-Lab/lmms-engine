@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import torch
 import torch.distributed as dist
 import torch.nn as nn
@@ -20,10 +22,12 @@ from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts
-from lmms_engine.train.config import TrainingArguments
 from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
 
 from .style import Qwen3OmniMoeParallelStyle
+
+if TYPE_CHECKING:
+    from lmms_engine.train.config import TrainingArguments
 
 
 def stack_expert_params_qwen3_omni_moe(model: Qwen3OmniMoeThinkerForConditionalGeneration) -> None:
@@ -102,7 +106,7 @@ def apply_qwen3_omni_moe_parallel(
 
 def apply_qwen3_omni_moe_fsdp2(
     model: Qwen3OmniMoeThinkerForConditionalGeneration,
-    train_args: TrainingArguments,
+    train_args: "TrainingArguments",
     **kwargs,
 ):
     if not train_args.fsdp_config.get("transformer_layer_cls_to_wrap", None):
@@ -170,7 +174,7 @@ def apply_qwen3_omni_moe_fsdp2(
 
 def apply_qwen3_omni_moe_parallelize_fn(
     model: Qwen3OmniMoeThinkerForConditionalGeneration,
-    train_args: TrainingArguments,
+    train_args: "TrainingArguments",
     **kwargs,
 ):
     ep_size = pgm.process_group_manager.ep_size
