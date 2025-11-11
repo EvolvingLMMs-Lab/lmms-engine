@@ -409,10 +409,10 @@ Thanks to the following projects for their excellent work:
 If you use LMMs Engine in your research, please cite:
 
 ```bibtex
-@software{lmms_engine2024,
+@software{lmms_engine2025,
   title={LMMs Engine: A simple, unified multimodal framework for pretraining and finetuning.},
   author={LMMs-Lab},
-  year={2024},
+  year={2025},
   url={https://github.com/LMMs-Lab/lmms-engine}
 }
 ```
