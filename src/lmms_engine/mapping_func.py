@@ -64,7 +64,6 @@ def register_model(
 def create_model_from_pretrained(load_from_pretrained_path):
     # Handle both config object and model name/path
     config = AutoConfig.from_pretrained(load_from_pretrained_path)
-
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
     elif type(config) in AutoModelForImageTextToText._model_mapping.keys():

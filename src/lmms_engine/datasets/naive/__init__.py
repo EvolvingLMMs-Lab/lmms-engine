@@ -5,6 +5,7 @@ from .rae_dataset import RaeDataset
 from .sit_dataset import SitDataset
 from .vision_audio_dataset import VisionAudioSFTDataset
 from .vision_dataset import VisionSFTDataset
+from .t2i_unirl_dataset import T2IUniRLDataset
 
 __all__ = [
     "BaseDataset",
@@ -14,4 +15,5 @@ __all__ = [
     "QwenOmniSFTDataset",
     "RaeDataset",
     "SitDataset",
+    "T2IUniRLDataset",
 ]

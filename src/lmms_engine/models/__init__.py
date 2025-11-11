@@ -21,6 +21,7 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
+from .blip3o_next import blip3oQwenConfig, blip3oQwenForCausalLM, blip3oQwenForGRPOLM, blip3oQwenForInferenceLM
 
 __all__ = [
     "AeroForConditionalGeneration",
@@ -49,4 +50,8 @@ __all__ = [
     "SiTModel",
     "SiTConfig",
     "SiT",
+    "blip3oQwenConfig",
+    "blip3oQwenForCausalLM",
+    "blip3oQwenForGRPOLM",
+    "blip3oQwenForInferenceLM",
 ]

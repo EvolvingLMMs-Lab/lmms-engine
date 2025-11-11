@@ -18,6 +18,7 @@ class TrainingArguments(transformers.TrainingArguments):
     print_batch_input_steps: Optional[int] = -1
     enable_profiler: Optional[bool] = False
     profiler_config: Optional[Dict[str, Any]] = None
+    rl_config: Optional[Dict[str, Any]] = None
 
     # Parallelism
     ep_degree: Optional[int] = 1

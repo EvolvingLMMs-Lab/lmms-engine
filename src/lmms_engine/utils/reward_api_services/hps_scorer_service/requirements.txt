@@ -1,0 +1,15 @@
+clint==0.5.1
+Flask==3.1.1
+ftfy==6.3.1
+horovod==0.28.1
+huggingface_hub==0.32.1
+numpy
+Pillow==11.2.1
+regex==2024.11.6
+Requests==2.32.4
+timm==0.6.13
+torch==2.6.0
+torchvision==0.21.0
+tqdm==4.67.1
+transformers==4.51.1
+gunicorn

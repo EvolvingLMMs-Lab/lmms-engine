@@ -1,0 +1,9 @@
+Flask==3.1.1
+numpy
+paddlepaddle==2.6.2
+paddleocr==2.9.1
+Pillow==11.2.1
+python_Levenshtein==0.27.1
+torch==2.6.0
+utils==1.0.2
+gunicorn

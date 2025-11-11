@@ -18,7 +18,6 @@ class VisionSFTDataset(MultiModalDataset):
         images_list = []
         videos = []
         kwargs = {}
-
         # Build messages directly from CSV data
         messages = [
             {

@@ -1,0 +1,47 @@
+trainer_type: blip3o_next_t2i_grpo_trainer
+dataset_config:
+  dataset_type: t2i_unirl
+  dataset_format: jsonl
+  dataset_path: /mnt/raid10/boli/UniRL/assets/rl_datasets/train_metadata.jsonl
+  processor_config:
+    processor_name: Qwen/Qwen2.5-VL-3B-Instruct
+    processor_type: qwen2_5_vl
+
+model_config:
+  load_from_pretrained_path: /mnt/raid10/boli/UniRL/outputs/pretrain/BLIP3o-NEXT-Pretrain-3B
+  attn_implementation: flash_attention_2
+
+trainer_args:
+  per_device_train_batch_size: 1 # it should be multiple of world_size if we set split_batches to true
+  learning_rate: 0.00001
+  weight_decay: 0.01
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  max_steps: 10000
+  save_steps: 100
+  save_total_limit: 1
+  warmup_steps: 1000
+  report_to: wandb
+  output_dir: ./output/debug104
+  run_name: lmms_engine_t2i_grpo_test
+  eval_strategy: "no"
+  logging_steps: 10
+  seed: 42
+  dataloader_num_workers: 4
+  bf16: true
+  fp16: false
+  lr_scheduler_type: cosine
+  use_liger_kernel: false
+  use_rmpad: true
+  include_num_input_tokens_seen: true
+  dataloader_drop_last: true
+  sp_ulysses_degree: 1
+  deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
+  rl_config:
+    node_addr: localhost
+    reward_funcs: ["aesthetic"]
+    task_type: t2i
+    num_generations: 1
+    beta: 4e-3
+    guidance_scale: 3.5
+    num_inference_steps: 30

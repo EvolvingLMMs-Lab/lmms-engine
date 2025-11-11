@@ -1,0 +1,8 @@
+Flask==3.1.1
+numpy
+Pillow==11.2.1
+torch==2.6.0
+torchvision
+transformers==4.51.1
+utils==1.0.2
+gunicorn
