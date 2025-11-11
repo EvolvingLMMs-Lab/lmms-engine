@@ -1,10 +1,10 @@
 # DLLM Training with Muon Optimizer
 
-This guide demonstrates how to train a DLLM (Differential Language Model) using the Muon/Adam optimizers in the LMMs Engine framework.
+This guide demonstrates how to train a DLLM (Diffusion Language Model) using the Muon/Adam optimizers in the LMMs Engine framework.
 
 ## Overview
 
-**DLLM (Differential Language Model)** is a novel architecture that processes sequences using differential mechanisms for improved training efficiency and performance. 
+**DLLM (Diffusion Language Model)** is a novel architecture that processes sequences using diffusion mechanisms for improved training efficiency and performance. 
 
 let $\boldsymbol{x}_t=(x^{1}_t,\dots,x^{n}_t)$ indicate the target textual sequence,
 
@@ -142,7 +142,7 @@ CUDA_VISIBLE_DEVICES=$GPUS python -m lmms_engine.launch.cli \
 
 ### DLLM-Specific Components
 
-1. **DLLM Trainer**: Specialized trainer (`dllm_trainer`) optimized for differential language modeling. See the code in ```src/lmms_engine/train/hf/dllm_trainer.py```.
+1. **DLLM Trainer**: Specialized trainer (`dllm_trainer`) optimized for diffusion language modeling. See the code in ```src/lmms_engine/train/hf/dllm_trainer.py```.
 2. **DLLM Collator**: Custom data collator (`collator_type: dllm`) for preparing batches. See example in ```src/lmms_engine/datasets/collator/text_dllm_collator.py```
 4. **DLLM Model Architecture**: At its core, a DLLM behaves as a non-causal, mask-based language model. Thus, to repurpose a conventional AR model for DLLM training, simply change the attention mask from causal to full. See example in ```src/lmms_engine/models/qwen3_dllm/modeling_qwen3_dllm.py```
 
