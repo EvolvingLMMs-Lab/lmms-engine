@@ -237,9 +237,26 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         return samples
 
     @torch.no_grad()
+    def generate_gen_ids(self, input_ids, attention_mask, do_sample=True, temperature=1.0, max_new_tokens=None):
+        return super(blip3oQwenForCausalLM, self).generate(
+            input_ids,
+            max_new_tokens=max_new_tokens,
+            do_sample=do_sample,
+            temperature=temperature,
+            attention_mask=attention_mask,
+            use_cache=True
+        )
+
+    def get_image_start_tag_id(self):
+        return self.config.image_start_tag_id
+
+    def get_scheduler(self):
+        return self.model.noise_scheduler
+
+    @torch.no_grad()
     def generate_images(
         self,
-        input_ids: Optional[torch.Tensor] = None,
+        input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         max_new_tokens: Optional[torch.Tensor] = None,
         # top_p: Optional[torch.Tensor] = None,
@@ -254,29 +271,36 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         use_sde=False,
         **kwargs,
     ):
-        position_ids = kwargs.pop("position_ids", None)
-        # attention_mask = (inputs != -100).long()
 
-        gen_ids = super(blip3oQwenForCausalLM, self).generate(
-            input_ids,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=1.0,
-            attention_mask=attention_mask,
+        # gen_ids = super(blip3oQwenForCausalLM, self).generate(
+        #     input_ids,
+        #     max_new_tokens=max_new_tokens,
+        #     do_sample=True,
+        #     temperature=1.0,
+        #     attention_mask=attention_mask,
+        # )
+        input_ids = input_ids.repeat(num_images_per_prompt, 1)
+        attention_mask = attention_mask.repeat(num_images_per_prompt, 1)
+        gen_ids = self.generate_gen_ids(
+            input_ids, 
+            attention_mask, 
+            do_sample=True, 
+            temperature=1.0, 
+            max_new_tokens=max_new_tokens
         )
-
         # breakpoint()
         with torch.no_grad():
             outs = self.model(
                 input_ids = gen_ids, 
                 output_hidden_states = True,
                 return_dict = True,
+                use_cache=False
             )
         hidden_states = outs.hidden_states[-1]   
 
 
         start_pos = (gen_ids == self.config.image_start_tag_id).float().argmax(dim=1)   
-        end_pos   = (gen_ids == self.config.image_end_tag_id).float().argmax(dim=1)   
+        # end_pos   = (gen_ids == self.config.image_end_tag_id).float().argmax(dim=1)   
 
 
         selected_hidden_states = []                       
@@ -291,7 +315,7 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         pred_latent = torch.cat([img_hidden_states_null, pred_latent], 0)
         ## sample images from here
         device = next(self.parameters()).device
-        dtype = next(self.parameters()).dtype
+        # dtype = next(self.parameters()).dtype
 
         bsz = len(pred_latent) // 2
         # latent_size = self.config.input_size
@@ -314,7 +338,9 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
             self.model.noise_scheduler.set_timesteps(num_inference_steps)
 
         # SDE variables initialization
-        prev_latents, pred_latents, ts, log_probs = [], [], [], []
+        ts, log_probs = [], []
+        cur_latents = []
+        denoised_latents = []
 
         # pred_latent = torch.cat([pred_latent] * 2)
         # Convert to float32 before saving
@@ -323,50 +349,45 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
 
             latent_model_input = torch.cat([latents] * 2)
             latent_model_input = latent_model_input.to(pred_latent.dtype)
-
-            if hasattr(self.model.noise_scheduler.timesteps, "scale_model_input"):
-                latent_model_input = self.model.noise_scheduler.scale_model_input(latent_model_input, t)
+            # print(t, t.unsqueeze(0).expand(latent_model_input.shape[0]))
             # predict noise model_output
-            noise_pred = self.model.sana(
+            res = self.model.sana(
                 hidden_states=latent_model_input,
                 encoder_hidden_states=self.model.diffusion_connector(pred_latent),
                 timestep=t.unsqueeze(0).expand(latent_model_input.shape[0]).to(latents.device),
                 encoder_attention_mask=None
-            ).sample
-
+            )
+            noise_pred = res.sample
             noise_pred_uncond, noise_pred= noise_pred.chunk(2)
 
             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
 
             # Step: standard vs. SDE
             if use_sde:
-                prev_latents.append(latents.unsqueeze(1))
-                # compute previous image: x_t -> x_t-1
-                # latents = self.model.noise_scheduler.step(noise_pred, t, latents).prev_sample
+                cur_latents.append(latents.unsqueeze(1))
                 latents, log_prob, _, _ = sde_step_with_logprob(
                     self.model.noise_scheduler, noise_pred.float(), t.unsqueeze(0), latents.float(),
                 )
                 log_probs.append(log_prob.unsqueeze(1))
-                pred_latents.append(latents.unsqueeze(1))
                 ts.append(t.unsqueeze(0).repeat(len(log_prob)).unsqueeze(1))
-                latents = latents.to(dtype=hidden_states_input.dtype)
+                denoised_latents.append(latents.unsqueeze(1))
+                latents = latents.to(dtype=pred_latent.dtype)
             else:
                 # compute previous image: x_t -> x_t-1
                 latents = self.model.noise_scheduler.step(noise_pred, t, latents).prev_sample
-
-                # latents = scheduler.step(noise_pred, t, latents).prev_sample
 
         samples = self.decode_latents(latents.to(self.model.sana_vae.dtype) if self.model.sana_vae is not None else latents, return_tensor=return_tensor)      
 
         if use_sde:
             # Flatten SDE outputs
-            prev_latents = torch.cat(prev_latents, dim=1).flatten(0, 1)
+            denoised_latents = torch.cat(denoised_latents, dim=1).flatten(0, 1)
+            cur_latents = torch.cat(cur_latents, dim=1).flatten(0, 1)
             log_probs = torch.cat(log_probs, dim=1).flatten(0, 1)
-            pred_latents = torch.cat(pred_latents, dim=1).flatten(0, 1)
+            # pred_latents = torch.cat(pred_latents, dim=1).flatten(0, 1)
             ts = torch.cat(ts, dim=1).flatten(0, 1)
-            return samples, log_probs, prev_latents, pred_latents, ts
+            return gen_ids, samples, log_probs, pred_latent, denoised_latents, cur_latents, ts
         else:
-            return samples
+            return gen_ids, samples
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
         images = kwargs.pop("images", None)
@@ -377,7 +398,3 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         if image_sizes is not None:
             inputs["image_sizes"] = image_sizes
         return inputs
-
-
-# AutoConfig.register("blip3o_qwen", blip3oQwenConfig)
-# AutoModelForCausalLM.register(blip3oQwenConfig, blip3oQwenForCausalLM)

@@ -1,7 +1,7 @@
   
   CONFIG="t2i_task_config.yaml" 
   echo "Running multi-GPU training..."
-  NGPUS=4
+  NGPUS=8
 
   torchrun --nproc_per_node=${NGPUS} \
     --nnodes=1 \

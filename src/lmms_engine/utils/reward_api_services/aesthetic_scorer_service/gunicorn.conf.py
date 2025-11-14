@@ -2,7 +2,7 @@ import os
 import sys
 
 NUM_DEVICES = 8
-USED_DEVICES = set([0,1,2,3,4,5])
+USED_DEVICES = set([0,1,2,3,4,6,7])
 
 port = 18080 
 
@@ -24,6 +24,6 @@ def child_exit(server, worker):
         USED_DEVICES.discard(worker.device_id) 
         
 bind = f"0.0.0.0:{port}" 
-workers = 2 
+workers = 1 
 worker_class = "sync" 
 timeout = 300 

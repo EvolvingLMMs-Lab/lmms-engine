@@ -39,6 +39,8 @@ from transformers import (
 from copy import deepcopy
 
 from .trainer import Trainer
+import numpy as np
+
 
 import transformers
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
@@ -63,6 +65,7 @@ from lmms_engine.utils.reward_evaluators import (
     RewardEvaluatorClient
 )
 
+from diffusers.utils.torch_utils import randn_tensor
 from trl.data_utils import maybe_apply_chat_template
 from trl.models import create_reference_model, prepare_deepspeed, unwrap_model_for_generation
 
@@ -229,8 +232,8 @@ UND_IMAGE_TOKEN_IDX = 151655
 # Type aliases
 def compute_log_prob(model_pred: torch.Tensor, 
                      scheduler: FlowMatchEulerDiscreteScheduler,
-                     prev_latents: torch.Tensor, 
-                     pred_latents: torch.Tensor, 
+                     cur_latents: torch.Tensor, 
+                     denoised_latents: torch.Tensor, 
                      ts: torch.Tensor):
     """
     Compute log probability and related statistics for SDE step.
@@ -249,8 +252,8 @@ def compute_log_prob(model_pred: torch.Tensor,
         scheduler,
         model_pred.float(),
         ts,
-        prev_latents.float(),
-        pred_latents.float(),
+        cur_latents.float(),
+        denoised_latents.float(),
     )
     return prev_sample, log_prob, prev_sample_mean, std_dev_t
 
@@ -285,13 +288,13 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         self.num_generations = rl_config.get("num_generations", 1)
         self.guidance_scale = rl_config.get("guidance_scale", 2)
         self.num_inference_steps = rl_config.get("num_inference_steps", 30)
-        self.beta = rl_config.get("beta", 0.0)
+        self.beta = float(rl_config.get("beta", 0.0))
         self.max_prompt_length = rl_config.get("max_prompt_length", 1024) # for t2i task, it will not be used.
         self.max_completion_length = rl_config.get("max_completion_length", 2048) # for t2i task, it will not be used.
 
         # Scheduler
-        self.scheduler = FlowMatchEulerDiscreteScheduler(shift=3.0)
-        self.scheduler.set_timesteps(self.num_inference_steps)
+        # self.scheduler = FlowMatchEulerDiscreteScheduler(shift=3.0)
+        # self.scheduler.set_timesteps(self.num_inference_steps)
 
         # Image transforms
         self._setup_transforms()
@@ -359,8 +362,10 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         if is_deepspeed_zero3_enabled():
             assert model, "model is required for GRPO Trainer"
             self.ref_model = deepcopy(model)
+            self.old_model = deepcopy(model)
         else:
             self.ref_model = create_reference_model(model)
+            self.old_model = create_reference_model(model)
         # Freeze/unfreeze parameters based on task
         self._configure_parameters(model)
 
@@ -369,21 +374,10 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         if self.ref_model is not None:
             if self.is_deepspeed_enabled:
                 self.ref_model = prepare_deepspeed(self.ref_model, self.accelerator)
+                self.old_model = prepare_deepspeed(self.old_model, self.accelerator)
             else:
                 self.ref_model = self.accelerator.prepare_model(self.ref_model, evaluation_mode=True)
-        
-        # Reference model
-        # Scheduler
-        # Processing class
-        # if processing_class is None:
-        #     processor_id = "Qwen/Qwen2.5-VL-3B-Instruct"
-        #     processing_class = AutoProcessor.from_pretrained(processor_id)
-        #     processing_class.tokenizer.bos_token_id = processing_class.tokenizer.pad_token_id # according to blip3o's config
-        #     processing_class.bos_token_id = processing_class.tokenizer.pad_token_id # according to blip3o's config
-        #     processing_class.pad_token_id = processing_class.tokenizer.pad_token_id
-        #     processing_class.eos_token_id = processing_class.tokenizer.eos_token_id
-        #     processing_class.image_processor.max_pixels = max_pixels
-        #     processing_class.image_processor.min_pixels = min_pixels
+                self.old_model = self.accelerator.prepare_model(self.old_model, evaluation_mode=True)
     
     def _configure_parameters(self, model: PreTrainedModel):
         """Configure which parameters to train based on task type."""
@@ -411,6 +405,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
             del model_base.sana_vae.encoder
             del self.ref_model.get_model().vision_tower
             del self.ref_model.get_model().sana_vae.encoder
+            del self.old_model.get_model().vision_tower
+            del self.old_model.get_model().sana_vae.encoder
         elif self.task_type == "i2i":
             model_base.diffusion_connector.requires_grad_(True)
             # model_base.i2i_queries.requires_grad = True
@@ -437,7 +433,7 @@ class BaseBLIP3oGRPOTrainer(Trainer):
     def _set_signature_columns_if_needed(self):
         """Set required dataset columns."""
         if self._signature_columns is None:
-            self._signature_columns = ["input_ids"]
+            self._signature_columns = ["input_ids", "caption"]
     
     def _prepare_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Skip automatic tensor conversion."""
@@ -458,7 +454,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         rewards_per_func = torch.zeros(len(images), len(self.reward_funcs), device=device)
         
         # Extract metadata
-        captions = [ex.get("caption", ex.get("target_caption", "")) for ex in inputs]
+        # captions = [ex.get("caption", ex.get("target_caption", "")) for ex in inputs]
+        captions = inputs["caption"]
         
         for i, (func_name, _, reward_func) in enumerate(self.reward_funcs):
             if func_name == "jpeg_compressibility" or func_name == "jpeg_incompressibility":
@@ -481,116 +478,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         
         # Aggregate rewards (can be customized)
         return rewards_per_func.sum(dim=1), rewards_per_func
-    
-    def _compute_diffusion_loss(
-        self, 
-        model_to_use: PreTrainedModel,
-        prompts_text: List[str],
-        prev_latents: torch.Tensor,
-        pred_latents: torch.Tensor,
-        ts: torch.Tensor,
-        query_attr: str,
-        embedding_repeat_num: int = 1,
-        **kwargs
-    ):
-        """
-        Compute diffusion model predictions and log probabilities.
-        
-        Args:
-            model_to_use: Model to use for prediction
-            prompts_text: Text prompts
-            prev_latents: Previous latent states
-            pred_latents: Predicted latent states
-            ts: Timesteps
-            query_attr: Query attribute name ("t2i_queries" or "i2i_queries")
-            **kwargs: Additional inputs (e.g., pixel_values for I2I)
-            
-        Returns:
-            Tuple of (log_prob, kl_divergence)
-        """
-        device = self.accelerator.device
-        
-        # Text embeddings
-        text_inputs = self.processing_class.tokenizer(
-            prompts_text, 
-            padding="longest", 
-            return_tensors="pt"
-        ).to(device)
-        text_embeds = model_to_use.get_model().embed_tokens(text_inputs.input_ids)
-        attention_mask = text_inputs.attention_mask
-        
-        # Handle I2I case with understanding images
-        if self.task_type == "i2i" and "pixel_values" in kwargs:
-            und_image_idx = (text_inputs.input_ids == UND_IMAGE_TOKEN_IDX)
-            und_pixel_values = kwargs["pixel_values"].type(model_to_use.visual.dtype)
-            und_image_embeds = model_to_use.visual(
-                und_pixel_values, 
-                grid_thw=kwargs["image_grid_thw"]
-            )
-            text_embeds[und_image_idx] = und_image_embeds[:und_image_idx.sum(), :]
-        
-        # Query embeddings
-        with GatheredParameters([getattr(model_to_use.get_model(), query_attr)], modifier_rank=None):
-            queries = getattr(model_to_use.get_model(), query_attr)
-            latent_queries = queries.repeat(text_embeds.shape[0], 1, 1)
-        
-        # Combine embeddings
-        text_embeds = torch.cat([text_embeds, latent_queries], dim=1)
-        attention_mask = torch.cat([attention_mask, torch.ones_like(latent_queries[:, :, 0])], dim=1)
-        
-        # Forward pass
-        if self.task_type == "t2i" or self.task_type == "i2i":
-            with torch.no_grad():
-                outputs = model_to_use.model(
-                    inputs_embeds=text_embeds,
-                    attention_mask=attention_mask,
-                    output_hidden_states=True,
-                    return_dict=True,
-                )
-        else:
-            raise ValueError(f"Unknown task type: {self.task_type}")
-        
-        # Extract and project hidden states
-        n_query = model_to_use.get_n_query()
-        hidden_states = outputs.hidden_states[-1][:, -n_query:, :]
-        img_hidden_states = model_to_use.get_model().down_projector(hidden_states)
-        
-        # Repeat for all steps
-        num_steps = embedding_repeat_num * self.num_inference_steps
-        img_hidden_states = img_hidden_states.repeat_interleave(num_steps, dim=0)
-        img_attention_mask = torch.ones(
-            (img_hidden_states.shape[0], img_hidden_states.shape[1]),
-            device=device,
-            dtype=img_hidden_states.dtype
-        )
-        
-        # DiT predictions
-        dit_kwargs = {
-            "hidden_states": prev_latents.to(device),
-            "encoder_hidden_states": img_hidden_states,
-            "encoder_attention_mask": img_attention_mask,
-            "timestep": ts.to(device),
-            "return_dict": False,
-        }
-        
-        # Add reference latents for I2I
-        if self.task_type == "i2i" and "ref_latents" in kwargs:
-            dit_kwargs["ref_hidden_states"] = kwargs["ref_latents"]
-        
-        # Conditional prediction
-        model_pred_cond = model_to_use.get_model().sana(**dit_kwargs)[0]
-        
-        # Unconditional prediction
-        dit_kwargs["encoder_hidden_states"] = torch.zeros_like(img_hidden_states)
-        model_pred_uncond = model_to_use.get_model().sana(**dit_kwargs)[0]
-        
-        # Apply classifier-free guidance
-        guidance_scale = self.guidance_scale
-        model_pred = model_pred_uncond + guidance_scale * (model_pred_cond - model_pred_uncond)
-        
-        return model_pred
 
-    def _log_step(self, images, prompts_text, advantages, completions):
+    def _log_step(self, images, advantages, completions):
         global_step = self.state.global_step
         
         if not global_step % 5 == 0:
@@ -598,19 +487,18 @@ class BaseBLIP3oGRPOTrainer(Trainer):
     
         device_id = str(self.model.device).replace(":", "")
         
-        
         log_dir = self.log_dir
         
-        text_content = f"Prompt: {prompts_text[0]}"
+        # text_content = f"Prompt: {prompts_text[0]}"
         
-        if completions is not None:
-            for idx in range (self.num_generations):
-                text_content += f"\nCompletion {idx}: {completions[idx]}"
+        # if completions is not None:
+        #     for idx in range (self.num_generations):
+        #         text_content += f"\nCompletion {idx}: {completions[idx]}"
             
         if os.path.exists(os.path.join(log_dir, f"step_{global_step}_{device_id}.txt")):
             return 
-        with open(os.path.join(log_dir, f"step_{global_step}_{device_id}.txt"), "w", encoding="utf-8") as f:
-            f.write(text_content)
+        # with open(os.path.join(log_dir, f"step_{global_step}_{device_id}.txt"), "w", encoding="utf-8") as f:
+        #     f.write(text_content)
             
         for idx in range(self.num_generations):
             rev_img = images[idx]
@@ -655,12 +543,26 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         
         self._metrics.clear()
 
+    def _update_old_model(self, model):
+        if is_deepspeed_zero3_enabled():
+            from deepspeed.runtime.zero import GatheredParameters
+            model_params = list(model.parameters())
+            old_params = list(self.old_model.parameters())
+            with GatheredParameters(model_params + old_params, modifier_rank=0):
+                if torch.distributed.get_rank() == 0:
+                    for old_p, new_p in zip(old_params, model_params):
+                        old_p.data.copy_(new_p.data)
+        else:
+            self.old_model.load_state_dict(model.state_dict())
+
 @TRAINER_REGISTER.register("blip3o_next_t2i_grpo_trainer")
 class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
     """GRPO Trainer for Text-to-Image generation."""
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """Compute T2I GRPO loss."""
@@ -668,15 +570,14 @@ class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
             raise ValueError("GRPOTrainer does not support returning outputs")
         
         device = self.accelerator.device
-        # prompts_text = [
-        #     maybe_apply_chat_template(ex, self.processing_class)["prompt"] 
-        #     for ex in inputs
-        # ]
         
-        # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+        if self.state.global_step % 10 == 0 and self.state.global_step > 0:
+            self._update_old_model(model)
+
+
         with torch.no_grad():
-            images, log_probs_traj, prev_latents, pred_latents, ts = \
-                model.generate_images(
+            _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
+                self.old_model.generate_images(
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
                     guidance_scale=self.guidance_scale,
@@ -684,46 +585,56 @@ class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
                     num_images_per_prompt=self.num_generations,
                     use_sde=True
                 )
-    
         # Compute rewards and advantages
         rewards, rewards_per_func = self._compute_rewards(inputs, images)
         reshaped_rewards = rewards.view(-1, self.num_generations)
         mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
-        std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        if self.num_generations > 1:
+            std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        else:
+            std_rewards = torch.zeros_like(mean_rewards)
         advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
         advantages = torch.clamp(advantages, -5, 5)
         
-        
-        self._log_step(images, prompts_text, advantages, None)
-        
-        # Compute policy predictions
-        model_pred = self._compute_diffusion_loss(
-            model, prompts_text, prev_latents, pred_latents, ts, "t2i_queries", self.num_generations
+        self._log_step(images, advantages, None)
+
+        policy_noise_preds = self._compute_diffusion_pred(
+            model,
+            diffusion_latents=diffusion_latents,
+            traj_cur_latents=traj_latents,
+            ts=ts,
+            guidance_scale=self.guidance_scale,
+            num_inference_steps=self.num_inference_steps,
+            num_images_per_prompt=self.num_generations
         )
-        
-        # Compute reference predictions
+
         with torch.no_grad():
-            ref_model_pred = self._compute_diffusion_loss(
-                self.ref_model, prompts_text, prev_latents, pred_latents, ts, "t2i_queries", self.num_generations
+            ref_noise_preds = self._compute_diffusion_pred(
+                self.ref_model,
+                diffusion_latents=diffusion_latents,
+                traj_cur_latents=traj_latents,
+                ts=ts,
+                guidance_scale=self.guidance_scale,
+                num_inference_steps=self.num_inference_steps,
+                num_images_per_prompt=self.num_generations
             )
         
         # Compute log probs and KL
-        _, log_prob_policy, mean_policy, std_policy = compute_log_prob(
-            model_pred, self.scheduler, prev_latents, pred_latents, ts
+        _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
+            policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
         )
-        _, _, mean_ref, std_ref = compute_log_prob(
-            ref_model_pred, self.scheduler, prev_latents, pred_latents, ts
+        _, _, ref_mean, ref_std = compute_log_prob(
+            ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
         )
         
-        kl = (mean_policy - mean_ref)**2 / (2 * std_policy**2)
+        kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
         kl = kl.mean(dim=tuple(range(1, kl.ndim)))
         
         # GRPO loss
         advantages_steps = advantages.repeat_interleave(
             self.num_inference_steps, dim=0
         )
-        ratio = torch.exp(log_prob_policy - log_probs_traj)
-        # assert (ratio == 1).all(), f"{ratio}"
+        ratio = torch.exp(policy_log_probs - traj_log_probs)
         unclipped_loss = -advantages_steps * ratio
         clipped_loss = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
         policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
@@ -741,3 +652,76 @@ class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
                 ).mean().item())
                 
         return loss
+
+    def _compute_diffusion_pred(
+        self, 
+        model_to_use: PreTrainedModel,
+        diffusion_latents: torch.Tensor,
+        traj_cur_latents: torch.Tensor,
+        ts: Optional[torch.Tensor] = None,
+        guidance_scale: float = 2.0,
+        num_inference_steps: int = 30,
+        num_images_per_prompt: int = 1,
+        **kwargs
+    ):
+        latent_model_input = torch.cat([traj_cur_latents] * 2)
+        latent_model_input = latent_model_input.to(diffusion_latents.dtype)
+
+        model_base = model_to_use.get_model()
+        img_hidden_states = model_base.diffusion_connector(diffusion_latents)
+
+        img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
+        img_attention_mask = torch.ones(
+            (img_hidden_states.shape[0], img_hidden_states.shape[1]),
+            device=latent_model_input.device,
+            dtype=img_hidden_states.dtype
+        )
+
+        timesteps = ts.repeat(2).to(latent_model_input.device)
+        res = model_base.sana(
+            hidden_states=latent_model_input,
+            encoder_hidden_states=img_hidden_states,
+            timestep=timesteps,
+            encoder_attention_mask=img_attention_mask,
+            return_dict=False,
+        )
+        noise_pred = res[0]
+        noise_pred_uncond, noise_pred= noise_pred.chunk(2)
+        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
+        return noise_pred
+
+    # @torch.no_grad()
+    # def _compute_diffusion_pred_for_reference(
+    #     self, 
+    #     model_to_use: PreTrainedModel,
+    #     diffusion_latents: torch.Tensor,
+    #     traj_cur_latents: torch.Tensor,
+    #     ts: Optional[torch.Tensor] = None,
+    #     guidance_scale: float = 2.0,
+    #     num_inference_steps: int = 30,
+    #     num_images_per_prompt: int = 1,
+    #     **kwargs
+    # ):
+    #     latent_model_input = torch.cat([traj_cur_latents] * 2)
+    #     latent_model_input = latent_model_input.to(diffusion_latents.dtype)
+
+    #     model_base = model_to_use.get_model()
+    #     img_hidden_states = model_base.diffusion_connector(diffusion_latents)
+
+    #     img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
+    #     img_attention_mask = torch.ones(
+    #         (img_hidden_states.shape[0], img_hidden_states.shape[1]),
+    #         device=latent_model_input.device,
+    #         dtype=img_hidden_states.dtype
+    #     )
+    #     res = model_base.sana(
+    #         hidden_states=latent_model_input,
+    #         encoder_hidden_states=img_hidden_states,
+    #         timestep=ts.to(latent_model_input.device),
+    #         encoder_attention_mask=img_attention_mask,
+    #         return_dict=False,
+    #     )
+    #     noise_pred = res[0]
+    #     noise_pred_uncond, noise_pred= noise_pred.chunk(2)
+    #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
+    #     return noise_pred

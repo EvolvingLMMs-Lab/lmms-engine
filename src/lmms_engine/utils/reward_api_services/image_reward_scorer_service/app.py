@@ -8,7 +8,7 @@ from io import BytesIO
 
 from flask import Flask, request, Blueprint
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../common')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import deserialize_images
 
 from imagereward_scorer import ImageRewardScorer

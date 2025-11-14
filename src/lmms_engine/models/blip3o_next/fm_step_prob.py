@@ -10,7 +10,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteSchedulerOutput, FlowMatchEulerDiscreteScheduler
 
 def sde_step_with_logprob(
-    self: FlowMatchEulerDiscreteScheduler,
+    scheduler: FlowMatchEulerDiscreteScheduler,
     model_output: torch.FloatTensor,
     timestep: Union[float, torch.FloatTensor],
     sample: torch.FloatTensor,
@@ -31,18 +31,16 @@ def sde_step_with_logprob(
         generator (`torch.Generator`, *optional*):
             A random number generator.
     """
-    step_index = [self.index_for_timestep(t) for t in timestep]
+    step_index = [scheduler.index_for_timestep(t) for t in timestep]
     prev_step_index = [step+1 for step in step_index]
-    sigma = self.sigmas[step_index].view(-1, 1, 1, 1).to(model_output.device)
-    sigma_prev = self.sigmas[prev_step_index].view(-1, 1, 1, 1).to(model_output.device)
-    sigma_max = self.sigmas[1].item()
+    sigma = scheduler.sigmas[step_index].view(-1, 1, 1, 1).to(model_output.device)
+    sigma_prev = scheduler.sigmas[prev_step_index].view(-1, 1, 1, 1).to(model_output.device)
+    sigma_max = scheduler.sigmas[1].item()
     dt = sigma_prev - sigma
 
     std_dev_t = torch.sqrt(sigma / (1 - torch.where(sigma == 1, sigma_max, sigma)))*0.7
-    
-    
     # our sde
-    prev_sample_mean = sample*(1+std_dev_t**2/(2*sigma)*dt)+model_output*(1+std_dev_t**2*(1-sigma)/(2*sigma))*dt
+    prev_sample_mean = sample*(1+std_dev_t**2/(2*sigma)*dt) + model_output * (1+std_dev_t**2*(1-sigma)/(2*sigma))*dt
     
     if prev_sample is not None and generator is not None:
         raise ValueError(
@@ -71,23 +69,8 @@ def sde_step_with_logprob(
     return prev_sample, log_prob, prev_sample_mean, std_dev_t * torch.sqrt(-1*dt)
 
 
-
-# Copyright 2025 Fu-Yun Wang
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 def sde_step_with_logprob_simple(
-    self: FlowMatchEulerDiscreteScheduler,
+    scheduler: FlowMatchEulerDiscreteScheduler,
     model_output: torch.FloatTensor,
     timestep: Union[float, torch.FloatTensor],
     sample: torch.FloatTensor,
@@ -109,11 +92,11 @@ def sde_step_with_logprob_simple(
             A random number generator.
     """
     
-    step_index = [self.index_for_timestep(t) for t in timestep]
+    step_index = [scheduler.index_for_timestep(t) for t in timestep]
     prev_step_index = [step+1 for step in step_index]
-    sigma = self.sigmas[step_index].view(-1, 1, 1, 1).to(model_output.device)
-    sigma_prev = self.sigmas[prev_step_index].view(-1, 1, 1, 1).to(model_output.device)
-    sigma_max = self.sigmas[1].item()
+    sigma = scheduler.sigmas[step_index].view(-1, 1, 1, 1).to(model_output.device)
+    sigma_prev = scheduler.sigmas[prev_step_index].view(-1, 1, 1, 1).to(model_output.device)
+    sigma_max = scheduler.sigmas[1].item()
     dt = sigma_prev - sigma
     
     

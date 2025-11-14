@@ -41,7 +41,7 @@ trainer_args:
     node_addr: localhost
     reward_funcs: ["aesthetic"]
     task_type: t2i
-    num_generations: 1
+    num_generations: 8
     beta: 4e-3
     guidance_scale: 3.5
     num_inference_steps: 30

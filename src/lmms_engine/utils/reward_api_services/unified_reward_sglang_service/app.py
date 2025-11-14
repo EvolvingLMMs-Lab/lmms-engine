@@ -6,7 +6,7 @@ from PIL import Image
 
 from flask import Flask, request, Blueprint
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../common')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import deserialize_images
 
 from unifiedreward_score_sglang import unifiedreward_score_sglang

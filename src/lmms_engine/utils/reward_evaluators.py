@@ -22,7 +22,8 @@ class RewardEvaluatorClient:
                  model_name: str, 
                  images: List[Image.Image], 
                  prompts: List[str], 
-                 metadata: Dict[str, Any] = None) -> Union[List[float], Dict[str, Any]]:
+                 metadata: Dict[str, Any] = None
+        ) -> Union[List[float], Dict[str, Any]]:
         url = self.scorer_urls.get(model_name)
         if not url:
             raise ValueError(f"Reward model '{model_name}' URL not configured.")
