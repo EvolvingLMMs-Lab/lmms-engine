@@ -34,6 +34,7 @@ VALID_CONFIG_TYPE = {
     "qwen3_omni_moe",
     "qwen3_omni_moe_thinker",
     "qwen3_vl",
+    "qwen3_vl_moe",
     "deepseek_v3",
     "minicpmv",
     "minicpmo",
@@ -71,6 +72,7 @@ class FlopsCounter:
             "qwen3_omni_moe": self._estimate_qwen2_moe_flops,
             "qwen3_omni_moe_thinker": self._estimate_qwen2_moe_flops,
             "qwen3_vl": self._estimate_qwen2_flops,
+            "qwen3_vl_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
@@ -80,6 +82,7 @@ class FlopsCounter:
         if config.model_type in [
             "llava_onevision",
             "qwen3_vl",
+            "qwen3_vl_moe",
             "qwen2_5_omni",
             "qwen2_5_omni_thinker",
             "qwen3_omni_moe",
