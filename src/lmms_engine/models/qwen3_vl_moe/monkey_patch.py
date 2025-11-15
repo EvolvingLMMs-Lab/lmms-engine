@@ -87,10 +87,12 @@ def apply_liger_kernel_to_qwen3_vl_moe(
         from .qwen3_vl_moe_ops import (
             decoder_layer_forward as qwen3_vl_moe_decoder_layer_forward,
         )
+        from .qwen3_vl_moe_ops import model_forward as qwen3_vl_moe_model_forward
         from .qwen3_vl_moe_ops import (
             text_model_forward as qwen3_vl_moe_text_model_forward,
         )
 
+        modeling_qwen3_vl_moe.Qwen3VLMoeModel.forward = qwen3_vl_moe_model_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextModel.forward = qwen3_vl_moe_text_model_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextDecoderLayer.forward = qwen3_vl_moe_decoder_layer_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextAttention.forward = qwen3_vl_moe_attn_forward

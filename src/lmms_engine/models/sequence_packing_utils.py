@@ -15,6 +15,7 @@ class BaseModelOutputWithPastAndRmpad(BaseModelOutputWithPast):
     attentions: Optional[Tuple[torch.FloatTensor, ...]] = None
     seq_lens: Optional[torch.IntTensor] = None
     word_idx: Optional[torch.IntTensor] = None
+    router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 
 # Copied from transformers.models.llama.modeling_llama.rotate_half
