@@ -13,8 +13,6 @@ def test_model_imports():
     print("=" * 70)
 
     try:
-        # Note: These imports will fail if transformers doesn't have Qwen3 VL MoE support
-        # This is expected - user needs transformers with Qwen3 VL MoE
         from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
             Qwen3VLMoeConfig,
         )

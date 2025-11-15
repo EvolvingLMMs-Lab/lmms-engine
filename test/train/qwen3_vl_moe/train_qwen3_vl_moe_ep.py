@@ -1,29 +1,3 @@
-#!/usr/bin/env python
-"""
-Test Script for Qwen3 VL MoE with Expert Parallelism (EP)
-
-This script tests the expert parallelism implementation for Qwen3 VL MoE models.
-Expert Parallelism distributes MoE experts across multiple GPUs for efficient training.
-
-Usage:
-    # 2-way Expert Parallelism (2 GPUs)
-    torchrun --nproc_per_node=2 test/train/qwen3_vl_moe/train_qwen3_vl_moe_ep.py \
-        --output_dir ./output/qwen3_vl_moe_ep2 --ep_degree 2
-
-    # 4-way Expert Parallelism (4 GPUs)
-    torchrun --nproc_per_node=4 test/train/qwen3_vl_moe/train_qwen3_vl_moe_ep.py \
-        --output_dir ./output/qwen3_vl_moe_ep4 --ep_degree 4
-
-    # 8-way Expert Parallelism (8 GPUs)
-    torchrun --nproc_per_node=8 test/train/qwen3_vl_moe/train_qwen3_vl_moe_ep.py \
-        --output_dir ./output/qwen3_vl_moe_ep8 --ep_degree 8
-
-Note:
-    - EP degree must match or divide the number of GPUs
-    - EP distributes experts across GPUs, reducing memory per GPU
-    - Validates EP communication and gradient synchronization
-"""
-
 import argparse
 import os
 import sys
@@ -84,15 +58,12 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    # Auto-determine ep_degree from nproc_per_node if not specified
     if args.ep_degree is None:
         if args.nproc_per_node is not None:
             args.ep_degree = args.nproc_per_node
         else:
-            args.ep_degree = 2  # Default fallback
+            args.ep_degree = 2  
 
-    # Configuration for Qwen3 VL MoE training with Expert Parallelism
-    # EP distributes experts across multiple GPUs
     cfg = {
         "trainer_type": "fsdp2_trainer",
         "dataset_config": {
@@ -116,7 +87,6 @@ def main():
             "load_from_pretrained_path": "Qwen/Qwen3-VL-30B-A3B-Instruct",
             "attn_implementation": "flash_attention_2",
             "torch_dtype": "bfloat16",
-            # Enable Liger kernel patches for performance optimization
             "monkey_patch_kwargs": {
                 "patch_type": ["liger"],
                 "fused_linear_cross_entropy": True,
@@ -143,10 +113,8 @@ def main():
             "use_rmpad": True,  # Enable RMPad for efficient padding
             "fsdp2": True,  # Use FSDP2 for distributed training
             "group_by_length": True,
-            # Muon optimizer test
             "use_muon": True,  # Test Muon optimizer with MoE
             "weight_decay": 0.01,
-            # FSDP wrapping configuration for Qwen3 VL MoE architecture
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
                     "Qwen3VLMoeTextDecoderLayer",  # Text decoder layers with MoE

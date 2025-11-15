@@ -1,30 +1,3 @@
-#!/usr/bin/env python
-"""
-Test Script for Qwen3 VL MoE with Sequence Parallelism (SP)
-
-This script tests the Ulysses sequence parallelism implementation for Qwen3 VL MoE models.
-Sequence Parallelism splits long sequences across multiple GPUs for efficient training.
-
-Usage:
-    # 2-way Sequence Parallelism (2 GPUs)
-    torchrun --nproc_per_node=2 test/train/qwen3_vl_moe/train_qwen3_vl_moe_sp.py \
-        --output_dir ./output/qwen3_vl_moe_sp2 --sp_degree 2
-
-    # 4-way Sequence Parallelism (4 GPUs)
-    torchrun --nproc_per_node=4 test/train/qwen3_vl_moe/train_qwen3_vl_moe_sp.py \
-        --output_dir ./output/qwen3_vl_moe_sp4 --sp_degree 4
-
-    # 8-way Sequence Parallelism (8 GPUs)
-    torchrun --nproc_per_node=8 test/train/qwen3_vl_moe/train_qwen3_vl_moe_sp.py \
-        --output_dir ./output/qwen3_vl_moe_sp8 --sp_degree 8
-
-Note:
-    - SP degree must match or divide the number of GPUs
-    - Ulysses SP splits sequences across attention heads
-    - Validates SP communication and attention computation
-    - Useful for very long sequence training
-"""
-
 import argparse
 import os
 import sys
@@ -87,8 +60,6 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    # Configuration for Qwen3 VL MoE training with Ulysses Sequence Parallelism
-    # SP splits sequences across multiple GPUs for long sequence training
     cfg = {
         "trainer_type": "fsdp2_trainer",
         "dataset_config": {
@@ -112,7 +83,6 @@ def main():
             "load_from_pretrained_path": "Qwen/Qwen3-VL-30B-A3B-Instruct",
             "attn_implementation": "flash_attention_2",
             "torch_dtype": "bfloat16",
-            # Enable Liger kernel patches for performance optimization
             "monkey_patch_kwargs": {
                 "patch_type": ["liger"],
                 "fused_linear_cross_entropy": True,
@@ -134,21 +104,19 @@ def main():
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
-            "use_liger_kernel": True,  # Enable Liger kernel optimizations
-            "use_rmpad": True,  # Enable RMPad for efficient padding
-            "fsdp2": True,  # Use FSDP2 for distributed training
+            "use_liger_kernel": True,  
+            "use_rmpad": True,  
+            "fsdp2": True,  
             "group_by_length": True,
-            # FSDP wrapping configuration for Qwen3 VL MoE architecture
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3VLMoeTextDecoderLayer",  # Text decoder layers with MoE
-                    "Qwen3VLMoeVisionBlock",  # Vision encoder blocks
+                    "Qwen3VLMoeTextDecoderLayer",  
+                    "Qwen3VLMoeVisionBlock",  
                 ],
                 "reshard_after_forward": False,
             },
-            "ep_degree": 1,  # No expert parallelism
-            # Ulysses Sequence Parallelism configuration
-            "sp_ulysses_degree": args.sp_degree,  # Number of GPUs to split sequences across
+            "ep_degree": 1,  
+            "sp_ulysses_degree": args.sp_degree,  
         },
     }
 
@@ -167,7 +135,6 @@ def main():
     print(f"Sequence Parallelism: Enabled (Ulysses, degree={args.sp_degree})")
     print(f"{'='*70}\n")
 
-    # Create and run training task
     train_task = create_train_task(cfg)
     train_task.build()
     train_task.run()

@@ -1,22 +1,4 @@
-#!/usr/bin/env python
-"""
-Test Script for Qwen3 VL MoE - Normal Training (No Expert Parallelism)
-
-This script tests basic FSDP2 training of Qwen3 VL MoE models without Expert Parallelism.
-It validates the training pipeline with Liger kernel optimizations and RMPad.
-
-Usage:
-    torchrun --nproc_per_node=1 test/train/qwen3_vl_moe/train_qwen3_vl_moe.py \
-        --output_dir ./output/qwen3_vl_moe_test
-
-    # Multi-GPU training (without EP)
-    torchrun --nproc_per_node=4 test/train/qwen3_vl_moe/train_qwen3_vl_moe.py \
-        --output_dir ./output/qwen3_vl_moe_test
-"""
-
 import argparse
-import os
-import sys
 
 from lmms_engine.launch.cli import create_train_task
 
@@ -44,8 +26,6 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    # Configuration for Qwen3 VL MoE training without Expert Parallelism
-    # Uses FSDP2 with Liger kernel optimizations
     cfg = {
         "trainer_type": "fsdp2_trainer",
         "dataset_config": {
@@ -69,7 +49,6 @@ def main():
             "load_from_pretrained_path": "Qwen/Qwen3-VL-30B-A3B-Instruct",
             "attn_implementation": "flash_attention_2",
             "torch_dtype": "bfloat16",
-            # Enable Liger kernel patches for performance optimization
             "monkey_patch_kwargs": {
                 "patch_type": ["liger"],
                 "fused_linear_cross_entropy": True,
@@ -90,19 +69,18 @@ def main():
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
-            "use_liger_kernel": True,  # Enable Liger kernel optimizations
-            "use_rmpad": True,  # Enable RMPad for efficient padding
-            "fsdp2": True,  # Use FSDP2 for distributed training
+            "use_liger_kernel": True,  
+            "use_rmpad": True,  
+            "fsdp2": True,  
             "group_by_length": True,
-            # FSDP wrapping configuration for Qwen3 VL MoE architecture
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3VLMoeTextDecoderLayer",  # Text decoder layers with MoE
-                    "Qwen3VLMoeVisionBlock",  # Vision encoder blocks
+                    "Qwen3VLMoeTextDecoderLayer",  
+                    "Qwen3VLMoeVisionBlock",  
                 ],
                 "reshard_after_forward": False,
             },
-            "sp_ulysses_degree": 1,  # No sequence parallelism
+            "sp_ulysses_degree": 1,  
         },
     }
 
@@ -119,8 +97,7 @@ def main():
     print(f"Expert Parallelism: Disabled")
     print(f"Sequence Parallelism: Disabled")
     print(f"{'='*70}\n")
-
-    # Create and run training task
+ 
     train_task = create_train_task(cfg)
     train_task.build()
     train_task.run()
