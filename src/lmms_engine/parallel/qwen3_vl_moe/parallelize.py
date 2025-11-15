@@ -46,7 +46,7 @@ def stack_expert_params_qwen3_vl_moe(model: Qwen3VLMoeForConditionalGeneration) 
 
             # Check if experts are already stacked (from HuggingFace transformers)
             # Qwen3VLMoeTextExperts has gate_up_proj and down_proj as Parameters, not a list of expert modules
-            if hasattr(decoder_layer.mlp.experts, 'gate_up_proj'):
+            if hasattr(decoder_layer.mlp.experts, "gate_up_proj"):
                 # Already stacked - HuggingFace transformers model
                 # The experts module already has:
                 # - gate_up_proj: Parameter with shape [num_experts, hidden_size, 2*intermediate_size]

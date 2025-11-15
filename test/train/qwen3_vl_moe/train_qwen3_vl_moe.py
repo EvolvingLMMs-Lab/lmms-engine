@@ -69,18 +69,18 @@ def main():
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
-            "use_liger_kernel": True,  
-            "use_rmpad": True,  
-            "fsdp2": True,  
+            "use_liger_kernel": True,
+            "use_rmpad": True,
+            "fsdp2": True,
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3VLMoeTextDecoderLayer",  
-                    "Qwen3VLMoeVisionBlock",  
+                    "Qwen3VLMoeTextDecoderLayer",
+                    "Qwen3VLMoeVisionBlock",
                 ],
                 "reshard_after_forward": False,
             },
-            "sp_ulysses_degree": 1,  
+            "sp_ulysses_degree": 1,
         },
     }
 
@@ -97,7 +97,7 @@ def main():
     print(f"Expert Parallelism: Disabled")
     print(f"Sequence Parallelism: Disabled")
     print(f"{'='*70}\n")
- 
+
     train_task = create_train_task(cfg)
     train_task.build()
     train_task.run()

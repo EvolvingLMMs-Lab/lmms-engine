@@ -10,11 +10,13 @@ from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+    Qwen3VLMoeForConditionalGeneration,
+    Qwen3VLMoeModel,
+)
+from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeModelOutputWithPast as HFQwen3VLMoeModelOutputWithPast,
 )
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
-    Qwen3VLMoeForConditionalGeneration,
-    Qwen3VLMoeModel,
     Qwen3VLMoeTextAttention,
     Qwen3VLMoeTextDecoderLayer,
     Qwen3VLMoeTextModel,
@@ -206,7 +208,6 @@ def model_forward(
     output_router_logits: Optional[bool] = None,
     **kwargs,
 ) -> Union[tuple, Qwen3VLMoeModelOutputWithPast]:
-    
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
@@ -296,18 +297,26 @@ def model_forward(
 
     if image_mask is not None and video_mask is not None:
         visual_pos_masks, deepstack_visual_embeds = _aggregate_visual_masks_and_embeds(
-            image_mask, video_mask, deepstack_image_embeds, deepstack_video_embeds,
-            original_image_mask, original_video_mask,
+            image_mask,
+            video_mask,
+            deepstack_image_embeds,
+            deepstack_video_embeds,
+            original_image_mask,
+            original_video_mask,
             sp_size=get_ulysses_sequence_parallel_world_size(),
         )
     elif image_mask is not None:
         visual_pos_masks, deepstack_visual_embeds = _process_single_visual_modality(
-            image_mask, deepstack_image_embeds, original_image_mask,
+            image_mask,
+            deepstack_image_embeds,
+            original_image_mask,
             sp_size=get_ulysses_sequence_parallel_world_size(),
         )
     elif video_mask is not None:
         visual_pos_masks, deepstack_visual_embeds = _process_single_visual_modality(
-            video_mask, deepstack_video_embeds, original_video_mask,
+            video_mask,
+            deepstack_video_embeds,
+            original_video_mask,
             sp_size=get_ulysses_sequence_parallel_world_size(),
         )
 
@@ -363,7 +372,9 @@ def text_model_forward(
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     output_router_logits = (
-        output_router_logits if output_router_logits is not None else getattr(self.config, "output_router_logits", False)
+        output_router_logits
+        if output_router_logits is not None
+        else getattr(self.config, "output_router_logits", False)
     )
     use_cache = use_cache if use_cache is not None else self.config.use_cache
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -379,9 +390,9 @@ def text_model_forward(
     if cache_position is None:
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
         if cu_seq_lens is not None and indices is not None:
-            seq_len_for_cache = inputs_embeds.shape[0]  
+            seq_len_for_cache = inputs_embeds.shape[0]
         else:
-            seq_len_for_cache = inputs_embeds.shape[1]  
+            seq_len_for_cache = inputs_embeds.shape[1]
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + seq_len_for_cache,
@@ -460,7 +471,7 @@ def text_model_forward(
 
 def decoder_layer_forward(
     self: Qwen3VLMoeTextDecoderLayer,
-    hidden_states: torch.Tensor, 
+    hidden_states: torch.Tensor,
     position_embeddings: tuple[torch.Tensor, torch.Tensor],
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
@@ -508,7 +519,7 @@ def decoder_layer_forward(
 
 def attn_forward(
     self: Qwen3VLMoeTextAttention,
-    hidden_states: torch.Tensor, 
+    hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_value: Optional[Cache] = None,

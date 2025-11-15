@@ -131,7 +131,7 @@ def apply_liger_kernel_to_qwen3_vl_moe(
                 if swiglu:
                     if hasattr(decoder_layer.mlp, "experts"):
                         experts_module = decoder_layer.mlp.experts
-                        if not hasattr(experts_module, 'gate_up_proj'):
+                        if not hasattr(experts_module, "gate_up_proj"):
                             for expert in experts_module:
                                 _patch_swiglu_module(expert, LigerSwiGLUMLP)
                     else:

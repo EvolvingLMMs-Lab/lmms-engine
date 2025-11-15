@@ -37,9 +37,7 @@ def test_lmms_engine_imports():
 
     try:
         # Test model module imports
-        from lmms_engine.models.qwen3_vl_moe import (
-            apply_liger_kernel_to_qwen3_vl_moe,
-        )
+        from lmms_engine.models.qwen3_vl_moe import apply_liger_kernel_to_qwen3_vl_moe
 
         print("Monkey patch function imported successfully")
 

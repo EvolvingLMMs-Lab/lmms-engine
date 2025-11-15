@@ -41,7 +41,8 @@ def lce_forward(
     **kwargs,
 ) -> Union[tuple, Qwen3VLMoeCausalLMOutputWithPast]:
     output_router_logits = (
-        output_router_logits if output_router_logits is not None
+        output_router_logits
+        if output_router_logits is not None
         else getattr(self.config.text_config, "output_router_logits", False)
     )
 

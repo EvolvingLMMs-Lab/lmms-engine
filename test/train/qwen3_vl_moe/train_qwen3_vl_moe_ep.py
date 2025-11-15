@@ -62,7 +62,7 @@ def main():
         if args.nproc_per_node is not None:
             args.ep_degree = args.nproc_per_node
         else:
-            args.ep_degree = 2  
+            args.ep_degree = 2
 
     cfg = {
         "trainer_type": "fsdp2_trainer",

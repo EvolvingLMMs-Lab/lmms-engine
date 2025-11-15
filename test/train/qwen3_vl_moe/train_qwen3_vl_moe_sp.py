@@ -6,9 +6,7 @@ from lmms_engine.launch.cli import create_train_task
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Train Qwen3 VL MoE model with Sequence Parallelism"
-    )
+    parser = argparse.ArgumentParser(description="Train Qwen3 VL MoE model with Sequence Parallelism")
     parser.add_argument(
         "--output_dir",
         type=str,
@@ -104,19 +102,19 @@ def main():
             "dataloader_num_workers": 8,
             "bf16": True,
             "lr_scheduler_type": "cosine",
-            "use_liger_kernel": True,  
-            "use_rmpad": True,  
-            "fsdp2": True,  
+            "use_liger_kernel": True,
+            "use_rmpad": True,
+            "fsdp2": True,
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "Qwen3VLMoeTextDecoderLayer",  
-                    "Qwen3VLMoeVisionBlock",  
+                    "Qwen3VLMoeTextDecoderLayer",
+                    "Qwen3VLMoeVisionBlock",
                 ],
                 "reshard_after_forward": False,
             },
-            "ep_degree": 1,  
-            "sp_ulysses_degree": args.sp_degree,  
+            "ep_degree": 1,
+            "sp_ulysses_degree": args.sp_degree,
         },
     }
 
