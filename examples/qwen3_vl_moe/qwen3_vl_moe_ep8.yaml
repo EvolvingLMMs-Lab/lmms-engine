@@ -1,0 +1,83 @@
+trainer_type: fsdp2_trainer
+
+dataset_config:
+  dataset_type: qwen3_vl_iterable
+  dataset_format: yaml  
+  dataset_path: data/video/debug.yaml  # Path to your dataset YAML file
+
+  processor_config:
+    processor_name: "Qwen/Qwen3-VL-30B-A3B-Instruct"  
+    processor_type: "qwen3_vl"
+
+  packing: false  
+  packing_strategy: first_fit
+  packing_length: 51200  
+  video_backend: qwen_vl_utils
+  filter_overlong: true
+  filter_overlong_workers: 8
+
+  video_sampling_strategy: fps
+  video_max_pixels: 50176
+  video_max_frames: 512
+  frame_num: 64
+  fps: 1
+
+model_config:
+  load_from_pretrained_path: "Qwen/Qwen3-VL-30B-A3B-Instruct"  # MoE model
+  attn_implementation: "flash_attention_2"
+
+  monkey_patch_kwargs:
+    patch_type: ["liger"]
+    use_rmpad: true
+    rope: false
+    swiglu: false
+    cross_entropy: false
+    fused_linear_cross_entropy: true  
+    rms_norm: false
+
+trainer_args:
+  output_dir: "./output/qwen3_vl_moe_ep8"
+  run_name: "qwen3_vl_moe_ep8_debug"
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+
+  learning_rate: 1.0e-06  
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.1
+  warmup_steps: 0
+
+  num_train_epochs: 1
+  max_steps: 1000
+
+  save_steps: 500
+  save_total_limit: 2
+  save_strategy: steps
+
+  report_to: "none"  
+  logging_steps: 1
+  logging_strategy: steps
+  eval_strategy: "no"
+
+  gradient_checkpointing: true
+  bf16: true
+
+  use_liger_kernel: true
+  use_rmpad: true
+  group_by_length: false
+  dataloader_num_workers: 0
+
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap: ["Qwen3VLMoeTextDecoderLayer"]
+    reshard_after_forward: false
+
+  ep_degree: 8
+
+  sp_ulysses_degree: 1
+
+  enable_profiler: false
+  profiler_config:
+    start_step: 1
+    end_step: 3
