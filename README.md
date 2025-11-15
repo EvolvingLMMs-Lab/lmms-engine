@@ -94,8 +94,9 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 | **[Qwen2.5-VL](src/lmms_engine/models/qwen2_5_vl/)** | [run.sh](examples/qwen2_5_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Multimodal Model |
 | **[Qwen2.5-Omni](examples/qwen2_5_omni)** | [run.sh](examples/qwen2_5_omni/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Unified multimodal (image, audio, text) |
 | **[Qwen3-VL](examples/qwen3_vl)** | [run.sh](examples/qwen3_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Native-resolution, long context (10K+ tokens) |
-| **[Qwen3-MoE](examples/qwen3_moe)** | [run.sh](examples/qwen3_moe/run.sh) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | Mixture-of-Experts, Expert Parallelism |
-| **[Qwen3-Omni MoE](examples/qwen3_omni_moe)** | [config](examples/qwen3_omni_moe_ep2.yaml) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ | Multimodal MoE with EP (image, audio, text) |
+| **[Qwen3-VL MoE](examples/qwen3_vl_moe)** | [run.sh](run_all_moe_tests_2nodes.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | Vision-Language MoE with EP (image, video, text) |
+| **[Qwen3-MoE](examples/qwen3_moe)** | [run.sh](examples/qwen3_moe/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Mixture-of-Experts, Expert Parallelism |
+| **[Qwen3-Omni MoE](examples/qwen3_omni_moe)** | [config](examples/qwen3_omni_moe_ep2.yaml) | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Multimodal MoE with EP (image, audio, text) |
 | **[WanVideo](examples/wanvideo)** | [run.sh](examples/wanvideo/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) |
 | **[FLA models](examples/dgn)** | [run.sh](examples/dgn/run.sh) | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | Efficient architecture, FineWeb-Edu pretraining |
 | **[dLLM (Qwen3)](examples/diffusion_language_model)** | [run.sh](examples/diffusion_language_model/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Masked diffusion language model |
@@ -120,6 +121,7 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 ### Multimodal Models
 - **Qwen2.5-VL** - SOTA level performance vision-language model
 - **Qwen3-VL** - SOTA level performance vision-language model
+- **Qwen3-VL MoE** - Vision-Language Mixture-of-Experts with Expert Parallelism and Sequence Parallelism support
 - **Qwen2.5-Omni** - Unified vision + audio + text modalities
 - **Qwen3-Omni MoE** - Multimodal Mixture-of-Experts with vision + audio + text and Expert Parallelism support
 - **LLaVA-OneVision** - Fully open-source vision-language model
