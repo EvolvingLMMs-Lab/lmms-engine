@@ -384,6 +384,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         # Freeze reference model
         for p in self.ref_model.parameters():
             p.requires_grad = False
+        for p in self.old_model.parameters():
+            p.requires_grad = False
         
         # Get model components
         model_base = model.get_model()
@@ -438,8 +440,9 @@ class BaseBLIP3oGRPOTrainer(Trainer):
     def _prepare_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Skip automatic tensor conversion."""
         return inputs
-    
-    def _compute_rewards(self, inputs: List[Dict], images: List[Any]) -> torch.Tensor:
+
+
+    def _compute_rewards(self, inputs: List[Dict], images: List[Any], completions: Optional[List[str]] = None) -> torch.Tensor:
         """
         Compute rewards from all reward functions.
         
@@ -454,8 +457,7 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         rewards_per_func = torch.zeros(len(images), len(self.reward_funcs), device=device)
         
         # Extract metadata
-        # captions = [ex.get("caption", ex.get("target_caption", "")) for ex in inputs]
-        captions = inputs["caption"]
+        captions = [ex.get("caption", ex.get("target_caption", "")) for ex in inputs]
         
         for i, (func_name, _, reward_func) in enumerate(self.reward_funcs):
             if func_name == "jpeg_compressibility" or func_name == "jpeg_incompressibility":
@@ -466,6 +468,9 @@ class BaseBLIP3oGRPOTrainer(Trainer):
                     [cap for cap in captions for _ in range(self.num_generations)]
                 )["scores"]
                 rewards_per_func[:, i] = torch.tensor(scores).to(device)
+            elif func_name == "format":
+                assert completions is not None, "completions must be provided for format reward"
+                rewards_per_func[:, i] = torch.tensor(reward_func(completions)).to(device)
             elif func_name == "gen_eval":
                 meta_files = [ex.get("metadata") for ex in inputs]
                 meta_input = {"meta_datas": [m for m in meta_files for _ in range(self.num_generations)]}
@@ -489,11 +494,11 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         
         log_dir = self.log_dir
         
-        # text_content = f"Prompt: {prompts_text[0]}"
+        text_content = f"Prompt: {prompts_text[0]}"
         
-        # if completions is not None:
-        #     for idx in range (self.num_generations):
-        #         text_content += f"\nCompletion {idx}: {completions[idx]}"
+        if completions is not None:
+            for idx in range (self.num_generations):
+                text_content += f"\nCompletion {idx}: {completions[idx]}"
             
         if os.path.exists(os.path.join(log_dir, f"step_{global_step}_{device_id}.txt")):
             return 
@@ -561,8 +566,6 @@ class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """Compute T2I GRPO loss."""
@@ -690,38 +693,358 @@ class T2IGRPOTrainer(BaseBLIP3oGRPOTrainer):
         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
         return noise_pred
 
-    # @torch.no_grad()
-    # def _compute_diffusion_pred_for_reference(
-    #     self, 
-    #     model_to_use: PreTrainedModel,
-    #     diffusion_latents: torch.Tensor,
-    #     traj_cur_latents: torch.Tensor,
-    #     ts: Optional[torch.Tensor] = None,
-    #     guidance_scale: float = 2.0,
-    #     num_inference_steps: int = 30,
-    #     num_images_per_prompt: int = 1,
-    #     **kwargs
-    # ):
-    #     latent_model_input = torch.cat([traj_cur_latents] * 2)
-    #     latent_model_input = latent_model_input.to(diffusion_latents.dtype)
 
-    #     model_base = model_to_use.get_model()
-    #     img_hidden_states = model_base.diffusion_connector(diffusion_latents)
+@TRAINER_REGISTER.register("blip3o_next_t2icot_grpo_trainer")
+class T2ICoTGRPOTrainer(BaseBLIP3oGRPOTrainer):
+    """
+    GRPO Trainer for Text-to-Image with Chain-of-Thought reasoning.
+    
+    This trainer combines CoT text generation with T2I diffusion, optimizing both
+    the reasoning process and the image generation jointly.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Setup generation config for CoT
+        self.generation_config = {
+            "max_new_tokens": 512,
+            "do_sample": True,
+            "temperature": 1.0,
+            "num_return_sequences": self.num_generations,
+            "pad_token_id": self.processing_class.pad_token_id,
+            "eos_token_id": self.processing_class.eos_token_id,
+        }
+    
+    def _configure_parameters(self, model: PreTrainedModel):
+        """Configure parameters for CoT + T2I training."""
+        # Freeze reference model
+        for p in self.ref_model.parameters():
+            p.requires_grad = False
+        
+        # Get model components
+        model_base = model.get_model()
+        
+        # For CoT+T2I, we train both language and diffusion components
+        for p in model_base.parameters():
+            p.requires_grad = True
+        for p in model.visual.parameters():
+            p.requires_grad = True
+        for p in model.lm_head.parameters():
+            p.requires_grad = True
+        
+        # T2I components
+        model_base.down_projector.requires_grad_(True)
+        model_base.t2i_queries.requires_grad = True
+        model_base.dit.requires_grad_(True)
+    
+    def create_optimizer(self):
+        """
+        Create optimizer with different learning rates for DiT and LLM.
+        DiT gets higher LR (1e-5), LLM gets lower LR (1e-6).
+        """
+        opt_kwargs = {
+            "betas": (self.args.adam_beta1, self.args.adam_beta2),
+            "eps": self.args.adam_epsilon,
+            "weight_decay": self.args.weight_decay,
+        }
+        
+        dit_params = []
+        llm_params = []
+        
+        # Collect DiT parameters
+        for name, param in self.model.get_model().dit.named_parameters():
+            if param.requires_grad:
+                dit_params.append(param)
+        
+        for name, param in self.model.get_model().down_projector.named_parameters():
+            if param.requires_grad:
+                dit_params.append(param)
+        
+        if self.model.get_model().t2i_queries.requires_grad:
+            dit_params.append(self.model.get_model().t2i_queries)
+        
+        # Collect LLM parameters
+        for name, param in self.model.get_model().named_parameters():
+            if param.requires_grad and "dit" not in name and "queries" not in name and "down_projector" not in name:
+                llm_params.append(param)
+        
+        # Create parameter groups with different LRs
+        param_groups = [
+            {"params": dit_params, "lr": 3e-6},
+            {"params": llm_params, "lr": 5e-7},
+        ]
+        
+        optimizer = torch.optim.AdamW(param_groups, **opt_kwargs)
+        return optimizer
+        
+    
+    def _compute_cot_loss(
+        self,
+        model: PreTrainedModel,
+        prompt_completion_ids: torch.Tensor,
+        completion_ids: torch.Tensor,
+        advantages: torch.Tensor,
+        prompt_length: int
+    ):
+        """
+        Compute CoT loss on text generation.
+        
+        Args:
+            model: Policy model
+            prompt_completion_ids: Full prompt+completion token IDs
+            completion_ids: Completion-only token IDs
+            advantages: Advantage values for each generation
+            prompt_length: Length of prompt tokens
+            
+        Returns:
+            Tuple of (cot_loss, mean_kl, completion_mask)
+        """
+        def get_per_token_logps(model_class, input_ids):
+            """Get log probabilities for each token."""
+            logits = model_class(input_ids).logits[:, :-1, :]
+            input_ids = input_ids[:, 1:]
+            
+            per_token_logps = []
+            for logits_row, input_ids_row in zip(logits, input_ids):
+                log_probs = logits_row.log_softmax(dim=-1)
+                token_log_prob = torch.gather(
+                    log_probs, dim=1, index=input_ids_row.unsqueeze(1)
+                ).squeeze(1)
+                per_token_logps.append(token_log_prob)
+            
+            return torch.stack(per_token_logps)
+        
+        # Policy log probs
+        per_token_logps = get_per_token_logps(model, prompt_completion_ids)
+        per_token_logps = per_token_logps[:, prompt_length - 1:]
+        
+        # Reference log probs
+        with torch.inference_mode():
+            ref_per_token_logps = get_per_token_logps(self.ref_model, prompt_completion_ids)
+        ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1:]
+        
+        # KL divergence
+        per_token_kl = torch.exp(ref_per_token_logps - per_token_logps) - \
+                      (ref_per_token_logps - per_token_logps) - 1
+        
+        # Mask everything after first EOS token
+        is_eos = completion_ids == self.processing_class.eos_token_id
+        device = self.accelerator.device
+        eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
+        eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
+        sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
+        completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
+        
+        # Compute loss
+        advantages_cot = advantages.unsqueeze(1)
+        per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages_cot
+        per_token_loss = -(per_token_loss - 0.01 * per_token_kl)
+        cot_loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        
+        return cot_loss, mean_kl, completion_mask
+    
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """Compute CoT + T2I GRPO loss."""
+        if return_outputs:
+            raise ValueError("GRPOTrainer does not support returning outputs")
+        
+        assert self.num_generations > 1, "num_generations must be greater than 1 for GRPO"
+        device = self.accelerator.device
+        # Prepare prompts for CoT generation
+        # prompts_text = [
+        #     maybe_apply_chat_template(ex, self.processing_class)["prompt"] 
+        #     for ex in inputs
+        # ]
+        
+        # prompt_inputs = self.processing_class.tokenizer(
+        #     prompts_text,
+        #     return_tensors="pt",
+        #     padding=True,
+        #     padding_side="left",
+        #     add_special_tokens=False,
+        # ).to(device)
+        
+        # if self.max_prompt_length is not None:
+        #     prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length:]
+        #     prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length:]
+        
+        # Generate CoT completions
+        # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+        with torch.no_grad():
+            from transformers import GenerationConfig
+            gen_config = GenerationConfig(**self.generation_config)
+            completion = unwrapped_model.generate(**prompt_inputs, generation_config=gen_config)
+            
+            # Pad if needed
+            max_length = completion.size(1)
+            prompt_completion_ids = completion
+        
+        # prompt_length = prompt_inputs["input_ids"].size(1)
+        # completion_ids = prompt_completion_ids[:, prompt_length:]
+        
+        # # Decode completions for T2I
+        # completions = self.processing_class.tokenizer.batch_decode(
+        #     prompt_completion_ids, skip_special_tokens=True
+        # )
 
-    #     img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
-    #     img_attention_mask = torch.ones(
-    #         (img_hidden_states.shape[0], img_hidden_states.shape[1]),
-    #         device=latent_model_input.device,
-    #         dtype=img_hidden_states.dtype
-    #     )
-    #     res = model_base.sana(
-    #         hidden_states=latent_model_input,
-    #         encoder_hidden_states=img_hidden_states,
-    #         timestep=ts.to(latent_model_input.device),
-    #         encoder_attention_mask=img_attention_mask,
-    #         return_dict=False,
-    #     )
-    #     noise_pred = res[0]
-    #     noise_pred_uncond, noise_pred= noise_pred.chunk(2)
-    #     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
-    #     return noise_pred
+        with torch.no_grad():
+            _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
+                self.old_model.generate_images(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs["attention_mask"],
+                    guidance_scale=self.guidance_scale,
+                    num_inference_steps=self.num_inference_steps,
+                    num_images_per_prompt=self.num_generations,
+                    use_sde=True
+                )
+        # Compute rewards and advantages
+        rewards, rewards_per_func = self._compute_rewards(inputs, images, completions)
+        reshaped_rewards = rewards.view(-1, self.num_generations)
+        mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
+        std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
+        advantages = torch.clamp(advantages, -5, 5)
+
+        # rewards, rewards_per_func = self._compute_rewards(inputs, images)
+        # reshaped_rewards = rewards.view(-1, self.num_generations)
+        # mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
+        # std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        # advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
+        # advantages = torch.clamp(advantages, -5, 5)
+        
+        self._log_step(images, advantages, completions)
+
+
+        # CoT loss computation
+        cot_loss, mean_kl_cot, completion_mask = self._compute_cot_loss(
+            model, prompt_completion_ids, completion_ids, advantages, prompt_length
+        )
+
+        policy_noise_preds = self._compute_diffusion_pred(
+            model,
+            diffusion_latents=diffusion_latents,
+            traj_cur_latents=traj_latents,
+            ts=ts,
+            guidance_scale=self.guidance_scale,
+            num_inference_steps=self.num_inference_steps,
+            num_images_per_prompt=self.num_generations
+        )
+
+        with torch.no_grad():
+            ref_noise_preds = self._compute_diffusion_pred(
+                self.ref_model,
+                diffusion_latents=diffusion_latents,
+                traj_cur_latents=traj_latents,
+                ts=ts,
+                guidance_scale=self.guidance_scale,
+                num_inference_steps=self.num_inference_steps,
+                num_images_per_prompt=self.num_generations
+            )
+        
+        # Compute log probs and KL
+        _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
+            policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
+        )
+        _, _, ref_mean, ref_std = compute_log_prob(
+            ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
+        )
+        
+        kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
+        kl = kl.mean(dim=tuple(range(1, kl.ndim)))
+        
+        # GRPO loss
+        advantages_steps = advantages.repeat_interleave(self.num_inference_steps, dim=0)
+        ratio = torch.exp(policy_log_probs - traj_log_probs)
+        unclipped_loss_diff = -advantages_steps * ratio
+        clipped_loss_diff = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
+        policy_loss_diff = torch.mean(torch.maximum(unclipped_loss_diff, clipped_loss_diff))
+        diff_loss = policy_loss_diff + self.beta * kl.mean()
+        
+        
+        # Generate images from CoT completions
+        # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+        #     with torch.no_grad():
+        #         images, diff_log_probs_traj, prev_latents, pred_latents, ts = \
+        #             unwrapped_model.generate_image(
+        #                 text=completions,
+        #                 tokenizer=self.processing_class.tokenizer,
+        #                 diffusion_kwargs=self.diffusion_config,
+        #                 use_sde=True,
+        #             )
+        
+        # # Compute rewards and advantages
+        # rewards, rewards_per_func = self._compute_rewards(inputs, images, completions)
+        # reshaped_rewards = rewards.view(-1, self.num_generations)
+        # mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
+        # std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        # advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
+        # advantages = torch.clamp(advantages, -5, 5)
+        
+        
+        # self._log_step(images, prompts_text, advantages, completions)
+
+        # # CoT loss computation
+        # cot_loss, mean_kl_cot, completion_mask = self._compute_cot_loss(
+        #     model, prompt_completion_ids, completion_ids, advantages, prompt_length
+        # )
+        
+        # # Diffusion loss computation
+        # model_pred = self._compute_diffusion_loss(
+        #     model, completions, prev_latents, pred_latents, ts, "t2i_queries", 1
+        # )
+        
+        # with torch.no_grad():
+        #     ref_model_pred = self._compute_diffusion_loss(
+        #         self.ref_model, completions, prev_latents, pred_latents, ts, "t2i_queries", 1
+        #     )
+        
+        # # Compute log probs and KL for diffusion
+        # _, log_prob_diff, mean_diff, std_diff = compute_log_prob(
+        #     model_pred, self.scheduler, prev_latents, pred_latents, ts
+        # )
+        # _, _, mean_ref_diff, std_ref_diff = compute_log_prob(
+        #     ref_model_pred, self.scheduler, prev_latents, pred_latents, ts
+        # )
+        
+        # kl_diff = (mean_diff - mean_ref_diff)**2 / (2 * std_diff**2)
+        # kl_diff = kl_diff.mean(dim=tuple(range(1, kl_diff.ndim)))
+        
+        # # Diffusion GRPO loss
+        # advantages_diff = advantages.repeat_interleave(
+        #     self.diffusion_config["num_inference_steps"], dim=0
+        # )
+        # ratio_diff = torch.exp(log_prob_diff - diff_log_probs_traj)
+        # assert (ratio_diff == 1).all(), f"{ratio_diff}"
+
+        # unclipped_loss_diff = -advantages_diff * ratio_diff
+        # clipped_loss_diff = -advantages_diff * torch.clamp(
+        #     ratio_diff, 1.0 - 1e-4, 1.0 + 1e-4
+        # )
+        # diff_loss = torch.mean(torch.maximum(unclipped_loss_diff, clipped_loss_diff))
+        # diff_loss = diff_loss + self.beta * kl_diff.mean()
+        
+        # Combined loss
+        loss = cot_loss + diff_loss
+        
+        # Logging
+        completion_length = self.accelerator.gather_for_metrics(
+            completion_mask.sum(1)
+        ).float().mean().item()
+        
+        self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
+        self._metrics["cot_loss"].append(self.accelerator.gather_for_metrics(cot_loss).mean().item())
+        self._metrics["cot_kl"].append(self.accelerator.gather_for_metrics(mean_kl_cot).mean().item())
+        self._metrics["diff_loss"].append(self.accelerator.gather_for_metrics(diff_loss).mean().item())
+        self._metrics["diff_kl"].append(self.accelerator.gather_for_metrics(kl_diff).mean().item())
+        self._metrics["completion_length"].append(completion_length)
+        
+        for i, (func_name, _, _) in enumerate(self.reward_funcs):
+            self._metrics[f"reward/{func_name}"].append(
+                self.accelerator.gather_for_metrics(
+                    rewards_per_func[:, i]
+                ).mean().item()
+            )
+        
+        return loss
