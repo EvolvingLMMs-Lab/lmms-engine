@@ -1,5 +1,5 @@
-from typing import TYPE_CHECKING
 import types
+from typing import TYPE_CHECKING
 
 import torch
 import torch.distributed as dist
@@ -18,8 +18,8 @@ from torch.distributed.tensor.parallel import (
 from tqdm import tqdm
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeForConditionalGeneration,
-    Qwen3VLMoeTextSparseMoeBlock,
     Qwen3VLMoeTextExperts,
+    Qwen3VLMoeTextSparseMoeBlock,
 )
 
 import lmms_engine.parallel.process_group_manager as pgm
