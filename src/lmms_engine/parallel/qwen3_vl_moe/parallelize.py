@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+import types
 
 import torch
 import torch.distributed as dist
@@ -18,10 +19,10 @@ from tqdm import tqdm
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeForConditionalGeneration,
     Qwen3VLMoeTextSparseMoeBlock,
+    Qwen3VLMoeTextExperts,
 )
 
 import lmms_engine.parallel.process_group_manager as pgm
-from lmms_engine.models.qwen3_vl_moe.qwen3_vl_moe_experts import Qwen3VLMoeExperts
 from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
 
 from .style import Qwen3VLMoeParallelStyle
@@ -44,66 +45,29 @@ def stack_expert_params_qwen3_vl_moe(model: Qwen3VLMoeForConditionalGeneration) 
             if not hasattr(decoder_layer.mlp, "experts"):
                 continue
 
-            # Check if experts are already stacked (from HuggingFace transformers)
-            # Qwen3VLMoeTextExperts has gate_up_proj and down_proj as Parameters, not a list of expert modules
-            if hasattr(decoder_layer.mlp.experts, "gate_up_proj"):
-                # Already stacked - HuggingFace transformers model
-                # The experts module already has:
-                # - gate_up_proj: Parameter with shape [num_experts, hidden_size, 2*intermediate_size]
-                # - down_proj: Parameter with shape [num_experts, intermediate_size, hidden_size]
+            # No need to copy parameters
+            def ep_forward(self, *routed_input):
+                out_experts_split = []
 
-                # We need to convert to our custom Qwen3VLMoeExperts class for EP compatibility
-                hf_experts = decoder_layer.mlp.experts
-                num_experts = hf_experts.num_experts
-                hidden_dim = hf_experts.hidden_size
-                intermediate_size = hf_experts.intermediate_size
-                act_fn = hf_experts.act_fn
+                # Handle DTensor case
+                if isinstance(self.down_proj, DTensor):
+                    down_proj = self.down_proj.to_local()
+                    gate_up_proj = self.gate_up_proj.to_local()
+                else:
+                    down_proj = self.down_proj
+                    gate_up_proj = self.gate_up_proj
 
-                new_experts = Qwen3VLMoeExperts(
-                    num_experts=num_experts,
-                    hidden_dim=hidden_dim,
-                    intermediate_size=intermediate_size,
-                    act_fn=act_fn,
-                )
+                # Process each local expert
+                for idx, x in enumerate(routed_input):
+                    gate_up = torch.matmul(x, gate_up_proj[idx])
+                    gate, up = gate_up.chunk(2, dim=-1)
+                    hidden = up * self.act_fn(gate)
+                    hidden = torch.matmul(hidden, down_proj[idx])
+                    out_experts_split.append(hidden)
 
-                # Copy already-stacked parameters
-                # HF uses shape [num_experts, hidden_size, 2*expert_dim]
-                new_experts.gate_up_proj = nn.Parameter(hf_experts.gate_up_proj.data.clone())
-                # HF uses shape [num_experts, expert_dim, hidden_size]
-                new_experts.down_proj = nn.Parameter(hf_experts.down_proj.data.clone())
+                return torch.cat(out_experts_split, dim=0)
 
-                del decoder_layer.mlp.experts
-                decoder_layer.mlp.add_module("experts", new_experts)
-                continue
-
-            # Otherwise, handle models with individual expert modules (legacy path)
-            # Get expert configuration from the first expert
-            first_expert = decoder_layer.mlp.experts[0]
-            num_experts = len(decoder_layer.mlp.experts)
-            hidden_dim = first_expert.gate_up_proj.weight.size(0)
-            intermediate_size = first_expert.gate_up_proj.weight.size(1) // 2  # Divide by 2 for fused gate_up
-            act_fn = first_expert.act_fn
-
-            new_experts = Qwen3VLMoeExperts(
-                num_experts=num_experts,
-                hidden_dim=hidden_dim,
-                intermediate_size=intermediate_size,
-                act_fn=act_fn,
-            )
-
-            # CRITICAL: Stack FUSED gate_up_proj weights
-            # Each expert has gate_up_proj with shape [hidden_dim, 2*intermediate_size]
-            gate_up_proj_weights = [expert.gate_up_proj.weight for expert in decoder_layer.mlp.experts]
-            stacked_gate_up_proj = torch.stack(gate_up_proj_weights, dim=0)
-            new_experts.gate_up_proj = nn.Parameter(stacked_gate_up_proj)
-
-            # Stack down_proj weights
-            down_proj_weights = [expert.down_proj.weight for expert in decoder_layer.mlp.experts]
-            stacked_down_proj = torch.stack(down_proj_weights, dim=0)
-            new_experts.down_proj = nn.Parameter(stacked_down_proj)
-
-            del decoder_layer.mlp.experts
-            decoder_layer.mlp.add_module("experts", new_experts)
+            decoder_layer.mlp.experts.forward = types.MethodType(ep_forward, decoder_layer.mlp.experts)
 
 
 def apply_qwen3_vl_moe_parallel(

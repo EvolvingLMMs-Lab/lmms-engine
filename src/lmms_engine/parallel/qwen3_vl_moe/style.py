@@ -14,9 +14,9 @@ from torch.distributed.tensor import (
 )
 from torch.distributed.tensor.parallel import ParallelStyle
 from torch.distributed.tensor.placement_types import Placement
+from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
 
 import lmms_engine.parallel.process_group_manager as pgm
-from lmms_engine.models.qwen3_vl_moe.qwen3_vl_moe_experts import Qwen3VLMoeExperts
 from lmms_engine.parallel.expert_parallel.utils import (
     _compute_permute_indices,
     _token_combine,
@@ -84,7 +84,7 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
 
     @staticmethod
     def _partition_fn(name, mod, device_mesh):
-        if isinstance(mod, Qwen3VLMoeExperts):
+        if isinstance(mod, Qwen3VLMoeTextExperts):
             expert_parallel_dim = 0
 
             # CRITICAL: Shard the FUSED gate_up_proj parameter
@@ -111,7 +111,7 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
             )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        if isinstance(module, Qwen3VLMoeExperts):
+        if isinstance(module, Qwen3VLMoeTextExperts):
             self.num_experts = module.num_experts
 
         return distribute_module(

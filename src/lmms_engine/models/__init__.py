@@ -21,6 +21,7 @@ from .qwen3_omni_moe import (
     apply_liger_kernel_to_qwen3_omni_moe,
 )
 from .qwen3_vl import apply_liger_kernel_to_qwen3_vl
+from .qwen3_vl_moe import apply_liger_kernel_to_qwen3_vl_moe
 from .rae_siglip import RaeSiglipConfig, RaeSiglipModel
 from .sit import SiT, SiTConfig, SiTModel
 from .wanvideo import (
@@ -44,6 +45,7 @@ __all__ = [
     "apply_liger_kernel_to_qwen2_5_vl",
     "apply_liger_kernel_to_qwen2_audio",
     "apply_liger_kernel_to_qwen3_vl",
+    "apply_liger_kernel_to_qwen3_vl_moe",
     "apply_liger_kernel_to_qwen3_moe",
     "Qwen3OmniMoeThinkerConfig",
     "Qwen3OmniMoeThinkerForConditionalGeneration",
