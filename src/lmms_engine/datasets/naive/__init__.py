@@ -1,4 +1,5 @@
 from .base_dataset import BaseDataset
+from .llava_video_dataset import LLaVAVideoDataset
 from .multimodal_dataset import MultiModalDataset
 from .qwen_omni_dataset import QwenOmniSFTDataset
 from .rae_dataset import RaeDataset
@@ -14,4 +15,5 @@ __all__ = [
     "QwenOmniSFTDataset",
     "RaeDataset",
     "SitDataset",
+    "LLaVAVideoDataset",
 ]

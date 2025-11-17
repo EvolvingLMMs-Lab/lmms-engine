@@ -3,6 +3,7 @@ from .bagel_processor import BagelDataProcessor
 from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
 from .llava_processor import LLaVADataProcessor
+from .llava_video_processor import LLaVAVideoDataProcessor
 from .pure_text_processor import PureTextDataProcessor
 from .qwen2_5_omni_processor import Qwen2_5OmniDataProcessor
 from .qwen2_5_vl_processor import Qwen2_5_VLDataProcessor
@@ -19,6 +20,7 @@ __all__ = [
     "AeroDataProcessor",
     "BaseQwen2_5_DataProcessor",
     "LLaVADataProcessor",
+    "LLaVAVideoDataProcessor",
     "Qwen2_5OmniDataProcessor",
     "Qwen3OmniMoeDataProcessor",
     "Qwen2_5_VLDataProcessor",

@@ -4,6 +4,7 @@ from .config import ModelConfig
 from .dream_dllm import DreamDLLMConfig, DreamDLLMForMaskedLM
 from .llada_dllm import LLaDADLLMConfig, LLaDADLLMForMaskedLM
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
+from .llava_video import apply_liger_kernel_to_llava_video
 from .monkey_patch import MONKEY_PATCHER
 from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_omni import (
@@ -37,6 +38,7 @@ __all__ = [
     "ModelConfig",
     "AeroProcessor",
     "apply_liger_kernel_to_llava_onevision",
+    "apply_liger_kernel_to_llava_video",
     "apply_liger_kernel_to_qwen2",
     "Qwen2_5OmniThinkerConfig",
     "Qwen2_5OmniThinkerForConditionalGeneration",
