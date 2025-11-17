@@ -11,8 +11,3 @@ class ModelConfig(Args):
     overwrite_config: Optional[Dict[str, str]] = None
     monkey_patch_kwargs: Optional[Dict[str, Any]] = None
 
-    # LLaVA-Video slow-fast frame configuration
-    add_faster_video: Optional[bool] = False
-    faster_token_stride: Optional[int] = 10
-    mm_spatial_pool_stride: Optional[int] = 2
-    mm_spatial_pool_mode: Optional[Literal["average", "max", "bilinear"]] = "average"
