@@ -10,4 +10,3 @@ class ModelConfig(Args):
     attn_implementation: Optional[Literal["flash_attention_2", "sdpa", "eager"]] = "sdpa"
     overwrite_config: Optional[Dict[str, str]] = None
     monkey_patch_kwargs: Optional[Dict[str, Any]] = None
-
