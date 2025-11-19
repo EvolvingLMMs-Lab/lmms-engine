@@ -290,8 +290,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         self.num_inference_steps = rl_config.get("num_inference_steps", 30)
         self.beta = float(rl_config.get("beta", 0.0))
         self.max_prompt_length = rl_config.get("max_prompt_length", 1024) # for t2i task, it will not be used.
-        self.max_completion_length = rl_config.get("max_completion_length", 2048) # for t2i task, it will not be used.
-
+        # self.max_completion_length = rl_config.get("max_completion_length", 2048) # for t2i task, it will not be used.
+        self.max_response_length = rl_config.get("max_response_length", 1024)
         # Scheduler
         # self.scheduler = FlowMatchEulerDiscreteScheduler(shift=3.0)
         # self.scheduler.set_timesteps(self.num_inference_steps)
@@ -393,8 +393,8 @@ class BaseBLIP3oGRPOTrainer(Trainer):
         # Freeze base components
         for p in model_base.parameters():
             p.requires_grad = False
-        for p in model_base.vision_tower.parameters():
-            p.requires_grad = False
+        # for p in model_base.vision_tower.parameters():
+        #     p.requires_grad = False
         for p in model.lm_head.parameters():
             p.requires_grad = False
         
@@ -409,10 +409,19 @@ class BaseBLIP3oGRPOTrainer(Trainer):
             del self.ref_model.get_model().sana_vae.encoder
             del self.old_model.get_model().vision_tower
             del self.old_model.get_model().sana_vae.encoder
-        elif self.task_type == "i2i":
-            model_base.diffusion_connector.requires_grad_(True)
-            # model_base.i2i_queries.requires_grad = True
-            model_base.sana.requires_grad_(True)
+            # if self.task_type == "t2icot":
+            #     model_base.para
+        elif self.task_type == "t2icot":
+            for p in model_base.parameters():
+                p.requires_grad = True
+            for p in model.lm_head.parameters():
+                p.requires_grad = True
+            del model_base.vision_tower
+            del model_base.sana_vae.encoder
+            del self.ref_model.get_model().vision_tower
+            del self.ref_model.get_model().sana_vae.encoder
+            del self.old_model.get_model().vision_tower
+            del self.old_model.get_model().sana_vae.encoder
         else:
             raise ValueError(f"Unknown task type: {self.task_type}")
 
@@ -708,75 +717,70 @@ class T2ICoTGRPOTrainer(BaseBLIP3oGRPOTrainer):
         
         # Setup generation config for CoT
         self.generation_config = {
-            "max_new_tokens": 512,
-            "do_sample": True,
-            "temperature": 1.0,
-            "num_return_sequences": self.num_generations,
-            "pad_token_id": self.processing_class.pad_token_id,
-            "eos_token_id": self.processing_class.eos_token_id,
+
         }
     
-    def _configure_parameters(self, model: PreTrainedModel):
-        """Configure parameters for CoT + T2I training."""
-        # Freeze reference model
-        for p in self.ref_model.parameters():
-            p.requires_grad = False
+    # def _configure_parameters(self, model: PreTrainedModel):
+    #     """Configure parameters for CoT + T2I training."""
+    #     # Freeze reference model
+    #     for p in self.ref_model.parameters():
+    #         p.requires_grad = False
         
-        # Get model components
-        model_base = model.get_model()
+    #     # Get model components
+    #     model_base = model.get_model()
         
-        # For CoT+T2I, we train both language and diffusion components
-        for p in model_base.parameters():
-            p.requires_grad = True
-        for p in model.visual.parameters():
-            p.requires_grad = True
-        for p in model.lm_head.parameters():
-            p.requires_grad = True
+    #     # For CoT+T2I, we train both language and diffusion components
+    #     for p in model_base.parameters():
+    #         p.requires_grad = True
+    #     for p in model.visual.parameters():
+    #         p.requires_grad = True
+    #     for p in model.lm_head.parameters():
+    #         p.requires_grad = True
         
-        # T2I components
-        model_base.down_projector.requires_grad_(True)
-        model_base.t2i_queries.requires_grad = True
-        model_base.dit.requires_grad_(True)
+    #     # T2I components
+    #     model_base.down_projector.requires_grad_(True)
+    #     model_base.t2i_queries.requires_grad = True
+    #     model_base.dit.requires_grad_(True)
     
-    def create_optimizer(self):
-        """
-        Create optimizer with different learning rates for DiT and LLM.
-        DiT gets higher LR (1e-5), LLM gets lower LR (1e-6).
-        """
-        opt_kwargs = {
-            "betas": (self.args.adam_beta1, self.args.adam_beta2),
-            "eps": self.args.adam_epsilon,
-            "weight_decay": self.args.weight_decay,
-        }
+    # def create_optimizer(self):
+    #     """
+    #     Create optimizer with different learning rates for DiT and LLM.
+    #     DiT gets higher LR (1e-5), LLM gets lower LR (1e-6).
+    #     """
+    #     opt_kwargs = {
+    #         "betas": (self.args.adam_beta1, self.args.adam_beta2),
+    #         "eps": self.args.adam_epsilon,
+    #         "weight_decay": self.args.weight_decay,
+    #     }
         
-        dit_params = []
-        llm_params = []
+    #     dit_params = []
+    #     llm_params = []
         
-        # Collect DiT parameters
-        for name, param in self.model.get_model().dit.named_parameters():
-            if param.requires_grad:
-                dit_params.append(param)
+    #     # Collect DiT parameters
+    #     for name, param in self.model.get_model().dit.named_parameters():
+    #         if param.requires_grad:
+    #             dit_params.append(param)
         
-        for name, param in self.model.get_model().down_projector.named_parameters():
-            if param.requires_grad:
-                dit_params.append(param)
+    #     for name, param in self.model.get_model().down_projector.named_parameters():
+    #         if param.requires_grad:
+    #             dit_params.append(param)
         
-        if self.model.get_model().t2i_queries.requires_grad:
-            dit_params.append(self.model.get_model().t2i_queries)
+    #     if self.model.get_model().t2i_queries.requires_grad:
+    #         dit_params.append(self.model.get_model().t2i_queries)
         
-        # Collect LLM parameters
-        for name, param in self.model.get_model().named_parameters():
-            if param.requires_grad and "dit" not in name and "queries" not in name and "down_projector" not in name:
-                llm_params.append(param)
+    #     # Collect LLM parameters
+    #     for name, param in self.model.get_model().named_parameters():
+    #         if param.requires_grad and "dit" not in name and "queries" not in name and "down_projector" not in name:
+    #             llm_params.append(param)
         
-        # Create parameter groups with different LRs
-        param_groups = [
-            {"params": dit_params, "lr": 3e-6},
-            {"params": llm_params, "lr": 5e-7},
-        ]
+    #     # Create parameter groups with different LRs
+    #     param_groups = [
+    #         {"params": dit_params, "lr": 3e-6},
+    #         {"params": llm_params, "lr": 5e-7},
+    #     ]
         
-        optimizer = torch.optim.AdamW(param_groups, **opt_kwargs)
-        return optimizer
+    #     optimizer = torch.optim.AdamW(param_groups, **opt_kwargs)
+    #     return optimizer
         
     
     def _compute_cot_loss(
@@ -846,54 +850,43 @@ class T2ICoTGRPOTrainer(BaseBLIP3oGRPOTrainer):
         return cot_loss, mean_kl, completion_mask
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        """Compute CoT + T2I GRPO loss."""
         if return_outputs:
             raise ValueError("GRPOTrainer does not support returning outputs")
         
         assert self.num_generations > 1, "num_generations must be greater than 1 for GRPO"
         device = self.accelerator.device
-        # Prepare prompts for CoT generation
-        # prompts_text = [
-        #     maybe_apply_chat_template(ex, self.processing_class)["prompt"] 
-        #     for ex in inputs
-        # ]
-        
-        # prompt_inputs = self.processing_class.tokenizer(
-        #     prompts_text,
-        #     return_tensors="pt",
-        #     padding=True,
-        #     padding_side="left",
-        #     add_special_tokens=False,
-        # ).to(device)
-        
-        # if self.max_prompt_length is not None:
-        #     prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -self.max_prompt_length:]
-        #     prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -self.max_prompt_length:]
-        
-        # Generate CoT completions
-        # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
+        tokenizer = self.train_dataset.processor.tokenizer
+        prompt_inputs = {
+            "input_ids": inputs["input_ids"][:, -self.max_prompt_length:],
+            "attention_mask": inputs["attention_mask"][:, -self.max_prompt_length:],
+        }
+
         with torch.no_grad():
-            from transformers import GenerationConfig
-            gen_config = GenerationConfig(**self.generation_config)
-            completion = unwrapped_model.generate(**prompt_inputs, generation_config=gen_config)
-            
+            completion = self.old_model.generate_gen_ids(
+                **prompt_inputs,
+                max_new_tokens=None,
+                do_sample=True,
+                temperature=1.0,
+                num_return_sequences=self.num_generations,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id
+            )
             # Pad if needed
             max_length = completion.size(1)
             prompt_completion_ids = completion
         
-        # prompt_length = prompt_inputs["input_ids"].size(1)
-        # completion_ids = prompt_completion_ids[:, prompt_length:]
-        
-        # # Decode completions for T2I
-        # completions = self.processing_class.tokenizer.batch_decode(
-        #     prompt_completion_ids, skip_special_tokens=True
-        # )
+        prompt_length = prompt_inputs["input_ids"].size(1)
+        completion_ids = prompt_completion_ids[:, prompt_length:]
+        # Decode completions for T2I
+        completions = tokenizer.batch_decode(
+            prompt_completion_ids, skip_special_tokens=True
+        )
 
         with torch.no_grad():
             _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
                 self.old_model.generate_images(
-                    input_ids=inputs["input_ids"],
-                    attention_mask=inputs["attention_mask"],
+                    gen_ids=prompt_completion_ids,
+                    # attention_mask=inputs["attention_mask"],
                     guidance_scale=self.guidance_scale,
                     num_inference_steps=self.num_inference_steps,
                     num_images_per_prompt=self.num_generations,
@@ -915,7 +908,6 @@ class T2ICoTGRPOTrainer(BaseBLIP3oGRPOTrainer):
         # advantages = torch.clamp(advantages, -5, 5)
         
         self._log_step(images, advantages, completions)
-
 
         # CoT loss computation
         cot_loss, mean_kl_cot, completion_mask = self._compute_cot_loss(

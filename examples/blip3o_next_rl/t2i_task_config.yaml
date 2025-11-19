@@ -1,15 +1,51 @@
-trainer_type: blip3o_next_t2i_grpo_trainer
+trainer_type: bagel_t2i_grpo_trainer
+# dataset_config:
+#   dataset_type: t2i_unirl
+#   dataset_format: jsonl
+#   dataset_path: /mnt/raid10/boli/UniRL/assets/rl_datasets/train_metadata.jsonl
+#   processor_config:
+#     processor_name: Qwen/Qwen2.5-VL-3B-Instruct
+#     processor_type: qwen2_5_vl
+
 dataset_config:
-  dataset_type: t2i_unirl
-  dataset_format: jsonl
-  dataset_path: /mnt/raid10/boli/UniRL/assets/rl_datasets/train_metadata.jsonl
+  extra_kwargs: {}
+  dataset_type: bagel_iterable
+  dataset_format: yaml
   processor_config:
-    processor_name: Qwen/Qwen2.5-VL-3B-Instruct
-    processor_type: qwen2_5_vl
+    processor_name: lmms-lab/BAGEL-7B-MoT-ver.LE
+    processor_type: bagel
+  # dataset_path: /mnt/raid10/boli/bagel_example_data
+  # Update this to your dataset path
+  # Example dataset: https://huggingface.co/datasets/kcz358/bagel-example
+  datasets:
+    - path: /mnt/raid10/boli/bagel_example_data/dataset_hf.parquet
+      data_folder: /mnt/raid10/boli/bagel_example_data
+      data_type: parquet
+  shuffle: true
+  eval_dataset_path: null
+  object_storage: none
+  bucket_name: null
+  packing: true
+  packing_strategy: first_fit
+  packing_length: 3000
+  filter_overlong: true
+  filter_overlong_workers: 8
+  max_length: null
+  video_backend: qwen_vl_utils
+
+# model_config:
+#   load_from_pretrained_path: /mnt/raid10/boli/UniRL/outputs/pretrain/BLIP3o-NEXT-Pretrain-3B
+#   attn_implementation: flash_attention_2
 
 model_config:
-  load_from_pretrained_path: /mnt/raid10/boli/UniRL/outputs/pretrain/BLIP3o-NEXT-Pretrain-3B
+  extra_kwargs:
+    visual_und: false  # Enable/disable visual understanding
+  load_from_pretrained_path: lmms-lab/BAGEL-7B-MoT-ver.LE
+  load_from_config: null
   attn_implementation: flash_attention_2
+  model_type: null
+  torch_dtype: bfloat16
+  overwrite_config: null
 
 trainer_args:
   per_device_train_batch_size: 1 # it should be multiple of world_size if we set split_batches to true
@@ -36,12 +72,20 @@ trainer_args:
   include_num_input_tokens_seen: true
   dataloader_drop_last: true
   sp_ulysses_degree: 1
-  deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
+  fsdp2: true
+  accelerator_config:
+    split_batches: false
+    dispatch_batches: false
+    even_batches: true
+    use_seedable_sampler: true
+    non_blocking: false
+    gradient_accumulation_kwargs: null
+  # deepspeed: /home/libo/dllm/lmms-engine-mini-test/config/ds_config/default_config.json
   rl_config:
     node_addr: localhost
     reward_funcs: ["aesthetic"]
-    task_type: t2i
+    task_type: t2icot
     num_generations: 8
     beta: 4e-3
-    guidance_scale: 3.5
+    cfg_text_scale: 3.5
     num_inference_steps: 30

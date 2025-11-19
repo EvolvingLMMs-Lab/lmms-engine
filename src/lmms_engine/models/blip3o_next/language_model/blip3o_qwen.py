@@ -210,7 +210,6 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         attention_mask = kwargs.pop("attention_mask", None)
         if "inputs_embeds" in kwargs:
             raise NotImplementedError("`inputs_embeds` is not supported")
-
         if images is not None:
             (inputs, position_ids, attention_mask, _, inputs_embeds, _) = self.prepare_inputs_labels_for_multimodal(inputs, position_ids, attention_mask, None, None, images, modalities, image_sizes=image_sizes)
         else:
@@ -237,14 +236,15 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         return samples
 
     @torch.no_grad()
-    def generate_gen_ids(self, input_ids, attention_mask, do_sample=True, temperature=1.0, max_new_tokens=None):
-        return super(blip3oQwenForCausalLM, self).generate(
+    def generate_gen_ids(self, input_ids, attention_mask, do_sample=True, temperature=1.0, max_new_tokens=None, **kwargs):
+        return super().generate(
             input_ids,
             max_new_tokens=max_new_tokens,
             do_sample=do_sample,
             temperature=temperature,
             attention_mask=attention_mask,
-            use_cache=True
+            use_cache=True,
+            **kwargs
         )
 
     def get_image_start_tag_id(self):
@@ -256,13 +256,10 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
     @torch.no_grad()
     def generate_images(
         self,
-        input_ids: torch.Tensor,
+        input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         max_new_tokens: Optional[torch.Tensor] = None,
-        # top_p: Optional[torch.Tensor] = None,
-        # top_k: Optional[torch.Tensor] = None,
-        # images: Optional[torch.Tensor] = None,
-        # image_sizes: Optional[torch.Tensor] = None,
+        gen_ids: Optional[torch.Tensor] = None,
         guidance_scale: float = 2.0,
         num_inference_steps: int = 30,
         num_images_per_prompt: int = 1,
@@ -271,23 +268,16 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
         use_sde=False,
         **kwargs,
     ):
-
-        # gen_ids = super(blip3oQwenForCausalLM, self).generate(
-        #     input_ids,
-        #     max_new_tokens=max_new_tokens,
-        #     do_sample=True,
-        #     temperature=1.0,
-        #     attention_mask=attention_mask,
-        # )
-        input_ids = input_ids.repeat(num_images_per_prompt, 1)
-        attention_mask = attention_mask.repeat(num_images_per_prompt, 1)
-        gen_ids = self.generate_gen_ids(
-            input_ids, 
-            attention_mask, 
-            do_sample=True, 
-            temperature=1.0, 
-            max_new_tokens=max_new_tokens
-        )
+        if gen_ids is None:
+            input_ids = input_ids.repeat(num_images_per_prompt, 1)
+            attention_mask = attention_mask.repeat(num_images_per_prompt, 1)
+            gen_ids = self.generate_gen_ids(
+                input_ids, 
+                attention_mask, 
+                do_sample=True, 
+                temperature=1.0, 
+                max_new_tokens=max_new_tokens
+            )
         # breakpoint()
         with torch.no_grad():
             outs = self.model(
@@ -300,8 +290,6 @@ class blip3oQwenForCausalLM(Qwen3ForCausalLM, blip3oMetaForCausalLM):
 
 
         start_pos = (gen_ids == self.config.image_start_tag_id).float().argmax(dim=1)   
-        # end_pos   = (gen_ids == self.config.image_end_tag_id).float().argmax(dim=1)   
-
 
         selected_hidden_states = []                       
         for b in range(hidden_states.size(0)):          

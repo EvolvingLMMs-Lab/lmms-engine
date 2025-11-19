@@ -101,6 +101,38 @@ def prepare_attention_mask_per_sample(split_lens, attn_modes, device="cpu"):
 
     return attention_mask
 
+def unpatchify_bagel_latent(packed_latent, h, w, patch_size, channels):
+      """
+      Bagel latent 的 unpatchify 函数（patchify 的逆操作）
+      
+      对应的 patchify 逻辑在 bagel.py:306-307:
+          latent = latent.reshape(C, h, p, w, p)
+          latent = torch.einsum("chpwq->hwpqc", latent).reshape(-1, p*p*C)
+      
+      Args:
+          packed_latent: (h*w, p*p*C) 打包的 latent tokens
+          h: patchified 空间高度
+          w: patchified 空间宽度
+          patch_size: patch 大小（通常为 2）
+          channels: latent channels（通常为 16）
+      
+      Returns:
+          latent: (C, H, W) 空间 latent，H=h*p, W=w*p
+      """
+      p = patch_size
+      C = channels
+
+      # Step 1: reshape (h*w, p*p*C) → (h, w, p, p, C)
+      latent = packed_latent.reshape(h, w, p, p, C)
+
+      # Step 2: einsum 逆操作 (h, w, p, p, C) → (C, h, p, w, p)
+      latent = torch.einsum("hwpqc->chpwq", latent)
+
+      # Step 3: reshape (C, h, p, w, p) → (C, H, W)
+      latent = latent.reshape(C, h * p, w * p)
+
+      return latent
+
 
 def split_integer_exp_decay(S, ng_sample_decay=1.0):
     if ng_sample_decay == 1.0:

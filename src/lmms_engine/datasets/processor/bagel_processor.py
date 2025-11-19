@@ -175,6 +175,8 @@ class BagelDataProcessor:
         attn_modes = []
         text_ids = self.processor.encode(text)
         shifted_text_ids = [self.bos_token_id] + text_ids
+        if role == "user":
+            sequence_status["prompts"].extend([text])
         sequence_status["packed_text_ids"].extend(shifted_text_ids)
         sequence_status["packed_text_indexes"].extend(range(curr, curr + len(shifted_text_ids)))
         if role == "assistant":
@@ -327,6 +329,7 @@ class BagelDataProcessor:
             vit_token_seqlens=list(),
             packed_vit_position_ids=list(),
             packed_vit_token_indexes=list(),
+            prompts=list(),
         )
         return sequence_status
 
@@ -337,6 +340,7 @@ class BagelDataProcessor:
             packed_text_ids=torch.tensor(sequence_status["packed_text_ids"]),
             packed_text_indexes=torch.tensor(sequence_status["packed_text_indexes"]),
             packed_position_ids=torch.tensor(sequence_status["packed_position_ids"]),
+            prompts=sequence_status["prompts"],
         )
 
         data["nested_attention_masks"] = sequence_status["nested_attention_masks"]
@@ -393,7 +397,7 @@ class BagelDataProcessor:
 
     @property
     def tokenizer(self):
-        return self.tokenizer
+        return self.processor
 
     def add_special_tokens(self, tokenizer):
         all_special_tokens = []

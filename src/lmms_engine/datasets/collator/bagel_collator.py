@@ -39,6 +39,7 @@ class BagelCollator:
         batched_inputs = collections.defaultdict(list)
         sequence_length = inputs.pop("sequence_length")
         sample_lens = inputs.pop("sample_lens")
+        # print(inputs.keys())
         for keys, values in inputs.items():
             if isinstance(values[0], torch.Tensor):
                 batched_inputs[keys] = torch.concatenate(values, dim=0)
@@ -52,11 +53,16 @@ class BagelCollator:
         batched_inputs["sample_lens"] = torch.tensor(sample_lens)
         batched_inputs.pop("curr")
         batched_inputs["patchified_vae_latent_shapes"] = torch.tensor(batched_inputs["patchified_vae_latent_shapes"])
-
+        
         # Fake input ids for packing
         batched_inputs["input_ids"] = torch.zeros((1, batched_inputs["sequence_length"]), dtype=torch.long)
         batched_inputs["attention_mask"] = torch.ones((1, batched_inputs["sequence_length"]), dtype=torch.long)
-
+        # batched_inputs["prompts"] = batched_inputs["prompts"][0]
+        # print("sequence_length", batched_inputs["sequence_length"])
+        # print("sample_lens", batched_inputs["sample_lens"])
+        # print("patchified_vae_latent_shapes", batched_inputs["patchified_vae_latent_shapes"])
+        # for key, value in batched_inputs.items():
+        #     print(key, value.shape)
         # Make batched input a dict to send to device
         return dict(batched_inputs)
 

@@ -211,7 +211,6 @@ class Bagel(PreTrainedModel):
         packed_vit_position_ids: Optional[torch.LongTensor] = None,
         vit_token_seqlens: Optional[torch.IntTensor] = None,
         # for visual generation
-        # padded_latent: Optional[torch.Tensor] = None,
         padded_images=None,
         patchified_vae_latent_shapes: Optional[List[Tuple[int, int]]] = None,
         packed_latent_position_ids: Optional[torch.LongTensor] = None,

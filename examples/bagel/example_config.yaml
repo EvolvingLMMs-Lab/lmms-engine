@@ -7,12 +7,13 @@ dataset_config:
   processor_config:
     processor_name: lmms-lab/BAGEL-7B-MoT-ver.LE
     processor_type: bagel
+  # dataset_path: /mnt/raid10/boli/bagel_example_data
   # Update this to your dataset path
   # Example dataset: https://huggingface.co/datasets/kcz358/bagel-example
   datasets:
-    - path: /path/to/your/dataset/
-      data_folder: /path/to/your/data_folder/
-      data_type: arrow
+    - path: /mnt/raid10/boli/bagel_example_data/dataset_hf.parquet
+      data_folder: /mnt/raid10/boli/bagel_example_data
+      data_type: parquet
   shuffle: true
   eval_dataset_path: null
   object_storage: none
@@ -33,8 +34,8 @@ trainer_args:
   do_predict: false
   eval_strategy: 'no'
   prediction_loss_only: false
-  per_device_train_batch_size: 2
-  per_device_eval_batch_size: 8
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
   gradient_accumulation_steps: 1
   eval_accumulation_steps: null
   eval_delay: 0
