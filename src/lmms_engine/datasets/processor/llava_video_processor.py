@@ -15,14 +15,6 @@ from .llava_processor import LLaVADataProcessor
 
 @register_processor("llava_video")
 class LLaVAVideoDataProcessor(LLaVADataProcessor):
-    """
-    LLaVA-Video data processor with video support and time instruction injection.
-
-    This processor extends the base LLaVA processor to handle:
-    1. Video frame processing with proper token expansion
-    2. Time instruction injection for temporal understanding
-    3. Mixed image and video batches
-    """
 
     def __init__(self, config: ProcessorConfig) -> None:
         super().__init__(config)
@@ -37,22 +29,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         video_metadata: Optional[dict] = None,
         **kwargs,
     ):
-        """
-        Process images and/or videos for LLaVA-Video model.
 
-        Args:
-            images: List of PIL images
-            hf_messages: Messages in HuggingFace format
-            videos: List of video tensors, each [T, C, H, W]
-            video_metadata: Dict containing video time information:
-                - video_time: Total video duration in seconds
-                - frame_time: String of frame timestamps like "0.00s,0.50s,1.00s"
-                - num_frames: Number of sampled frames
-            **kwargs: Additional arguments like fps
-
-        Returns:
-            Dict containing input_ids, labels, pixel_values, image_sizes, and modalities
-        """
         output_kwargs = self.processor._merge_kwargs(
             LlavaOnevisionProcessorKwargs,
             tokenizer_init_kwargs=self.tokenizer.init_kwargs,
@@ -81,31 +58,39 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                 all_image_sizes.append(image_size)
                 all_modalities.append("image")
 
-        # Process videos
+        # Process videos - align with LlavaOnevisionProcessor (processing_llava_onevision.py line 177-190)
         if videos is not None and len(videos) > 0:
-            for video in videos:
-                # video shape: [T, C, H, W]
-                video_frames = [Image.fromarray(frame.permute(1, 2, 0).numpy().astype("uint8")) for frame in video]
+            # Use video_processor from transformers
+            video_inputs = self.processor.video_processor(videos, **output_kwargs.get("videos_kwargs", {}))
 
-                video_inputs = self.processor.image_processor(
-                    video_frames, return_tensors="pt", **output_kwargs["images_kwargs"]
-                )
+            # Calculate num_video_tokens like transformers
+            pixel_values_videos = video_inputs.get("pixel_values_videos", [])
 
-                height = video_inputs["pixel_values"].shape[-2]
-                width = video_inputs["pixel_values"].shape[-1]
+            for one_video in pixel_values_videos:
+                # one_video shape: [num_frames, C, H, W]
+                if isinstance(one_video, (list, tuple)):
+                    import numpy as np
+                    one_video = np.array(one_video)
 
-                # Calculate total tokens for all frames in this video
-                total_video_tokens = 0
-                for image_size in video_inputs["image_sizes"]:
-                    num_tokens = self.processor._get_number_of_features(
-                        image_size[0].item(), image_size[1].item(), height, width
-                    )
-                    total_video_tokens += num_tokens
+                num_frames = one_video.shape[0]
 
-                all_num_tokens.append(total_video_tokens)
-                all_pixel_values.append(video_inputs["pixel_values"])
-                all_image_sizes.append(video_inputs["image_sizes"])
+                # Calculate tokens: same logic as processing_llava_onevision.py line 187-189
+                patches_height_width = int(self.processor.num_image_tokens ** 0.5)  # sqrt
+                pooled_height_width = (patches_height_width + 1) // 2  # ceil division
+                num_video_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
+
+                all_num_tokens.append(num_video_tokens)
                 all_modalities.append("video")
+
+            # Store video outputs
+            all_pixel_values.extend(pixel_values_videos)
+            # Note: video_processor might not return image_sizes, use placeholder
+            if "image_sizes" in video_inputs:
+                all_image_sizes.extend(video_inputs["image_sizes"])
+            else:
+                # Placeholder for video sizes
+                for _ in pixel_values_videos:
+                    all_image_sizes.append(None)
 
         # Get tokenized inputs with labels
         inputs = self.get_video_template_labels(hf_messages, all_num_tokens, all_modalities)
@@ -136,6 +121,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
             Dict with input_ids and labels
         """
         image_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
+        video_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.video_token)
         special_tokens = self.processor.tokenizer.additional_special_tokens
         unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
 
@@ -146,10 +132,14 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
             role = message["role"]
             encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
 
-            # Expand image/video tokens
-            if image_token_index in encode_id and num_tokens is not None and visual_idx < len(num_tokens):
+            # Expand image/video tokens (both use same placeholder in some configs)
+            # Check for image token or video token
+            has_visual = (image_token_index in encode_id) or (video_token_index in encode_id)
+            if has_visual and num_tokens is not None and visual_idx < len(num_tokens):
+                # Use the appropriate token based on what's in the message
+                token_to_expand = video_token_index if video_token_index in encode_id else image_token_index
                 encode_id, used_visuals = self._expand_visual_tokens(
-                    encode_id, num_tokens, visual_idx
+                    encode_id, num_tokens, visual_idx, token_to_expand
                 )
                 visual_idx += used_visuals
 
@@ -165,12 +155,14 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
 
         assert len(input_id) == len(target), f"{len(input_id)} != {len(target)}"
 
-        # Handle special tokens and image tokens in labels
+        # Handle special tokens and image/video tokens in labels
         for idx, token_id in enumerate(input_id):
             if token_id in unmask_tokens_idx:
                 target[idx] = token_id
             if token_id == image_token_index:
                 target[idx] = image_token_index
+            if token_id == video_token_index:
+                target[idx] = video_token_index
 
         input_id = torch.tensor(input_id, dtype=torch.long)
         target = torch.tensor(target, dtype=torch.long)
@@ -185,6 +177,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         encode_id: List[int],
         num_tokens: List[int],
         start_from: int = 0,
+        token_id: int = None,
     ) -> Tuple[List[int], int]:
         """
         Expand image/video placeholder tokens to actual number of visual tokens.
@@ -193,34 +186,37 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
             encode_id: Tokenized message
             num_tokens: List of token counts for each visual input
             start_from: Starting index in num_tokens
+            token_id: The specific token ID to expand (image or video token)
 
         Returns:
             Tuple of (expanded_encode_id, number_of_visuals_used)
         """
-        image_token_id = self.image_token_id
-        image_pos = [i for i, x in enumerate(encode_id) if x == image_token_id]
+        if token_id is None:
+            token_id = self.image_token_id
+
+        visual_pos = [i for i, x in enumerate(encode_id) if x == token_id]
 
         expanded_encode_id = []
         prev = 0
 
-        for idx, pos in enumerate(image_pos):
-            # Add tokens before the image placeholder
+        for idx, pos in enumerate(visual_pos):
+            # Add tokens before the visual placeholder
             expanded_encode_id.extend(encode_id[prev:pos])
 
             # Expand the placeholder to actual number of tokens
             if (idx + start_from) < len(num_tokens):
-                expanded_encode_id.extend([image_token_id] * num_tokens[idx + start_from])
+                expanded_encode_id.extend([token_id] * num_tokens[idx + start_from])
             else:
                 # Fallback if num_tokens doesn't have enough entries
-                expanded_encode_id.append(image_token_id)
+                expanded_encode_id.append(token_id)
 
             prev = pos + 1
 
-            # Add remaining tokens after last image placeholder
-            if idx == len(image_pos) - 1:
+            # Add remaining tokens after last visual placeholder
+            if idx == len(visual_pos) - 1:
                 expanded_encode_id.extend(encode_id[prev:])
 
-        return expanded_encode_id, len(image_pos)
+        return expanded_encode_id, len(visual_pos)
 
     @staticmethod
     def inject_time_instruction(
