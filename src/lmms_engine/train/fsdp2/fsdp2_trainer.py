@@ -375,8 +375,7 @@ class FSDP2SFTTrainer:
     def save_checkpoints(self, output_path: str, step: int, total_limit: int = None):
         rank = dist.get_rank()
         world_size = dist.get_world_size()
-        if rank == 0:
-            os.makedirs(output_path, exist_ok=True)
+        os.makedirs(output_path, exist_ok=True)
 
         dist.barrier()
         model_path = os.path.join(
@@ -399,11 +398,10 @@ class FSDP2SFTTrainer:
             "dataloader_state",
             f"dataloader_state_world_size_{world_size}_rank_{rank}.pt",
         )
-        if rank == 0:
-            os.makedirs(os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True)
-            os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
-            os.makedirs(os.path.join(output_path, "extra_state"), exist_ok=True)
-            os.makedirs(os.path.join(output_path, "dataloader_state"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, "extra_state"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, "dataloader_state"), exist_ok=True)
 
         dist.barrier()
 
