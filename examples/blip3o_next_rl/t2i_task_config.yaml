@@ -73,6 +73,16 @@ trainer_args:
   dataloader_drop_last: true
   sp_ulysses_degree: 1
   fsdp2: true
+  fsdp: []
+  fsdp_min_num_params: 0
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+    - Qwen2MoTDecoderLayer
+    reshard_after_forward: false
+    min_num_params: 0
+    xla: false
+    xla_fsdp_v2: false
+    xla_fsdp_grad_ckpt: false
   accelerator_config:
     split_batches: false
     dispatch_batches: false
@@ -89,3 +99,5 @@ trainer_args:
     beta: 4e-3
     cfg_text_scale: 3.5
     num_inference_steps: 30
+    gen_image_size: [512, 512]
+    timestep_shift: 3.0

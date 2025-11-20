@@ -17,6 +17,7 @@ from torch.nn.attention.flex_attention import create_block_mask
 from tqdm import tqdm
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import PreTrainedModel
+import numpy as np
 
 from .autoencoder import AutoEncoder, AutoEncoderParams, load_ae
 from .cache_utils import cache_init
@@ -29,6 +30,8 @@ from .data_utils import (
 from .modeling_utils import MLPconnector, PositionEmbedding, TimestepEmbedder
 from .qwen2_navit import NaiveCache, Qwen2Config, Qwen2ForCausalLM
 from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
+from lmms_engine.models.utils import sde_step_with_logprob 
+from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 
 class BagelConfig(PretrainedConfig):
@@ -52,6 +55,7 @@ class BagelConfig(PretrainedConfig):
         mse_weight=1.0,
         vit_select_layer=-2,
         vit_rope=False,
+        gen_image_size=(512, 512),
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -463,7 +467,7 @@ class Bagel(PreTrainedModel):
         }
 
         return generation_input, newlens, new_rope
-
+        
     @torch.no_grad
     def forward_cache_update_text(
         self,
@@ -626,7 +630,6 @@ class Bagel(PreTrainedModel):
         packed_text_ids, packed_text_indexes = list(), list()
         packed_seqlens, packed_position_ids, packed_indexes = list(), list(), list()
         packed_key_value_indexes = list()
-
         _curr = curr = 0
         vae_image_tensors = list()
         newlens, new_rope = list(), list()
@@ -634,6 +637,7 @@ class Bagel(PreTrainedModel):
             packed_key_value_indexes.extend(range(curr, curr + curr_kvlen))
             curr += curr_kvlen
 
+            # print("prepare_vae_images: curr_kvlens", curr_kvlens, curr)
             packed_text_ids.append(new_token_ids["start_of_image"])
             packed_text_indexes.append(_curr)
             packed_indexes.append(curr)
@@ -802,6 +806,7 @@ class Bagel(PreTrainedModel):
             packed_position_ids.extend([curr_position_id] * (num_image_tokens + 2))
             packed_seqlens.append(num_image_tokens + 2)
 
+        # print("packed_text_indexes", torch.tensor(packed_text_indexes, dtype=torch.long), torch.tensor(packed_seqlens, dtype=torch.int))
         generation_input = {
             "packed_text_ids": torch.tensor(packed_text_ids, dtype=torch.long),
             "packed_text_indexes": torch.tensor(packed_text_indexes, dtype=torch.long),
@@ -890,6 +895,9 @@ class Bagel(PreTrainedModel):
         cfg_type: str = "parallel",
         # cache_args
         enable_taylorseer=False,
+        # sde
+        use_sde=False,
+        sde_scheduler=None,
     ):
         if enable_taylorseer:
             self.language_model.model.enable_taylorseer = True
@@ -904,12 +912,27 @@ class Bagel(PreTrainedModel):
 
         x_t = packed_init_noises
 
-        timesteps = torch.linspace(1, 0, num_timesteps, device=x_t.device)
-        timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
-        dts = timesteps[:-1] - timesteps[1:]
-        timesteps = timesteps[:-1]
+        if use_sde:
+            assert sde_scheduler is not None, "sde_scheduler is required when use_sde is True"
+            if isinstance(sde_scheduler, FlowMatchEulerDiscreteScheduler):
+                sigmas = np.linspace(1.0, 1 / num_timesteps, num_timesteps)
+                sde_scheduler.set_timesteps(num_timesteps, sigmas=sigmas)
+            else:
+                sde_scheduler.set_timesteps(num_timesteps)
+                
+            timesteps = sde_scheduler.timesteps
+            # dts = sde_scheduler.sigmas[:-1] - sde_scheduler.sigmas[1:]
+            cur_latents, log_probs, ts, denoised_latents = [], [], [], []
+        else:
+            timesteps = torch.linspace(1, 0, num_timesteps, device=x_t.device)
+            timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
+            dts = timesteps[:-1] - timesteps[1:]
+            timesteps = timesteps[:-1]
 
-        for i, t in tqdm(enumerate(timesteps), total=len(timesteps)):
+        for i, t in enumerate(timesteps):
+            if use_sde and isinstance(sde_scheduler, FlowMatchEulerDiscreteScheduler):
+                original_t = t
+                t = sde_scheduler.sigmas[sde_scheduler.index_for_timestep(original_t)]
             timestep = torch.tensor([t] * x_t.shape[0], device=x_t.device)
             if t > cfg_interval[0] and t <= cfg_interval[1]:
                 cfg_text_scale_ = cfg_text_scale
@@ -954,9 +977,22 @@ class Bagel(PreTrainedModel):
                 model_pred_text_current=model_pred_text_current,
                 model_pred_img_cache_dic=model_pred_img_cache_dic,
                 model_pred_img_current=model_pred_img_current,
+                use_sde=use_sde,
             )
 
-            x_t = x_t - v_t.to(x_t.device) * dts[i]  # velocity pointing from data to noise
+            if use_sde:
+                cur_latents.append(x_t.unsqueeze(1))
+                # x_t = x_t - v_t.to(x_t.device) * dts[i]
+                x_t, log_prob, _, _ = sde_step_with_logprob(
+                    sde_scheduler, (v_t).float(), original_t.unsqueeze(0), x_t.float(),
+                )
+                log_probs.append(log_prob.unsqueeze(1))
+                ts.append(t.unsqueeze(0).repeat(len(log_prob)).unsqueeze(1))
+                denoised_latents.append(x_t.unsqueeze(1))
+            else:
+                # compute previous image: x_t -> x_t-1
+                # latents = self.model.noise_scheduler.step(noise_pred, t, latents).prev_sample
+                x_t = x_t - v_t.to(x_t.device) * dts[i]
 
         if enable_taylorseer:
             del model_pred_cache_dic, model_pred_current
@@ -964,7 +1000,17 @@ class Bagel(PreTrainedModel):
             del model_pred_img_cache_dic, model_pred_img_current
 
         unpacked_latent = x_t.split((packed_seqlens - 2).tolist())
-        return unpacked_latent
+
+        if use_sde:
+            # Flatten SDE outputs
+            denoised_latents = torch.cat(denoised_latents, dim=1).flatten(0, 1)
+            cur_latents = torch.cat(cur_latents, dim=1).flatten(0, 1)
+            log_probs = torch.cat(log_probs, dim=1).flatten(0, 1)
+            # pred_latents = torch.cat(pred_latents, dim=1).flatten(0, 1)
+            ts = torch.cat(ts, dim=1).flatten(0, 1)
+            return unpacked_latent, log_probs, denoised_latents, cur_latents, ts
+        else:
+            return unpacked_latent
 
     @torch.no_grad
     def _forward_flow(
@@ -1005,6 +1051,7 @@ class Bagel(PreTrainedModel):
         model_pred_text_current: Optional[int] = None,
         model_pred_img_cache_dic: Optional[Dict[str, Any]] = None,
         model_pred_img_current: Optional[int] = None,
+        use_sde=False,
     ):
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
         packed_sequence = packed_text_embedding.new_zeros((sum(packed_seqlens), self.hidden_size))

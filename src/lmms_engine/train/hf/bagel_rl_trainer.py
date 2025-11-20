@@ -37,6 +37,7 @@ from transformers import (
     is_wandb_available,
 )
 from copy import deepcopy
+from PIL import Image
 
 from .trainer import Trainer
 import numpy as np
@@ -52,13 +53,11 @@ from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
-from torch.distributed._tensor import DTensor, Replicate, distribute_tensor
-from torch.distributed.device_mesh import DeviceMesh
 from accelerate.utils import send_to_device
 
 
 from contextlib import contextmanager
-from lmms_engine.models.blip3o_next import sde_step_with_logprob, blip3oQwenForInferenceLM
+from lmms_engine.models.utils import sde_step_with_logprob
 from lmms_engine.train.registry import TRAINER_REGISTER
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.utils.reward_evaluators import (
@@ -140,9 +139,13 @@ class BaseBagelRLTrainer(Trainer):
         self.cfg_text_scale = rl_config.get("cfg_text_scale", 2)
         self.num_inference_steps = rl_config.get("num_inference_steps", 30)
         self.beta = float(rl_config.get("beta", 0.0))
+        self.timestep_shift = rl_config.get("timestep_shift", 1.0)
         self.max_prompt_length = rl_config.get("max_prompt_length", 1024)
         self.max_response_length = rl_config.get("max_response_length", 1024)
+        self.gen_image_size = rl_config.get("gen_image_size", (512, 512))
         # self._setup_transforms()
+        self.scheduler = FlowMatchEulerDiscreteScheduler(shift=self.timestep_shift)
+        self.scheduler.set_timesteps(self.num_inference_steps)
         
         # Logging
         self.start_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -201,6 +204,7 @@ class BaseBagelRLTrainer(Trainer):
                 self.reward_funcs_registry[func]
             ) for func in reward_funcs
         ]
+        self.ref_model = None
         super().__init__(*args, **kwargs)
     
     def _set_signature_columns_if_needed(self):
@@ -385,52 +389,45 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
         super().__init__(*args, **kwargs)
         self.register_fsdp_forward_method_flag = False
         
+        
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """Compute T2I GRPO loss."""
         if return_outputs:
             raise ValueError("GRPOTrainer does not support returning outputs")
-        # device = self.accelerator.device
-        device = model.device
+        device = self.accelerator.device
+        # device = model.device
         if not self.register_fsdp_forward_method_flag:
             from torch.distributed.fsdp import FSDPModule, register_fsdp_forward_method
             register_fsdp_forward_method(model, "forward_cache_update_text")
+            register_fsdp_forward_method(model, "generate_image")
             self.register_fsdp_forward_method_flag = True
-
-        packed_text_ids = inputs["packed_text_ids"]
-        packed_text_indexes = inputs["packed_text_indexes"]
-        packed_position_ids = inputs["packed_position_ids"]
-        nested_attention_masks = inputs["nested_attention_masks"]
-        padded_images = inputs["padded_images"]
-        patchified_vae_latent_shapes = inputs["patchified_vae_latent_shapes"]
-        packed_latent_position_ids = inputs["packed_latent_position_ids"]
-        packed_vae_token_indexes = inputs["packed_vae_token_indexes"]
-        packed_timesteps = inputs["packed_timesteps"]
-        mse_loss_indexes = inputs["mse_loss_indexes"]
-        input_ids = inputs["input_ids"]
-        attention_mask = inputs["attention_mask"]
-        sequence_length = inputs["sequence_length"]
-        sample_lens = inputs["sample_lens"]
 
         tokenizer = self.train_dataset.processor.tokenizer
         cfg_text_scale = self.cfg_text_scale
-        # patchified_vae_latent_shapes = inputs["patchified_vae_latent_shapes"]
-        prompts = inputs["prompts"]
-        bs = len(prompts)
-        new_token_ids = {
-            "bos_token_id": tokenizer.convert_tokens_to_ids("<|im_start|>"),
-            "eos_token_id": tokenizer.convert_tokens_to_ids("<|im_end|>"),
-            "start_of_image": tokenizer.convert_tokens_to_ids("<|vision_start|>"),
-            "end_of_image": tokenizer.convert_tokens_to_ids("<|vision_end|>"),
-        }
-        image_size = (512, 512)
         model.eval()
         unwrapped_model = model
-        # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
         with torch.no_grad():
+            new_token_ids = {
+                "bos_token_id": tokenizer.convert_tokens_to_ids("<|im_start|>"),
+                "eos_token_id": tokenizer.convert_tokens_to_ids("<|im_end|>"),
+                "start_of_image": tokenizer.convert_tokens_to_ids("<|vision_start|>"),
+                "end_of_image": tokenizer.convert_tokens_to_ids("<|vision_end|>"),
+            }
+            prompts = inputs["prompts"] * self.num_generations
+            bs = len(prompts)
+            p = unwrapped_model.latent_patch_size
+            num_latent_downsample = unwrapped_model.latent_downsample
+            C = unwrapped_model.latent_channel
+            H, W = self.gen_image_size
+            image_sizes = [(H, W)] * bs
+            
+            assert H % (num_latent_downsample) == 0, "gen_image_height must be divisible by latent_patch_size * latent_downsample"
+            assert W % (num_latent_downsample) == 0, "gen_image_width must be divisible by latent_patch_size * latent_downsample"
+            gen_patchified_vae_latent_shapes = [(H // num_latent_downsample, W // num_latent_downsample)] * self.num_generations
             past_key_values = NaiveCache(unwrapped_model.config.llm_config.num_hidden_layers)
-            curr_kvlens = [0]  # 当前 KV cache 长度
-            curr_rope = [0]    # 当前 RoPE 位置
+            curr_kvlens = [0] * bs  # 当前 KV cache 长度
+            curr_rope = [0] * bs    # 当前 RoPE 位置
             generation_input, curr_kvlens, curr_rope = unwrapped_model.prepare_prompts(
                 curr_kvlens=curr_kvlens,
                 curr_rope=curr_rope,
@@ -442,9 +439,6 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
                 if isinstance(v, torch.Tensor):
                     generation_input[k] = send_to_device(v, device)
 
-            # generation_input = self._prepare_generation_inputs_for_fsdp2(generation_input, model)
-            # print(past_key_values)
-            torch.cuda.empty_cache()
             past_key_values = unwrapped_model.forward_cache_update_text(
                 past_key_values=past_key_values,
                 **generation_input
@@ -453,19 +447,20 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
             generation_input = unwrapped_model.prepare_vae_latent(
                 curr_kvlens=curr_kvlens,
                 curr_rope=curr_rope,
-                image_sizes=[image_size],  # [(H, W)]
+                image_sizes=image_sizes,  # [(H, W)]
                 new_token_ids=new_token_ids,
             )
-
-            for k, v in generation_input.items():
-                print(k, v.device, v.shape)
             
+            for k, v in generation_input.items():
+                if isinstance(v, torch.Tensor):
+                    generation_input[k] = send_to_device(v, device)
+
             cfg_text_past_key_values = None
 
             if cfg_text_scale > 1.0:
                 cfg_text_past_key_values = NaiveCache(unwrapped_model.config.llm_config.num_hidden_layers)
-                cfg_curr_kvlens = [0]
-                cfg_curr_rope = [0]
+                cfg_curr_kvlens = [0] * bs
+                cfg_curr_rope = [0] * bs
                 cfg_generation_input, cfg_curr_kvlens, cfg_curr_rope = unwrapped_model.prepare_prompts(
                     curr_kvlens=cfg_curr_kvlens,
                     curr_rope=cfg_curr_rope,
@@ -480,49 +475,178 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
                 cfg_generation_input = unwrapped_model.prepare_vae_latent_cfg(
                     curr_kvlens=cfg_curr_kvlens,
                     curr_rope=cfg_curr_rope,
-                    image_sizes=[image_size],
+                    image_sizes=image_sizes,
+                )
+                for k, v in cfg_generation_input.items():
+                    if isinstance(v, torch.Tensor):
+                        cfg_generation_input[k] = send_to_device(v, device)
+            # print(generation_input["packed_text_ids"].shape, generation_input["packed_text_indexes"].shape, generation_input["packed_init_noises"].shape, generation_input["packed_vae_position_ids"].shape, generation_input["packed_vae_token_indexes"].shape)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                unpacked_latent, log_probs, denoised_latents, cur_latents, ts = unwrapped_model.generate_image(
+                    packed_text_ids=generation_input["packed_text_ids"],
+                    packed_text_indexes=generation_input["packed_text_indexes"],
+                    packed_init_noises=generation_input["packed_init_noises"],
+                    packed_vae_position_ids=generation_input["packed_vae_position_ids"],
+                    packed_vae_token_indexes=generation_input["packed_vae_token_indexes"],
+                    packed_seqlens=generation_input["packed_seqlens"],
+                    packed_position_ids=generation_input["packed_position_ids"],
+                    packed_indexes=generation_input["packed_indexes"],
+                    past_key_values=past_key_values,
+                    key_values_lens=generation_input["key_values_lens"],
+                    packed_key_value_indexes=generation_input["packed_key_value_indexes"],
+                    num_timesteps=self.num_inference_steps,
+                    cfg_text_scale=cfg_text_scale,
+                    cfg_text_packed_query_indexes=cfg_generation_input["cfg_packed_query_indexes"],
+                    cfg_text_packed_position_ids=cfg_generation_input["cfg_packed_position_ids"],
+                    cfg_text_past_key_values=cfg_text_past_key_values,
+                    cfg_text_key_values_lens=cfg_generation_input["cfg_key_values_lens"],
+                    cfg_text_packed_key_value_indexes=cfg_generation_input["cfg_packed_key_value_indexes"],
+                    use_sde=True,
+                    timestep_shift=self.timestep_shift,
+                    sde_scheduler=self.scheduler,
                 )
 
-            unpacked_latent = unwrapped_model.generate_image(
-                packed_text_ids=generation_input["packed_text_ids"],
-                packed_text_indexes=generation_input["packed_text_indexes"],
-                packed_init_noises=generation_input["packed_init_noises"],
-                packed_vae_position_ids=generation_input["packed_vae_position_ids"],
-                packed_vae_token_indexes=generation_input["packed_vae_token_indexes"],
-                packed_seqlens=generation_input["packed_seqlens"],
-                packed_position_ids=generation_input["packed_position_ids"],
-                packed_indexes=generation_input["packed_indexes"],
-                past_key_values=past_key_values,
-                key_values_lens=generation_input["key_values_lens"],
-                packed_key_value_indexes=generation_input["packed_key_value_indexes"],
-                num_timesteps=self.num_inference_steps,
-                cfg_text_scale=cfg_text_scale,
-                cfg_text_packed_query_indexes=cfg_generation_input["cfg_packed_query_indexes"],
-                cfg_text_packed_position_ids=cfg_generation_input["cfg_packed_position_ids"],
-                cfg_text_past_key_values=cfg_text_past_key_values,
-                cfg_text_key_values_lens=cfg_generation_input["cfg_key_values_lens"],
-                cfg_text_packed_key_value_indexes=cfg_generation_input["cfg_packed_key_value_indexes"],
-            )
+                images = []
+                # print(len(unpacked_latent), unpacked_latent[0].shape,len(gen_patchified_vae_latent_shapes))
+                for packed_latent, (h, w) in zip(unpacked_latent, gen_patchified_vae_latent_shapes):
+                    # 6.1 Unpatchify
+                    latent = packed_latent.reshape(h, w, p, p, C)
+                    latent = torch.einsum("hwpqc->chpwq", latent)
+                    latent = latent.reshape(C, h * p, w * p).unsqueeze(0)
+                    # 6.2 VAE Decode
+                    image = unwrapped_model.vae_model.decode(latent)
+                    # 6.3 后处理
+                    image = image.squeeze(0).float()
+                    image = image.clamp(0, 1)
+                    image = (image * 255).byte()
+                    image = image.permute(1, 2, 0).cpu().numpy()
+                    image = Image.fromarray(image)
+                    images.append(image)
 
-            images = []
-            p = unwrapped_model.config.latent_patch_size
-            C = unwrapped_model.config.latent_channel
-            for packed_latent, (h, w) in zip(unpacked_latent, patchified_vae_latent_shapes):
-                # 6.1 Unpatchify
-                latent = packed_latent.reshape(h, w, p, p, C)
-                latent = torch.einsum("hwpqc->chpwq", latent)
-                latent = latent.reshape(C, h * p, w * p).unsqueeze(0)
-                # 6.2 VAE Decode
-                image = unwrapped_model.vae_model.decode(latent)
-                # 6.3 后处理
-                image = image.squeeze(0).float()
-                image = image.clamp(0, 1)
-                image = (image * 255).byte()
-                image = image.permute(1, 2, 0).cpu().numpy()
-                image = Image.fromarray(image)
-                images.append(image)
+        # Compute rewards and advantages
+        inputs_for_rewards = [{"caption": prompt} for prompt in inputs["prompts"]]
+        rewards, rewards_per_func = self._compute_rewards(inputs_for_rewards, images)
+        reshaped_rewards = rewards.view(-1, self.num_generations)
+        mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
+        if self.num_generations > 1:
+            std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
+        else:
+            raise ValueError("num_generations must be greater than 1 for grpo training")
+        advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
+        advantages = torch.clamp(advantages, -5, 5)
+        
+        self._log_step(images, advantages, None)
 
-        return 0
+        policy_noise_preds = self._compute_diffusion_pred(
+            model,
+            diffusion_latents=diffusion_latents,
+            traj_cur_latents=traj_latents,
+            ts=ts,
+            guidance_scale=self.guidance_scale,
+            num_inference_steps=self.num_inference_steps,
+            num_images_per_prompt=self.num_generations
+        )
+
+        if self.ref_model is not None:
+            with torch.no_grad():
+                ref_noise_preds = self._compute_diffusion_pred(
+                    self.ref_model,
+                    diffusion_latents=diffusion_latents,
+                    traj_cur_latents=traj_latents,
+                    ts=ts,
+                    guidance_scale=self.guidance_scale,
+                    num_inference_steps=self.num_inference_steps,
+                    num_images_per_prompt=self.num_generations
+                )
+        
+        # Compute log probs and KL
+        _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
+            policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
+        )
+        _, _, ref_mean, ref_std = compute_log_prob(
+            ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
+        )
+        
+        kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
+        kl = kl.mean(dim=tuple(range(1, kl.ndim)))
+        
+        # GRPO loss
+        advantages_steps = advantages.repeat_interleave(
+            self.num_inference_steps, dim=0
+        )
+        ratio = torch.exp(policy_log_probs - traj_log_probs)
+        unclipped_loss = -advantages_steps * ratio
+        clipped_loss = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
+        policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+        
+        loss = policy_loss + self.beta * kl.mean()
+        
+        # Logging
+        self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
+        self._metrics["kl"].append(self.accelerator.gather_for_metrics(kl).mean().item())
+        
+        for i, (func_name, _, _) in enumerate(self.reward_funcs):
+            self._metrics[f"reward/{func_name}"].append(
+                self.accelerator.gather_for_metrics(
+                    rewards_per_func[:, i]
+                ).mean().item())
+                
+        return loss
+    
+    def _compute_diffusion_pred(
+        self, 
+        model_to_use: PreTrainedModel,
+        traj_cur_latents: torch.Tensor,
+        ts: Optional[torch.Tensor] = None,
+        guidance_scale: float = 2.0,
+        num_inference_steps: int = 30,
+        num_images_per_prompt: int = 1,
+        **kwargs
+    ):
+        latent_model_input = torch.cat([traj_cur_latents] * 2)
+        latent_model_input = latent_model_input.to(diffusion_latents.dtype)
+
+        model_base = model_to_use.get_model()
+        img_hidden_states = model_base.diffusion_connector(diffusion_latents)
+
+        img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
+        img_attention_mask = torch.ones(
+            (img_hidden_states.shape[0], img_hidden_states.shape[1]),
+            device=latent_model_input.device,
+            dtype=img_hidden_states.dtype
+        )
+
+        timesteps = ts.repeat(2).to(latent_model_input.device)
+        res = model_base.sana(
+            hidden_states=latent_model_input,
+            encoder_hidden_states=img_hidden_states,
+            timestep=timesteps,
+            encoder_attention_mask=img_attention_mask,
+            return_dict=False,
+        )
+        noise_pred = res[0]
+        noise_pred_uncond, noise_pred= noise_pred.chunk(2)
+        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
+        return noise_pred
+                # Save generated images
+                # if dist.get_rank() == 0:  # Only save on rank 0 to avoid duplicates
+                # save_dir = os.path.join(self.args.output_dir, "generated_images")
+                # os.makedirs(save_dir, exist_ok=True)
+                # rank = torch.distributed.get_rank()
+                # step = self.state.global_step
+                # for idx, (img, prompt) in enumerate(zip(images, prompts)):
+                #     # Create filename: step_{step}_sample_{idx}.png
+                #     filename = f"step_{step:06d}_sample_{idx}_rank_{rank}.png"
+                #     save_path = os.path.join(save_dir, filename)
+                #     img.save(save_path)
+
+                # # Optionally save prompts to a text file
+                # prompt_file = os.path.join(save_dir, f"step_{step:06d}_prompts.txt")
+                # with open(prompt_file, "w") as f:
+                #     for idx, prompt in enumerate(prompts):
+                #         f.write(f"Sample {idx}: {prompt}\n")
+
+        # return 0
             # _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
             #     self.old_model.prepare_prompts(
             #     vae_generation_input = self.old_model.prepare_vae_latent(
@@ -607,43 +731,6 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
         #         ).mean().item())
                 
         # return loss
-
-    def _compute_diffusion_pred(
-        self, 
-        model_to_use: PreTrainedModel,
-        diffusion_latents: torch.Tensor,
-        traj_cur_latents: torch.Tensor,
-        ts: Optional[torch.Tensor] = None,
-        guidance_scale: float = 2.0,
-        num_inference_steps: int = 30,
-        num_images_per_prompt: int = 1,
-        **kwargs
-    ):
-        latent_model_input = torch.cat([traj_cur_latents] * 2)
-        latent_model_input = latent_model_input.to(diffusion_latents.dtype)
-
-        model_base = model_to_use.get_model()
-        img_hidden_states = model_base.diffusion_connector(diffusion_latents)
-
-        img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
-        img_attention_mask = torch.ones(
-            (img_hidden_states.shape[0], img_hidden_states.shape[1]),
-            device=latent_model_input.device,
-            dtype=img_hidden_states.dtype
-        )
-
-        timesteps = ts.repeat(2).to(latent_model_input.device)
-        res = model_base.sana(
-            hidden_states=latent_model_input,
-            encoder_hidden_states=img_hidden_states,
-            timestep=timesteps,
-            encoder_attention_mask=img_attention_mask,
-            return_dict=False,
-        )
-        noise_pred = res[0]
-        noise_pred_uncond, noise_pred= noise_pred.chunk(2)
-        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
-        return noise_pred
 
 
 # @TRAINER_REGISTER.register("blip3o_next_t2icot_grpo_trainer")

@@ -53,7 +53,7 @@ from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
 from contextlib import contextmanager
-from lmms_engine.models.blip3o_next import sde_step_with_logprob, blip3oQwenForInferenceLM
+from lmms_engine.models.utils import sde_step_with_logprob
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils.reward_evaluators import (
     recon_reward,
@@ -74,90 +74,6 @@ if is_wandb_available():
 
 UND_IMAGE_TOKEN = "<|image_pad|>"
 UND_IMAGE_TOKEN_IDX = 151655
-
-# LAYER_PATTERNS = [
-#     "transformer.h.{layer}",
-#     "model.decoder.layers.{layer}",
-#     "gpt_neox.layers.{layer}",
-#     "model.layers.{layer}",
-# ]
-
-# def maybe_apply_chat_template(
-#     example: dict[str, list[dict[str, str]]],
-#     tokenizer: PreTrainedTokenizerBase,
-#     tools: list[dict | Callable] | None = None,
-#     **template_kwargs: Any,
-# ) -> dict[str, str]:
-#     if is_conversational(example):
-#         return apply_chat_template(example, tokenizer, tools, **template_kwargs)
-#     else:
-#         return example
-
-# def prepare_deepspeed(
-#     model: torch.nn.Module, per_device_train_batch_size: int, fp16: bool = False, bf16: bool = False
-# ) -> torch.nn.Module:
-    # import deepspeed
-    # deepspeed_plugin = AcceleratorState().deepspeed_plugin
-    # config_kwargs = deepspeed_plugin.deepspeed_config
-    # if config_kwargs["zero_optimization"]["stage"] != 3:
-    #     config_kwargs["train_micro_batch_size_per_gpu"] = per_device_train_batch_size
-    #     config_kwargs = {
-    #         "train_micro_batch_size_per_gpu": config_kwargs["train_micro_batch_size_per_gpu"],
-    #         "prescale_gradients": False,
-    #         "wall_clock_breakdown": False,
-    #     }
-    #     if bf16:
-    #         config_kwargs["bf16"] = {"enabled": True}
-    #     elif fp16:
-    #         config_kwargs["fp16"] = {"enabled": True}
-    # else:
-    #     if hasattr(model, "config"):
-    #         hidden_size = (
-    #             max(model.config.hidden_sizes)
-    #             if getattr(model.config, "hidden_sizes", None)
-    #             else getattr(model.config, "hidden_size", None)
-    #         )
-    #         if hidden_size is not None and config_kwargs["zero_optimization"]["stage"] == 3:
-    #             # Note that `stage3_prefetch_bucket_size` can produce DeepSpeed messages like: `Invalidate trace cache @ step 0: expected module 1, but got module 0`
-    #             # This is expected and is not an error, see: https://github.com/microsoft/DeepSpeed/discussions/4081
-    #             config_kwargs.update(
-    #                 {
-    #                     "zero_optimization.reduce_bucket_size": hidden_size * hidden_size,
-    #                     "zero_optimization.stage3_param_persistence_threshold": 10 * hidden_size,
-    #                     "zero_optimization.stage3_prefetch_bucket_size": 0,
-    #                 }
-    #             )
-    # model, *_ = deepspeed.initialize(model=model, config=config_kwargs)
-    # model.eval()
-    # return model
-
-# @contextmanager
-# def unwrap_model_for_generation(
-#     model: "DistributedDataParallel | DeepSpeedEngine",
-#     accelerator: "Accelerator",
-#     gather_deepspeed3_params: bool = True,
-# ):
-#     unwrapped_model = accelerator.unwrap_model(model)
-#     is_gradient_checkpointing = unwrapped_model.is_gradient_checkpointing
-#     if is_gradient_checkpointing:
-#         unwrapped_model.gradient_checkpointing_disable()
-#     if accelerator.state.deepspeed_plugin is not None and accelerator.state.deepspeed_plugin.zero_stage == 3:
-#         if not gather_deepspeed3_params:
-#             yield accelerator.unwrap_model(model)
-#         else:
-#             import deepspeed
-#             with deepspeed.zero.GatheredParameters(model.parameters()):
-#                 remove_hooks(model)
-#                 yield accelerator.unwrap_model(model)
-#                 add_hooks(model)
-#     else:
-#         yield unwrapped_model
-#     if is_gradient_checkpointing:
-#         unwrapped_model.gradient_checkpointing_enable()
-
-# def create_reference_model(
-#     model: PreTrainedModelWrapper, num_shared_layers: int | None = None, pattern: str | None = None
-# ) -> PreTrainedModelWrapper:
     # """
     # Creates a static reference copy of a model. Note that model will be in `.eval()` mode.
 

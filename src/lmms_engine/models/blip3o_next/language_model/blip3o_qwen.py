@@ -12,7 +12,7 @@ from transformers import (
 from transformers.generation.utils import GenerateOutput
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
-from ..fm_step_prob import sde_step_with_logprob 
+from lmms_engine.models.utils import sde_step_with_logprob 
 from ..blip3o_arch import blip3oMetaForCausalLM, blip3oMetaModel, rank0_print
 from diffusers.training_utils import compute_density_for_timestep_sampling, compute_loss_weighting_for_sd3
 from diffusers.utils.torch_utils import randn_tensor
