@@ -36,10 +36,10 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
             **kwargs,
         )
 
-        all_pixel_values = []
-        all_image_sizes = []
-        all_modalities = []
-        all_num_tokens = []
+        num_image_tokens = []
+        num_video_tokens = []
+        image_inputs = {}
+        video_inputs = {}
 
         # Process images
         if images is not None and len(images) > 0:
@@ -49,14 +49,11 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
             height = image_inputs["pixel_values"].shape[-2]
             width = image_inputs["pixel_values"].shape[-1]
 
-            for i, image_size in enumerate(image_inputs["image_sizes"]):
+            for image_size in image_inputs["image_sizes"]:
                 num_tokens = self.processor._get_number_of_features(
                     image_size[0].item(), image_size[1].item(), height, width
                 )
-                all_num_tokens.append(num_tokens)
-                all_pixel_values.append(image_inputs["pixel_values"][i])
-                all_image_sizes.append(image_size)
-                all_modalities.append("image")
+                num_image_tokens.append(num_tokens)
 
         # Process videos - align with LlavaOnevisionProcessor (processing_llava_onevision.py line 177-190)
         if videos is not None and len(videos) > 0:
@@ -77,45 +74,36 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                 # Calculate tokens: same logic as processing_llava_onevision.py line 187-189
                 patches_height_width = int(self.processor.num_image_tokens ** 0.5)  # sqrt
                 pooled_height_width = (patches_height_width + 1) // 2  # ceil division
-                num_video_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
+                num_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
 
-                all_num_tokens.append(num_video_tokens)
-                all_modalities.append("video")
-
-            # Store video outputs
-            all_pixel_values.extend(pixel_values_videos)
-            # Note: video_processor might not return image_sizes, use placeholder
-            if "image_sizes" in video_inputs:
-                all_image_sizes.extend(video_inputs["image_sizes"])
-            else:
-                # Placeholder for video sizes
-                for _ in pixel_values_videos:
-                    all_image_sizes.append(None)
+                num_video_tokens.append(num_tokens)
 
         # Get tokenized inputs with labels
-        inputs = self.get_video_template_labels(hf_messages, all_num_tokens, all_modalities)
+        inputs = self.get_video_template_labels(hf_messages, num_image_tokens, num_video_tokens)
 
-        # Add visual inputs
-        if len(all_pixel_values) > 0:
-            inputs["pixel_values"] = all_pixel_values
-            inputs["image_sizes"] = all_image_sizes
-            inputs["modalities"] = all_modalities
+        # Add visual inputs - separate storage like transformers
+        if images is not None and len(image_inputs) > 0:
+            inputs["pixel_values"] = image_inputs["pixel_values"]
+            inputs["image_sizes"] = image_inputs["image_sizes"]
+
+        if videos is not None and len(video_inputs) > 0:
+            inputs["pixel_values_videos"] = video_inputs.get("pixel_values_videos")
 
         return inputs
 
     def get_video_template_labels(
         self,
         hf_messages: List[dict],
-        num_tokens: List[int],
-        modalities: List[str],
+        num_image_tokens: List[int],
+        num_video_tokens: List[int],
     ):
         """
         Tokenize messages and create labels with proper image/video token expansion.
 
         Args:
             hf_messages: Messages in HuggingFace format
-            num_tokens: Number of visual tokens for each image/video
-            modalities: List indicating "image" or "video" for each visual input
+            num_image_tokens: Number of tokens for each image
+            num_video_tokens: Number of tokens for each video
 
         Returns:
             Dict with input_ids and labels
@@ -126,22 +114,26 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
 
         input_id, target = [], []
-        visual_idx = 0
+        image_idx = 0
+        video_idx = 0
 
         for message in hf_messages:
             role = message["role"]
             encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
 
-            # Expand image/video tokens (both use same placeholder in some configs)
-            # Check for image token or video token
-            has_visual = (image_token_index in encode_id) or (video_token_index in encode_id)
-            if has_visual and num_tokens is not None and visual_idx < len(num_tokens):
-                # Use the appropriate token based on what's in the message
-                token_to_expand = video_token_index if video_token_index in encode_id else image_token_index
-                encode_id, used_visuals = self._expand_visual_tokens(
-                    encode_id, num_tokens, visual_idx, token_to_expand
+            # Expand image tokens
+            if image_token_index in encode_id and num_image_tokens and image_idx < len(num_image_tokens):
+                encode_id, used_images = self._expand_visual_tokens(
+                    encode_id, num_image_tokens, image_idx, image_token_index
                 )
-                visual_idx += used_visuals
+                image_idx += used_images
+
+            # Expand video tokens
+            if video_token_index in encode_id and num_video_tokens and video_idx < len(num_video_tokens):
+                encode_id, used_videos = self._expand_visual_tokens(
+                    encode_id, num_video_tokens, video_idx, video_token_index
+                )
+                video_idx += used_videos
 
             input_id += encode_id
 
