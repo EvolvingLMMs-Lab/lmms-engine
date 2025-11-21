@@ -482,7 +482,7 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
                         cfg_generation_input[k] = send_to_device(v, device)
             # print(generation_input["packed_text_ids"].shape, generation_input["packed_text_indexes"].shape, generation_input["packed_init_noises"].shape, generation_input["packed_vae_position_ids"].shape, generation_input["packed_vae_token_indexes"].shape)
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                unpacked_latent, log_probs, denoised_latents, cur_latents, ts = unwrapped_model.generate_image(
+                unpacked_latent, traj_log_probs, traj_denoised_x_t, traj_cur_x_t, ts = unwrapped_model.generate_image(
                     packed_text_ids=generation_input["packed_text_ids"],
                     packed_text_indexes=generation_input["packed_text_indexes"],
                     packed_init_noises=generation_input["packed_init_noises"],
@@ -537,38 +537,64 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
         
         self._log_step(images, advantages, None)
 
-        policy_noise_preds = self._compute_diffusion_pred(
+        policy_traj_v_t = self._compute_diffusion_pred(
             model,
-            diffusion_latents=diffusion_latents,
-            traj_cur_latents=traj_latents,
-            ts=ts,
-            guidance_scale=self.guidance_scale,
-            num_inference_steps=self.num_inference_steps,
-            num_images_per_prompt=self.num_generations
+            traj_x_t=traj_cur_x_t,
+            timesteps=ts,
+            packed_text_ids=generation_input["packed_text_ids"],
+            packed_text_indexes=generation_input["packed_text_indexes"],
+            packed_vae_position_ids=generation_input["packed_vae_position_ids"],
+            packed_vae_token_indexes=generation_input["packed_vae_token_indexes"],
+            packed_seqlens=generation_input["packed_seqlens"],
+            packed_position_ids=generation_input["packed_position_ids"],
+            packed_indexes=generation_input["packed_indexes"],
+            past_key_values=past_key_values,
+            key_values_lens=generation_input["key_values_lens"],
+            packed_key_value_indexes=generation_input["packed_key_value_indexes"],
+            cfg_text_scale=cfg_text_scale,
+            cfg_text_packed_query_indexes=cfg_generation_input["cfg_packed_query_indexes"],
+            cfg_text_packed_position_ids=cfg_generation_input["cfg_packed_position_ids"],
+            cfg_text_past_key_values=cfg_text_past_key_values,
+            cfg_text_key_values_lens=cfg_generation_input["cfg_key_values_lens"],
+            cfg_text_packed_key_value_indexes=cfg_generation_input["cfg_packed_key_value_indexes"],
         )
 
         if self.ref_model is not None:
             with torch.no_grad():
-                ref_noise_preds = self._compute_diffusion_pred(
+                ref_traj_v_t = self._compute_diffusion_pred(
                     self.ref_model,
-                    diffusion_latents=diffusion_latents,
-                    traj_cur_latents=traj_latents,
-                    ts=ts,
-                    guidance_scale=self.guidance_scale,
-                    num_inference_steps=self.num_inference_steps,
-                    num_images_per_prompt=self.num_generations
+                    traj_x_t=traj_cur_x_t,
+                    timesteps=ts,
+                    packed_text_ids=generation_input["packed_text_ids"],
+                    packed_text_indexes=generation_input["packed_text_indexes"],
+                    packed_vae_position_ids=generation_input["packed_vae_position_ids"],
+                    packed_vae_token_indexes=generation_input["packed_vae_token_indexes"],
+                    packed_seqlens=generation_input["packed_seqlens"],
+                    packed_position_ids=generation_input["packed_position_ids"],
+                    packed_indexes=generation_input["packed_indexes"],
+                    past_key_values=past_key_values,
+                    key_values_lens=generation_input["key_values_lens"],
+                    packed_key_value_indexes=generation_input["packed_key_value_indexes"],
+                    cfg_text_scale=cfg_text_scale,
+                    cfg_text_packed_query_indexes=cfg_generation_input["cfg_packed_query_indexes"],
+                    cfg_text_packed_position_ids=cfg_generation_input["cfg_packed_position_ids"],
+                    cfg_text_past_key_values=cfg_text_past_key_values,
+                    cfg_text_key_values_lens=cfg_generation_input["cfg_key_values_lens"],
+                    cfg_text_packed_key_value_indexes=cfg_generation_input["cfg_packed_key_value_indexes"],
                 )
         
         # Compute log probs and KL
         _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
-            policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
+            policy_traj_v_t, self.scheduler, traj_cur_x_t, traj_denoised_x_t, ts
         )
-        _, _, ref_mean, ref_std = compute_log_prob(
-            ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
-        )
+        if self.ref_model is not None:
+            _, _, ref_mean, ref_std = compute_log_prob(
+                ref_traj_v_t, self.scheduler, traj_cur_x_t, traj_denoised_x_t, ts
+            )
         
-        kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
-        kl = kl.mean(dim=tuple(range(1, kl.ndim)))
+            kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
+            kl = kl.mean(dim=tuple(range(1, kl.ndim)))
+            self._metrics["kl"].append(self.accelerator.gather_for_metrics(kl).mean().item())
         
         # GRPO loss
         advantages_steps = advantages.repeat_interleave(
@@ -579,11 +605,10 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
         clipped_loss = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
         policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
         
-        loss = policy_loss + self.beta * kl.mean()
+        loss = policy_loss + self.beta * kl.mean() if self.ref_model is not None else policy_loss
         
         # Logging
         self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
-        self._metrics["kl"].append(self.accelerator.gather_for_metrics(kl).mean().item())
         
         for i, (func_name, _, _) in enumerate(self.reward_funcs):
             self._metrics[f"reward/{func_name}"].append(
@@ -595,480 +620,228 @@ class T2IGRPOTrainer(BaseBagelRLTrainer):
     
     def _compute_diffusion_pred(
         self, 
-        model_to_use: PreTrainedModel,
-        traj_cur_latents: torch.Tensor,
-        ts: Optional[torch.Tensor] = None,
-        guidance_scale: float = 2.0,
-        num_inference_steps: int = 30,
-        num_images_per_prompt: int = 1,
-        **kwargs
+        model_to_use: PreTrainedModel, 
+        traj_x_t: torch.Tensor,
+        timesteps: torch.Tensor,
+        packed_text_ids: torch.LongTensor,
+        packed_text_indexes: torch.LongTensor,
+        packed_vae_position_ids: torch.LongTensor,
+        packed_vae_token_indexes: torch.LongTensor,
+        packed_seqlens: torch.IntTensor,
+        packed_position_ids: torch.LongTensor,
+        packed_indexes: torch.LongTensor,
+        past_key_values: NaiveCache,
+        key_values_lens: torch.IntTensor,
+        packed_key_value_indexes: torch.LongTensor,
+        cfg_renorm_min: float = 0.0,
+        cfg_renorm_type: str = "global",
+        cfg_interval: Optional[Tuple[float, float]] = (0.0, 1.0),
+        # cfg_text
+        cfg_text_scale: float = 1.0,
+        cfg_text_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_text_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_text_past_key_values: Optional[NaiveCache] = None,
+        cfg_text_key_values_lens: Optional[torch.IntTensor] = None,
+        cfg_text_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        # cfg_img
+        cfg_img_scale: float = 1.0,
+        cfg_img_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_img_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_img_past_key_values: Optional[NaiveCache] = None,
+        cfg_img_key_values_lens: Optional[torch.IntTensor] = None,
+        cfg_img_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        cfg_type: str = "parallel",
+        # sde_scheduler=None,
     ):
-        latent_model_input = torch.cat([traj_cur_latents] * 2)
-        latent_model_input = latent_model_input.to(diffusion_latents.dtype)
+        # if sde_scheduler is None:
+        #     sde_scheduler = self.scheduler
+        #     if isinstance(sde_scheduler, FlowMatchEulerDiscreteScheduler):
+        #         sigmas = np.linspace(1.0, 1 / num_timesteps, num_timesteps)
+        #         sde_scheduler.set_timesteps(num_timesteps, sigmas=sigmas)
+        #     else:
+        #         sde_scheduler.set_timesteps(num_timesteps)
 
-        model_base = model_to_use.get_model()
-        img_hidden_states = model_base.diffusion_connector(diffusion_latents)
+        traj_v_t = []
 
-        img_hidden_states = img_hidden_states.repeat_interleave(num_inference_steps, dim=0)
-        img_attention_mask = torch.ones(
-            (img_hidden_states.shape[0], img_hidden_states.shape[1]),
-            device=latent_model_input.device,
-            dtype=img_hidden_states.dtype
+        for i, t in enumerate(timesteps):
+            x_t = traj_x_t[i]
+            timestep = torch.tensor([t] * x_t.shape[0], device=x_t.device)
+            if t > cfg_interval[0] and t <= cfg_interval[1]:
+                cfg_text_scale_ = cfg_text_scale
+                cfg_img_scale_ = cfg_img_scale
+            else:
+                cfg_text_scale_ = 1.0
+                cfg_img_scale_ = 1.0
+
+            v_t = self._forward_flow(
+                model=model_to_use,
+                x_t=x_t,
+                timestep=timestep,
+                packed_vae_token_indexes=packed_vae_token_indexes,
+                packed_vae_position_ids=packed_vae_position_ids,
+                packed_text_ids=packed_text_ids,
+                packed_text_indexes=packed_text_indexes,
+                packed_position_ids=packed_position_ids,
+                packed_indexes=packed_indexes,
+                packed_seqlens=packed_seqlens,
+                key_values_lens=key_values_lens,
+                past_key_values=past_key_values,
+                packed_key_value_indexes=packed_key_value_indexes,
+                cfg_renorm_min=cfg_renorm_min,
+                cfg_renorm_type=cfg_renorm_type,
+                # cfg_text
+                cfg_text_scale=cfg_text_scale_,
+                cfg_text_packed_position_ids=cfg_text_packed_position_ids,
+                cfg_text_packed_query_indexes=cfg_text_packed_query_indexes,
+                cfg_text_key_values_lens=cfg_text_key_values_lens,
+                cfg_text_past_key_values=cfg_text_past_key_values,
+                cfg_text_packed_key_value_indexes=cfg_text_packed_key_value_indexes,
+                # cfg_img
+                cfg_img_scale=cfg_img_scale_,
+                cfg_img_packed_position_ids=cfg_img_packed_position_ids,
+                cfg_img_packed_query_indexes=cfg_img_packed_query_indexes,
+                cfg_img_key_values_lens=cfg_img_key_values_lens,
+                cfg_img_past_key_values=cfg_img_past_key_values,
+                cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
+                cfg_type=cfg_type,
+            )
+            traj_v_t.append(v_t.unsqueeze(0))
+
+        traj_v_t = torch.cat(traj_v_t, dim=0)
+        return traj_v_t
+
+    def _forward_flow(
+        self,
+        model: PreTrainedModel,
+        x_t: torch.Tensor,
+        timestep: torch.LongTensor,
+        packed_vae_token_indexes: torch.LongTensor,
+        packed_vae_position_ids: torch.LongTensor,
+        packed_text_ids: torch.LongTensor,
+        packed_text_indexes: torch.LongTensor,
+        packed_indexes: torch.LongTensor,
+        packed_position_ids: torch.LongTensor,
+        packed_seqlens: torch.IntTensor,
+        key_values_lens: torch.IntTensor,
+        past_key_values: NaiveCache,
+        packed_key_value_indexes: torch.LongTensor,
+        cfg_renorm_min: float = 0.0,
+        cfg_renorm_type: str = "global",
+        # cfg_text
+        cfg_text_scale: float = 1.0,
+        cfg_text_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_text_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_text_key_values_lens: Optional[torch.Tensor] = None,
+        cfg_text_past_key_values: Optional[NaiveCache] = None,
+        cfg_text_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        # cfg_img
+        cfg_img_scale: float = 1.0,
+        cfg_img_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_img_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_img_key_values_lens: Optional[torch.Tensor] = None,
+        cfg_img_past_key_values: Optional[NaiveCache] = None,
+        cfg_img_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        cfg_type: str = "parallel",
+    ):
+        packed_text_embedding = model.language_model.model.embed_tokens(packed_text_ids)
+        packed_sequence = packed_text_embedding.new_zeros((sum(packed_seqlens), model.hidden_size))
+        packed_sequence[packed_text_indexes] = packed_text_embedding
+
+        assert timestep.unique().shape[0] == 1
+        packed_pos_embed = model.latent_pos_embed(packed_vae_position_ids)
+        packed_timestep_embeds = model.time_embedder(timestep)
+        x_t = model.vae2llm(x_t) + packed_timestep_embeds + packed_pos_embed
+        if x_t.dtype != packed_sequence.dtype:
+            x_t = x_t.to(packed_sequence.dtype)
+        packed_sequence[packed_vae_token_indexes] = x_t
+
+        extra_inputs = {}
+        if model.use_moe:
+            extra_inputs = {
+                "mode": "gen",
+                "packed_vae_token_indexes": packed_vae_token_indexes,
+                "packed_text_indexes": packed_text_indexes,
+            }
+
+        output = model.language_model.forward_inference(
+            packed_query_sequence=packed_sequence,
+            query_lens=packed_seqlens,
+            packed_query_position_ids=packed_position_ids,
+            packed_query_indexes=packed_indexes,
+            past_key_values=past_key_values,
+            key_values_lens=key_values_lens,
+            packed_key_value_indexes=packed_key_value_indexes,
+            update_past_key_values=False,
+            is_causal=False,
+            **extra_inputs,
         )
+        v_t = model.llm2vae(output.packed_query_sequence)
+        v_t = v_t[packed_vae_token_indexes]
 
-        timesteps = ts.repeat(2).to(latent_model_input.device)
-        res = model_base.sana(
-            hidden_states=latent_model_input,
-            encoder_hidden_states=img_hidden_states,
-            timestep=timesteps,
-            encoder_attention_mask=img_attention_mask,
-            return_dict=False,
-        )
-        noise_pred = res[0]
-        noise_pred_uncond, noise_pred= noise_pred.chunk(2)
-        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred - noise_pred_uncond)
-        return noise_pred
-                # Save generated images
-                # if dist.get_rank() == 0:  # Only save on rank 0 to avoid duplicates
-                # save_dir = os.path.join(self.args.output_dir, "generated_images")
-                # os.makedirs(save_dir, exist_ok=True)
-                # rank = torch.distributed.get_rank()
-                # step = self.state.global_step
-                # for idx, (img, prompt) in enumerate(zip(images, prompts)):
-                #     # Create filename: step_{step}_sample_{idx}.png
-                #     filename = f"step_{step:06d}_sample_{idx}_rank_{rank}.png"
-                #     save_path = os.path.join(save_dir, filename)
-                #     img.save(save_path)
+        if cfg_text_scale > 1.0:
+            cfg_text_output = model.language_model.forward_inference(
+                packed_query_sequence=packed_sequence,
+                query_lens=packed_seqlens,
+                packed_query_position_ids=cfg_text_packed_position_ids,
+                packed_query_indexes=cfg_text_packed_query_indexes,
+                past_key_values=cfg_text_past_key_values,
+                key_values_lens=cfg_text_key_values_lens,
+                packed_key_value_indexes=cfg_text_packed_key_value_indexes,
+                update_past_key_values=False,
+                is_causal=False,
+                **extra_inputs,
+            )
+            cfg_text_v_t = model.llm2vae(cfg_text_output.packed_query_sequence)
+            cfg_text_v_t = cfg_text_v_t[packed_vae_token_indexes]
 
-                # # Optionally save prompts to a text file
-                # prompt_file = os.path.join(save_dir, f"step_{step:06d}_prompts.txt")
-                # with open(prompt_file, "w") as f:
-                #     for idx, prompt in enumerate(prompts):
-                #         f.write(f"Sample {idx}: {prompt}\n")
+        if cfg_img_scale > 1.0:
+            cfg_img_output = model.language_model.forward_inference(
+                packed_query_sequence=packed_sequence,
+                query_lens=packed_seqlens,
+                packed_query_position_ids=cfg_img_packed_position_ids,
+                packed_query_indexes=cfg_img_packed_query_indexes,
+                past_key_values=cfg_img_past_key_values,
+                key_values_lens=cfg_img_key_values_lens,
+                packed_key_value_indexes=cfg_img_packed_key_value_indexes,
+                update_past_key_values=False,
+                is_causal=False,
+                **extra_inputs,
+            )
+            cfg_img_v_t = model.llm2vae(cfg_img_output.packed_query_sequence)
+            cfg_img_v_t = cfg_img_v_t[packed_vae_token_indexes]
 
-        # return 0
-            # _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
-            #     self.old_model.prepare_prompts(
-            #     vae_generation_input = self.old_model.prepare_vae_latent(
-            #         curr_kvlens=,
-            #         curr_rope=,
-            #         image_sizes=,
-            #         new_token_ids=
-            #     )
-            #     cfg_vae_generation_input = self.old_model.prepare_vae_latent_cfg(
-            #         curr_kvlens=,
-            #         curr_rope=,
-            #         image_sizes=
-            #     )
-            #     self.old_model.generate_image(
-            #         **vae_generation_input,
-            #         num_timesteps=self.num_inference_steps,
-            #     )
-        # Compute rewards and advantages
-        # rewards, rewards_per_func = self._compute_rewards(inputs, images)
-        # reshaped_rewards = rewards.view(-1, self.num_generations)
-        # mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
-        # if self.num_generations > 1:
-        #     std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
-        # else:
-        #     std_rewards = torch.zeros_like(mean_rewards)
-        # advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
-        # advantages = torch.clamp(advantages, -5, 5)
-        
-        # self._log_step(images, advantages, None)
+        if cfg_text_scale > 1.0:
+            if cfg_renorm_type == "text_channel":
+                v_t_text_ = cfg_text_v_t + cfg_text_scale * (v_t - cfg_text_v_t)
+                norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
+                norm_v_t_text_ = torch.norm(v_t_text_, dim=-1, keepdim=True)
+                scale = (norm_v_t / (norm_v_t_text_ + 1e-8)).clamp(min=cfg_renorm_min, max=1.0)
+                v_t_text = v_t_text_ * scale
+                if cfg_img_scale > 1.0:
+                    v_t = cfg_img_v_t + cfg_img_scale * (v_t_text - cfg_img_v_t)
+                else:
+                    v_t = v_t_text
+            else:
+                v_t_text_ = cfg_text_v_t + cfg_text_scale * (v_t - cfg_text_v_t)
 
-        # policy_noise_preds = self._compute_diffusion_pred(
-        #     model,
-        #     diffusion_latents=diffusion_latents,
-        #     traj_cur_latents=traj_latents,
-        #     ts=ts,
-        #     guidance_scale=self.guidance_scale,
-        #     num_inference_steps=self.num_inference_steps,
-        #     num_images_per_prompt=self.num_generations
-        # )
+                if cfg_img_scale > 1.0:
+                    v_t_ = cfg_img_v_t + cfg_img_scale * (v_t_text_ - cfg_img_v_t)
+                else:
+                    v_t_ = v_t_text_
 
-        # with torch.no_grad():
-        #     ref_noise_preds = self._compute_diffusion_pred(
-        #         self.ref_model,
-        #         diffusion_latents=diffusion_latents,
-        #         traj_cur_latents=traj_latents,
-        #         ts=ts,
-        #         guidance_scale=self.guidance_scale,
-        #         num_inference_steps=self.num_inference_steps,
-        #         num_images_per_prompt=self.num_generations
-        #     )
-        
-        # # Compute log probs and KL
-        # _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
-        #     policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
-        # )
-        # _, _, ref_mean, ref_std = compute_log_prob(
-        #     ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
-        # )
-        
-        # kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
-        # kl = kl.mean(dim=tuple(range(1, kl.ndim)))
-        
-        # # GRPO loss
-        # advantages_steps = advantages.repeat_interleave(
-        #     self.num_inference_steps, dim=0
-        # )
-        # ratio = torch.exp(policy_log_probs - traj_log_probs)
-        # unclipped_loss = -advantages_steps * ratio
-        # clipped_loss = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
-        # policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
-        
-        # loss = policy_loss + self.beta * kl.mean()
-        
-        # # Logging
-        # self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
-        # self._metrics["kl"].append(self.accelerator.gather_for_metrics(kl).mean().item())
-        
-        # for i, (func_name, _, _) in enumerate(self.reward_funcs):
-        #     self._metrics[f"reward/{func_name}"].append(
-        #         self.accelerator.gather_for_metrics(
-        #             rewards_per_func[:, i]
-        #         ).mean().item())
-                
-        # return loss
+                # NOTE norm is computed over all dimensions, thus currently only supports batch_size = 1 with navit
+                if cfg_renorm_type == "global":
+                    norm_v_t = torch.norm(v_t)
+                    norm_v_t_ = torch.norm(v_t_)
+                elif cfg_renorm_type == "channel":
+                    norm_v_t = torch.norm(v_t, dim=-1, keepdim=True)
+                    norm_v_t_ = torch.norm(v_t_, dim=-1, keepdim=True)
+                else:
+                    raise NotImplementedError(f"{cfg_renorm_type} is not supported")
+                scale = (norm_v_t / (norm_v_t_ + 1e-8)).clamp(min=cfg_renorm_min, max=1.0)
+                v_t = v_t_ * scale
+        else:
+            # No CFG
+            pass
 
-
-# @TRAINER_REGISTER.register("blip3o_next_t2icot_grpo_trainer")
-# class T2ICoTGRPOTrainer(BaseBLIP3oGRPOTrainer):
-#     """
-#     GRPO Trainer for Text-to-Image with Chain-of-Thought reasoning.
-    
-#     This trainer combines CoT text generation with T2I diffusion, optimizing both
-#     the reasoning process and the image generation jointly.
-#     """
-    
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-        
-#         # Setup generation config for CoT
-#         self.generation_config = {
-
-#         }
-    
-#     # def _configure_parameters(self, model: PreTrainedModel):
-#     #     """Configure parameters for CoT + T2I training."""
-#     #     # Freeze reference model
-#     #     for p in self.ref_model.parameters():
-#     #         p.requires_grad = False
-        
-#     #     # Get model components
-#     #     model_base = model.get_model()
-        
-#     #     # For CoT+T2I, we train both language and diffusion components
-#     #     for p in model_base.parameters():
-#     #         p.requires_grad = True
-#     #     for p in model.visual.parameters():
-#     #         p.requires_grad = True
-#     #     for p in model.lm_head.parameters():
-#     #         p.requires_grad = True
-        
-#     #     # T2I components
-#     #     model_base.down_projector.requires_grad_(True)
-#     #     model_base.t2i_queries.requires_grad = True
-#     #     model_base.dit.requires_grad_(True)
-    
-#     # def create_optimizer(self):
-#     #     """
-#     #     Create optimizer with different learning rates for DiT and LLM.
-#     #     DiT gets higher LR (1e-5), LLM gets lower LR (1e-6).
-#     #     """
-#     #     opt_kwargs = {
-#     #         "betas": (self.args.adam_beta1, self.args.adam_beta2),
-#     #         "eps": self.args.adam_epsilon,
-#     #         "weight_decay": self.args.weight_decay,
-#     #     }
-        
-#     #     dit_params = []
-#     #     llm_params = []
-        
-#     #     # Collect DiT parameters
-#     #     for name, param in self.model.get_model().dit.named_parameters():
-#     #         if param.requires_grad:
-#     #             dit_params.append(param)
-        
-#     #     for name, param in self.model.get_model().down_projector.named_parameters():
-#     #         if param.requires_grad:
-#     #             dit_params.append(param)
-        
-#     #     if self.model.get_model().t2i_queries.requires_grad:
-#     #         dit_params.append(self.model.get_model().t2i_queries)
-        
-#     #     # Collect LLM parameters
-#     #     for name, param in self.model.get_model().named_parameters():
-#     #         if param.requires_grad and "dit" not in name and "queries" not in name and "down_projector" not in name:
-#     #             llm_params.append(param)
-        
-#     #     # Create parameter groups with different LRs
-#     #     param_groups = [
-#     #         {"params": dit_params, "lr": 3e-6},
-#     #         {"params": llm_params, "lr": 5e-7},
-#     #     ]
-        
-#     #     optimizer = torch.optim.AdamW(param_groups, **opt_kwargs)
-#     #     return optimizer
-        
-    
-#     def _compute_cot_loss(
-#         self,
-#         model: PreTrainedModel,
-#         prompt_completion_ids: torch.Tensor,
-#         completion_ids: torch.Tensor,
-#         advantages: torch.Tensor,
-#         prompt_length: int
-#     ):
-#         """
-#         Compute CoT loss on text generation.
-        
-#         Args:
-#             model: Policy model
-#             prompt_completion_ids: Full prompt+completion token IDs
-#             completion_ids: Completion-only token IDs
-#             advantages: Advantage values for each generation
-#             prompt_length: Length of prompt tokens
-            
-#         Returns:
-#             Tuple of (cot_loss, mean_kl, completion_mask)
-#         """
-#         def get_per_token_logps(model_class, input_ids):
-#             """Get log probabilities for each token."""
-#             logits = model_class(input_ids).logits[:, :-1, :]
-#             input_ids = input_ids[:, 1:]
-            
-#             per_token_logps = []
-#             for logits_row, input_ids_row in zip(logits, input_ids):
-#                 log_probs = logits_row.log_softmax(dim=-1)
-#                 token_log_prob = torch.gather(
-#                     log_probs, dim=1, index=input_ids_row.unsqueeze(1)
-#                 ).squeeze(1)
-#                 per_token_logps.append(token_log_prob)
-            
-#             return torch.stack(per_token_logps)
-        
-#         # Policy log probs
-#         per_token_logps = get_per_token_logps(model, prompt_completion_ids)
-#         per_token_logps = per_token_logps[:, prompt_length - 1:]
-        
-#         # Reference log probs
-#         with torch.inference_mode():
-#             ref_per_token_logps = get_per_token_logps(self.ref_model, prompt_completion_ids)
-#         ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1:]
-        
-#         # KL divergence
-#         per_token_kl = torch.exp(ref_per_token_logps - per_token_logps) - \
-#                       (ref_per_token_logps - per_token_logps) - 1
-        
-#         # Mask everything after first EOS token
-#         is_eos = completion_ids == self.processing_class.eos_token_id
-#         device = self.accelerator.device
-#         eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
-#         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
-#         sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
-#         completion_mask = (sequence_indices <= eos_idx.unsqueeze(1)).int()
-        
-#         # Compute loss
-#         advantages_cot = advantages.unsqueeze(1)
-#         per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages_cot
-#         per_token_loss = -(per_token_loss - 0.01 * per_token_kl)
-#         cot_loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-#         mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-        
-#         return cot_loss, mean_kl, completion_mask
-    
-#     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-#         if return_outputs:
-#             raise ValueError("GRPOTrainer does not support returning outputs")
-        
-#         assert self.num_generations > 1, "num_generations must be greater than 1 for GRPO"
-#         device = self.accelerator.device
-#         tokenizer = self.train_dataset.processor.tokenizer
-#         prompt_inputs = {
-#             "input_ids": inputs["input_ids"][:, -self.max_prompt_length:],
-#             "attention_mask": inputs["attention_mask"][:, -self.max_prompt_length:],
-#         }
-
-#         with torch.no_grad():
-#             completion = self.old_model.generate_gen_ids(
-#                 **prompt_inputs,
-#                 max_new_tokens=None,
-#                 do_sample=True,
-#                 temperature=1.0,
-#                 num_return_sequences=self.num_generations,
-#                 pad_token_id=tokenizer.pad_token_id,
-#                 eos_token_id=tokenizer.eos_token_id
-#             )
-#             # Pad if needed
-#             max_length = completion.size(1)
-#             prompt_completion_ids = completion
-#             for completion in prompt_completion_ids:
-#                 print(completion)
-        
-#         prompt_length = prompt_inputs["input_ids"].size(1)
-#         completion_ids = prompt_completion_ids[:, prompt_length:]
-#         # Decode completions for T2I
-#         completions = tokenizer.batch_decode(
-#             prompt_completion_ids, skip_special_tokens=True
-#         )
-
-#         with torch.no_grad():
-#             _, images, traj_log_probs, diffusion_latents, traj_denoised_latents, traj_latents, ts = \
-#                 self.old_model.generate_images(
-#                     gen_ids=prompt_completion_ids,
-#                     # attention_mask=inputs["attention_mask"],
-#                     guidance_scale=self.guidance_scale,
-#                     num_inference_steps=self.num_inference_steps,
-#                     num_images_per_prompt=self.num_generations,
-#                     use_sde=True
-#                 )
-#         # Compute rewards and advantages
-#         rewards, rewards_per_func = self._compute_rewards(inputs, images, completions)
-#         reshaped_rewards = rewards.view(-1, self.num_generations)
-#         mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
-#         std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
-#         advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
-#         advantages = torch.clamp(advantages, -5, 5)
-
-#         # rewards, rewards_per_func = self._compute_rewards(inputs, images)
-#         # reshaped_rewards = rewards.view(-1, self.num_generations)
-#         # mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
-#         # std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
-#         # advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
-#         # advantages = torch.clamp(advantages, -5, 5)
-        
-#         self._log_step(images, advantages, completions)
-
-#         # CoT loss computation
-#         cot_loss, mean_kl_cot, completion_mask = self._compute_cot_loss(
-#             model, prompt_completion_ids, completion_ids, advantages, prompt_length
-#         )
-
-#         policy_noise_preds = self._compute_diffusion_pred(
-#             model,
-#             diffusion_latents=diffusion_latents,
-#             traj_cur_latents=traj_latents,
-#             ts=ts,
-#             guidance_scale=self.guidance_scale,
-#             num_inference_steps=self.num_inference_steps,
-#             num_images_per_prompt=self.num_generations
-#         )
-
-#         with torch.no_grad():
-#             ref_noise_preds = self._compute_diffusion_pred(
-#                 self.ref_model,
-#                 diffusion_latents=diffusion_latents,
-#                 traj_cur_latents=traj_latents,
-#                 ts=ts,
-#                 guidance_scale=self.guidance_scale,
-#                 num_inference_steps=self.num_inference_steps,
-#                 num_images_per_prompt=self.num_generations
-#             )
-        
-#         # Compute log probs and KL
-#         _, policy_log_probs, policy_mean, policy_std = compute_log_prob(
-#             policy_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
-#         )
-#         _, _, ref_mean, ref_std = compute_log_prob(
-#             ref_noise_preds, model.get_scheduler(), traj_latents, traj_denoised_latents, ts
-#         )
-        
-#         kl = (policy_mean - ref_mean)**2 / (2 * policy_std**2)
-#         kl = kl.mean(dim=tuple(range(1, kl.ndim)))
-        
-#         # GRPO loss
-#         advantages_steps = advantages.repeat_interleave(self.num_inference_steps, dim=0)
-#         ratio = torch.exp(policy_log_probs - traj_log_probs)
-#         unclipped_loss_diff = -advantages_steps * ratio
-#         clipped_loss_diff = -advantages_steps * torch.clamp(ratio, 1.0 - 1e-4, 1.0 + 1e-4)
-#         policy_loss_diff = torch.mean(torch.maximum(unclipped_loss_diff, clipped_loss_diff))
-#         diff_loss = policy_loss_diff + self.beta * kl.mean()
-        
-        
-#         # Generate images from CoT completions
-#         # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
-#         #     with torch.no_grad():
-#         #         images, diff_log_probs_traj, prev_latents, pred_latents, ts = \
-#         #             unwrapped_model.generate_image(
-#         #                 text=completions,
-#         #                 tokenizer=self.processing_class.tokenizer,
-#         #                 diffusion_kwargs=self.diffusion_config,
-#         #                 use_sde=True,
-#         #             )
-        
-#         # # Compute rewards and advantages
-#         # rewards, rewards_per_func = self._compute_rewards(inputs, images, completions)
-#         # reshaped_rewards = rewards.view(-1, self.num_generations)
-#         # mean_rewards = reshaped_rewards.mean(dim=1).repeat_interleave(self.num_generations)
-#         # std_rewards = reshaped_rewards.std(dim=1).repeat_interleave(self.num_generations)
-#         # advantages = (rewards - mean_rewards) / (std_rewards + 1e-4)
-#         # advantages = torch.clamp(advantages, -5, 5)
-        
-        
-#         # self._log_step(images, prompts_text, advantages, completions)
-
-#         # # CoT loss computation
-#         # cot_loss, mean_kl_cot, completion_mask = self._compute_cot_loss(
-#         #     model, prompt_completion_ids, completion_ids, advantages, prompt_length
-#         # )
-        
-#         # # Diffusion loss computation
-#         # model_pred = self._compute_diffusion_loss(
-#         #     model, completions, prev_latents, pred_latents, ts, "t2i_queries", 1
-#         # )
-        
-#         # with torch.no_grad():
-#         #     ref_model_pred = self._compute_diffusion_loss(
-#         #         self.ref_model, completions, prev_latents, pred_latents, ts, "t2i_queries", 1
-#         #     )
-        
-#         # # Compute log probs and KL for diffusion
-#         # _, log_prob_diff, mean_diff, std_diff = compute_log_prob(
-#         #     model_pred, self.scheduler, prev_latents, pred_latents, ts
-#         # )
-#         # _, _, mean_ref_diff, std_ref_diff = compute_log_prob(
-#         #     ref_model_pred, self.scheduler, prev_latents, pred_latents, ts
-#         # )
-        
-#         # kl_diff = (mean_diff - mean_ref_diff)**2 / (2 * std_diff**2)
-#         # kl_diff = kl_diff.mean(dim=tuple(range(1, kl_diff.ndim)))
-        
-#         # # Diffusion GRPO loss
-#         # advantages_diff = advantages.repeat_interleave(
-#         #     self.diffusion_config["num_inference_steps"], dim=0
-#         # )
-#         # ratio_diff = torch.exp(log_prob_diff - diff_log_probs_traj)
-#         # assert (ratio_diff == 1).all(), f"{ratio_diff}"
-
-#         # unclipped_loss_diff = -advantages_diff * ratio_diff
-#         # clipped_loss_diff = -advantages_diff * torch.clamp(
-#         #     ratio_diff, 1.0 - 1e-4, 1.0 + 1e-4
-#         # )
-#         # diff_loss = torch.mean(torch.maximum(unclipped_loss_diff, clipped_loss_diff))
-#         # diff_loss = diff_loss + self.beta * kl_diff.mean()
-        
-#         # Combined loss
-#         loss = cot_loss + diff_loss
-        
-#         # Logging
-#         completion_length = self.accelerator.gather_for_metrics(
-#             completion_mask.sum(1)
-#         ).float().mean().item()
-        
-#         self._metrics["reward"].append(self.accelerator.gather_for_metrics(rewards).mean().item())
-#         self._metrics["cot_loss"].append(self.accelerator.gather_for_metrics(cot_loss).mean().item())
-#         self._metrics["cot_kl"].append(self.accelerator.gather_for_metrics(mean_kl_cot).mean().item())
-#         self._metrics["diff_loss"].append(self.accelerator.gather_for_metrics(diff_loss).mean().item())
-#         self._metrics["diff_kl"].append(self.accelerator.gather_for_metrics(kl_diff).mean().item())
-#         self._metrics["completion_length"].append(completion_length)
-        
-#         for i, (func_name, _, _) in enumerate(self.reward_funcs):
-#             self._metrics[f"reward/{func_name}"].append(
-#                 self.accelerator.gather_for_metrics(
-#                     rewards_per_func[:, i]
-#                 ).mean().item()
-#             )
-        
-#         return loss
+        return v_t

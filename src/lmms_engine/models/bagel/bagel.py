@@ -981,17 +981,15 @@ class Bagel(PreTrainedModel):
             )
 
             if use_sde:
-                cur_latents.append(x_t.unsqueeze(1))
-                # x_t = x_t - v_t.to(x_t.device) * dts[i]
+                cur_latents.append(x_t.unsqueeze(0))
                 x_t, log_prob, _, _ = sde_step_with_logprob(
                     sde_scheduler, (v_t).float(), original_t.unsqueeze(0), x_t.float(),
                 )
-                log_probs.append(log_prob.unsqueeze(1))
-                ts.append(t.unsqueeze(0).repeat(len(log_prob)).unsqueeze(1))
-                denoised_latents.append(x_t.unsqueeze(1))
+                log_probs.append(log_prob.unsqueeze(0))
+                ts.append(t.unsqueeze(0).repeat(len(log_prob)).unsqueeze(0))
+                denoised_latents.append(x_t.unsqueeze(0))
             else:
                 # compute previous image: x_t -> x_t-1
-                # latents = self.model.noise_scheduler.step(noise_pred, t, latents).prev_sample
                 x_t = x_t - v_t.to(x_t.device) * dts[i]
 
         if enable_taylorseer:
@@ -1003,11 +1001,10 @@ class Bagel(PreTrainedModel):
 
         if use_sde:
             # Flatten SDE outputs
-            denoised_latents = torch.cat(denoised_latents, dim=1).flatten(0, 1)
-            cur_latents = torch.cat(cur_latents, dim=1).flatten(0, 1)
-            log_probs = torch.cat(log_probs, dim=1).flatten(0, 1)
-            # pred_latents = torch.cat(pred_latents, dim=1).flatten(0, 1)
-            ts = torch.cat(ts, dim=1).flatten(0, 1)
+            denoised_latents = torch.cat(denoised_latents, dim=0)
+            cur_latents = torch.cat(cur_latents, dim=0)
+            log_probs = torch.cat(log_probs, dim=0)
+            ts = torch.cat(ts, dim=0)
             return unpacked_latent, log_probs, denoised_latents, cur_latents, ts
         else:
             return unpacked_latent
