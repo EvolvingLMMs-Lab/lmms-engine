@@ -14,12 +14,12 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 from transformers.cache_utils import Cache
+from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.models.llava_onevision.modeling_llava_onevision import (
     LlavaOnevisionModel,
     LlavaOnevisionModelOutputWithPast,
 )
-from typing_extensions import Unpack
-from transformers.utils import FlashAttentionKwargs
+from transformers.processing_utils import Unpack
 
 
 def apply_2d_pool(
