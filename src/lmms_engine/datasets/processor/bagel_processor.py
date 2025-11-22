@@ -22,6 +22,7 @@ from .config import ProcessorConfig
 class BagelDataProcessor:
     def __init__(self, config: ProcessorConfig) -> None:
         self.config = config
+        extra = self.config.extra_kwargs
         self.vit_patch_size = getattr(self.config.extra_kwargs, "vit_patch_size", 14)
         self.max_num_patch_per_side = getattr(self.config.extra_kwargs, "max_num_patch_per_side", 70)
         self.interpolate_pos = getattr(self.config.extra_kwargs, "interpolate_pos", False)
@@ -32,6 +33,17 @@ class BagelDataProcessor:
         # Default latent * downsample = 2 * 8
         self.vae_image_downsample = getattr(self.config.extra_kwargs, "vae_image_downsample", 16)
         self.max_latent_size = getattr(self.config.extra_kwargs, "max_latent_size", 64)
+        # JiT support
+        self.visual_gen_backend = getattr(extra, "visual_gen_backend", "vae")
+        self.jit_patch_size = getattr(extra, "jit_patch_size", 16)
+        self.jit_noise_scale = getattr(extra, "jit_noise_scale", 1.0)
+        self.jit_P_mean = getattr(extra, "jit_P_mean", -0.8)
+        self.jit_P_std = getattr(extra, "jit_P_std", 0.8)
+        self.jit_t_eps = getattr(extra, "jit_t_eps", 5e-2)
+        self.jit_image_stride = getattr(extra, "jit_image_stride", self.jit_patch_size)
+        self.jit_max_image_size = getattr(extra, "jit_max_image_size", 1024)
+        self.jit_min_image_size = getattr(extra, "jit_min_image_size", 512)
+        self.jit_max_pixels = getattr(extra, "jit_max_pixels", 2_007_040)
 
     def build(self):
         self.processor = self._build_processor()
@@ -46,6 +58,12 @@ class BagelDataProcessor:
             image_stride=self.vae_image_stride,
             max_image_size=self.vae_max_image_size,
             min_image_size=self.vae_min_image_size,
+        )
+        self.jit_image_transform = ImageTransform(
+            image_stride=self.jit_image_stride,
+            max_image_size=self.jit_max_image_size,
+            min_image_size=self.jit_min_image_size,
+            max_pixels=self.jit_max_pixels,
         )
         self.vit_image_stride = getattr(self.config.extra_kwargs, "vit_image_stride", 14)
         self.vit_max_image_size = getattr(self.config.extra_kwargs, "vit_max_image_size", 512)
@@ -215,24 +233,43 @@ class BagelDataProcessor:
         curr_split_len += 1
 
         # preprocess image
-        sequence_status["vae_image_tensors"].append(image_tensor)
-        sequence_status["packed_latent_position_ids"].append(
-            self.get_flattened_position_ids(
-                image_tensor.size(1),
-                image_tensor.size(2),
-                self.vae_image_downsample,
-                max_num_patches_per_side=self.max_latent_size,
+        if self.visual_gen_backend == "jit":
+            image_tensor = self.jit_image_transform(image.convert("RGB"))
+            sequence_status["vae_image_tensors"].append(image_tensor)
+            sequence_status["packed_latent_position_ids"].append(
+                self.get_flattened_position_ids(
+                    image_tensor.size(1),
+                    image_tensor.size(2),
+                    self.jit_patch_size,
+                    max_num_patches_per_side=self.max_latent_size,
+                )
             )
-        )
-        H, W = image_tensor.shape[1:]
-        h = H // self.vae_image_downsample
-        w = W // self.vae_image_downsample
-        sequence_status["vae_latent_shapes"].append((h, w))
+            H, W = image_tensor.shape[1:]
+            h = H // self.jit_patch_size
+            w = W // self.jit_patch_size
+            sequence_status["vae_latent_shapes"].append((h, w))
+        else:
+            sequence_status["vae_image_tensors"].append(image_tensor)
+            sequence_status["packed_latent_position_ids"].append(
+                self.get_flattened_position_ids(
+                    image_tensor.size(1),
+                    image_tensor.size(2),
+                    self.vae_image_downsample,
+                    max_num_patches_per_side=self.max_latent_size,
+                )
+            )
+            H, W = image_tensor.shape[1:]
+            h = H // self.vae_image_downsample
+            w = W // self.vae_image_downsample
+            sequence_status["vae_latent_shapes"].append((h, w))
 
         num_img_tokens = w * h
         sequence_status["packed_vae_token_indexes"].extend(range(curr, curr + num_img_tokens))
         sequence_status["mse_loss_indexes"].extend(range(curr, curr + num_img_tokens))
-        timestep = np.random.randn()
+        if self.visual_gen_backend == "jit":
+            timestep = self.sample_jit_timestep()
+        else:
+            timestep = np.random.randn()
 
         sequence_status["packed_timesteps"].extend([timestep] * num_img_tokens)
         curr += num_img_tokens
@@ -329,6 +366,10 @@ class BagelDataProcessor:
             packed_vit_token_indexes=list(),
         )
         return sequence_status
+
+    def sample_jit_timestep(self):
+        z = np.random.randn() * self.jit_P_std + self.jit_P_mean
+        return z
 
     def to_tensor(self, sequence_status):
         data = dict(

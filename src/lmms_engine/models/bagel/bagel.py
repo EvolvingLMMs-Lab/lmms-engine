@@ -42,6 +42,15 @@ class BagelConfig(PretrainedConfig):
         vit_config: SiglipVisionConfig | None = None,
         vae_config=None,
         latent_patch_size=2,
+        visual_gen_backend="vae",
+        jit_patch_size=16,
+        jit_noise_scale=1.0,
+        jit_P_mean=-0.8,
+        jit_P_std=0.8,
+        jit_t_eps=5e-2,
+        jit_num_sampling_steps=24,
+        jit_cfg_scale=1.0,
+        jit_cfg_interval: Tuple[float, float] = (0.0, 1.0),
         max_latent_size=64,
         vit_max_num_patch_per_side=70,
         connector_act="gelu_pytorch_tanh",
@@ -61,6 +70,15 @@ class BagelConfig(PretrainedConfig):
         self.vit_config = vit_config
         self.vae_config = vae_config
         self.latent_patch_size = latent_patch_size
+        self.visual_gen_backend = visual_gen_backend
+        self.jit_patch_size = jit_patch_size
+        self.jit_noise_scale = jit_noise_scale
+        self.jit_P_mean = jit_P_mean
+        self.jit_P_std = jit_P_std
+        self.jit_t_eps = jit_t_eps
+        self.jit_num_sampling_steps = jit_num_sampling_steps
+        self.jit_cfg_scale = jit_cfg_scale
+        self.jit_cfg_interval = jit_cfg_interval
         self.max_latent_size = max_latent_size
         self.vit_max_num_patch_per_side = vit_max_num_patch_per_side
         self.connector_act = connector_act
@@ -110,6 +128,7 @@ class BagelLoaderExtraConfig(BaseModel):
     tie_word_embeddings: bool = Field(default=False)
     freeze_und: bool = Field(default=False)
     copy_init_moe: bool = Field(default=True)
+    visual_gen_backend: str = Field(default="vae")
     vit_path: str = Field(default="HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit")
     vit_select_layer: int = Field(default=-2)
     vit_rope: bool = Field(default=False)
@@ -117,6 +136,11 @@ class BagelLoaderExtraConfig(BaseModel):
     freeze_llm: bool = Field(default=False)
     freeze_vit: bool = Field(default=False)
     latent_patch_size: int = 2
+    jit_patch_size: int = 16
+    jit_noise_scale: float = 1.0
+    jit_P_mean: float = -0.8
+    jit_P_std: float = 0.8
+    jit_t_eps: float = 5e-2
     max_latent_size: int = 32
     vit_max_num_patch_per_side: int = 70
     connector_act: str = "gelu_pytorch_tanh"
@@ -159,11 +183,25 @@ class Bagel(PreTrainedModel):
         self.vae_model = vae_model
 
         if config.visual_gen:
-            self.latent_patch_size = config.latent_patch_size
-            self.timestep_shift = config.timestep_shift
-            self.latent_downsample = config.vae_config.downsample * config.latent_patch_size
-            self.max_latent_size = config.max_latent_size
-            self.latent_channel = config.vae_config.z_channels
+            self.visual_gen_backend = config.visual_gen_backend
+            if self.visual_gen_backend not in ["vae", "jit"]:
+                raise ValueError(f"Unsupported visual_gen_backend: {self.visual_gen_backend}")
+            if self.visual_gen_backend == "jit":
+                self.latent_patch_size = config.jit_patch_size
+                self.timestep_shift = config.timestep_shift
+                self.latent_downsample = config.jit_patch_size
+                self.max_latent_size = config.max_latent_size
+                self.latent_channel = 3
+                self.jit_noise_scale = config.jit_noise_scale
+                self.jit_P_mean = config.jit_P_mean
+                self.jit_P_std = config.jit_P_std
+                self.jit_t_eps = config.jit_t_eps
+            else:
+                self.latent_patch_size = config.latent_patch_size
+                self.timestep_shift = config.timestep_shift
+                self.latent_downsample = config.vae_config.downsample * config.latent_patch_size
+                self.max_latent_size = config.max_latent_size
+                self.latent_channel = config.vae_config.z_channels
             self.patch_latent_dim = self.latent_patch_size**2 * self.latent_channel
             self.time_embedder = TimestepEmbedder(self.hidden_size)
             self.vae2llm = nn.Linear(self.patch_latent_dim, self.hidden_size)
@@ -246,7 +284,10 @@ class Bagel(PreTrainedModel):
             mse_loss_indexes: 1-D bool tensor, where to compute mse loss.
         """
         if self.config.visual_gen and padded_images is not None:
-            padded_latent = self.vae_model.encode(padded_images)
+            if getattr(self, "visual_gen_backend", "vae") == "jit":
+                padded_latent = padded_images
+            else:
+                padded_latent = self.vae_model.encode(padded_images)
         else:
             padded_latent = None
 
@@ -302,20 +343,30 @@ class Bagel(PreTrainedModel):
 
         if need_visual_gen:
             p = self.latent_patch_size
-            packed_latent = []
+            packed_latent_chunks = []
             for latent, (h, w) in zip(padded_latent, patchified_vae_latent_shapes):
                 latent = latent[:, : h * p, : w * p].reshape(self.latent_channel, h, p, w, p)
                 latent = torch.einsum("chpwq->hwpqc", latent).reshape(-1, p * p * self.latent_channel)
-                packed_latent.append(latent)
-            packed_latent_clean = torch.cat(packed_latent, dim=0)
+                packed_latent_chunks.append(latent)
+            packed_latent_clean = torch.cat(packed_latent_chunks, dim=0)
 
             torch.manual_seed(42)
-            noise = torch.randn_like(packed_latent_clean)
-            packed_timesteps = torch.sigmoid(packed_timesteps)
-            packed_timesteps = (
-                self.timestep_shift * packed_timesteps / (1 + (self.timestep_shift - 1) * packed_timesteps)
-            )
-            packed_latent = (1 - packed_timesteps[:, None]) * packed_latent_clean + packed_timesteps[:, None] * noise
+            if getattr(self, "visual_gen_backend", "vae") == "jit":
+                noise = torch.randn_like(packed_latent_clean) * self.config.jit_noise_scale
+                packed_timesteps = torch.sigmoid(packed_timesteps)
+                packed_latent = packed_timesteps[:, None] * packed_latent_clean + (1 - packed_timesteps[:, None]) * noise
+                target = (packed_latent_clean - packed_latent) / (
+                    1 - packed_timesteps[:, None]
+                ).clamp_min(self.config.jit_t_eps)
+            else:
+                noise = torch.randn_like(packed_latent_clean)
+                packed_timesteps = torch.sigmoid(packed_timesteps)
+                packed_timesteps = (
+                    self.timestep_shift * packed_timesteps / (1 + (self.timestep_shift - 1) * packed_timesteps)
+                )
+                packed_latent = (1 - packed_timesteps[:, None]) * packed_latent_clean + packed_timesteps[:, None] * noise
+                target = noise - packed_latent_clean
+
             packed_timestep_embeds = self.time_embedder(packed_timesteps)
             latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids)
             packed_latent = self.vae2llm(packed_latent) + packed_timestep_embeds + latent_token_pos_emb
@@ -342,7 +393,6 @@ class Bagel(PreTrainedModel):
         mse = None
         if need_visual_gen:
             packed_mse_preds = self.llm2vae(last_hidden_state[mse_loss_indexes])
-            target = noise - packed_latent_clean  # NOTE: v_t=dx_t/dt=x_1-x_0, pointing from data to noise
             has_mse = packed_timesteps > 0
             mse = (packed_mse_preds - target[has_mse]) ** 2
 
@@ -892,6 +942,8 @@ class Bagel(PreTrainedModel):
         # cache_args
         enable_taylorseer=False,
     ):
+        if getattr(self, "visual_gen_backend", "vae") == "jit":
+            raise NotImplementedError("JiT backend image generation is not yet integrated.")
         if enable_taylorseer:
             self.language_model.model.enable_taylorseer = True
             model_pred_cache_dic, model_pred_current = cache_init(self, num_timesteps)
