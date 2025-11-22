@@ -36,13 +36,18 @@ class BagelDataProcessor:
         # JiT support
         self.visual_gen_backend = getattr(extra, "visual_gen_backend", "vae")
         self.jit_patch_size = getattr(extra, "jit_patch_size", 16)
+        self.jit_image_size = getattr(extra, "jit_image_size", None)
         self.jit_noise_scale = getattr(extra, "jit_noise_scale", 1.0)
         self.jit_P_mean = getattr(extra, "jit_P_mean", -0.8)
         self.jit_P_std = getattr(extra, "jit_P_std", 0.8)
         self.jit_t_eps = getattr(extra, "jit_t_eps", 5e-2)
         self.jit_image_stride = getattr(extra, "jit_image_stride", self.jit_patch_size)
-        self.jit_max_image_size = getattr(extra, "jit_max_image_size", 1024)
-        self.jit_min_image_size = getattr(extra, "jit_min_image_size", 512)
+        if self.jit_image_size is not None:
+            self.jit_max_image_size = self.jit_image_size
+            self.jit_min_image_size = self.jit_image_size
+        else:
+            self.jit_max_image_size = getattr(extra, "jit_max_image_size", 1024)
+            self.jit_min_image_size = getattr(extra, "jit_min_image_size", 512)
         self.jit_max_pixels = getattr(extra, "jit_max_pixels", 2_007_040)
 
     def build(self):

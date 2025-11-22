@@ -26,9 +26,12 @@ from .data_utils import (
     get_flattened_position_ids_interpolate,
     patchify,
 )
+from .jit_model import build_jit_model, load_jit_checkpoint
 from .modeling_utils import MLPconnector, PositionEmbedding, TimestepEmbedder
 from .qwen2_navit import NaiveCache, Qwen2Config, Qwen2ForCausalLM
 from .siglip_navit import SiglipVisionConfig, SiglipVisionModel
+
+JIT_NUM_CLASSES = 1000  # JiT checkpoints are trained with ImageNet-1K + drop token; keep shape compatibility.
 
 
 class BagelConfig(PretrainedConfig):
@@ -42,6 +45,9 @@ class BagelConfig(PretrainedConfig):
         vit_config: SiglipVisionConfig | None = None,
         vae_config=None,
         latent_patch_size=2,
+        use_jit_denoiser=False,
+        jit_checkpoint_path=None,
+        jit_model_name="JiT-B/16",
         visual_gen_backend="vae",
         jit_patch_size=16,
         jit_noise_scale=1.0,
@@ -51,6 +57,7 @@ class BagelConfig(PretrainedConfig):
         jit_num_sampling_steps=24,
         jit_cfg_scale=1.0,
         jit_cfg_interval: Tuple[float, float] = (0.0, 1.0),
+        jit_image_size=256,
         max_latent_size=64,
         vit_max_num_patch_per_side=70,
         connector_act="gelu_pytorch_tanh",
@@ -61,6 +68,7 @@ class BagelConfig(PretrainedConfig):
         mse_weight=1.0,
         vit_select_layer=-2,
         vit_rope=False,
+        freeze_jit=True,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -70,6 +78,9 @@ class BagelConfig(PretrainedConfig):
         self.vit_config = vit_config
         self.vae_config = vae_config
         self.latent_patch_size = latent_patch_size
+        self.use_jit_denoiser = use_jit_denoiser
+        self.jit_checkpoint_path = jit_checkpoint_path
+        self.jit_model_name = jit_model_name
         self.visual_gen_backend = visual_gen_backend
         self.jit_patch_size = jit_patch_size
         self.jit_noise_scale = jit_noise_scale
@@ -79,6 +90,7 @@ class BagelConfig(PretrainedConfig):
         self.jit_num_sampling_steps = jit_num_sampling_steps
         self.jit_cfg_scale = jit_cfg_scale
         self.jit_cfg_interval = jit_cfg_interval
+        self.jit_image_size = jit_image_size
         self.max_latent_size = max_latent_size
         self.vit_max_num_patch_per_side = vit_max_num_patch_per_side
         self.connector_act = connector_act
@@ -89,6 +101,7 @@ class BagelConfig(PretrainedConfig):
         self.ce_loss_reweighting = ce_loss_reweighting
         self.vit_select_layer = vit_select_layer
         self.vit_rope = vit_rope
+        self.freeze_jit = freeze_jit
 
         if llm_config is not None:
             self.llm_config = Qwen2Config.from_dict(llm_config)
@@ -128,6 +141,10 @@ class BagelLoaderExtraConfig(BaseModel):
     tie_word_embeddings: bool = Field(default=False)
     freeze_und: bool = Field(default=False)
     copy_init_moe: bool = Field(default=True)
+    use_jit_denoiser: bool = Field(default=False)
+    jit_checkpoint_path: str | None = Field(default=None)
+    jit_model_name: str = Field(default="JiT-B/16")
+    jit_image_size: int = Field(default=256)
     visual_gen_backend: str = Field(default="vae")
     vit_path: str = Field(default="HuggingFaceM4/siglip-so400m-14-980-flash-attn2-navit")
     vit_select_layer: int = Field(default=-2)
@@ -135,6 +152,7 @@ class BagelLoaderExtraConfig(BaseModel):
     freeze_vae: bool = Field(default=True)
     freeze_llm: bool = Field(default=False)
     freeze_vit: bool = Field(default=False)
+    freeze_jit: bool = Field(default=True)
     latent_patch_size: int = 2
     jit_patch_size: int = 16
     jit_noise_scale: float = 1.0
@@ -186,6 +204,9 @@ class Bagel(PreTrainedModel):
             self.visual_gen_backend = config.visual_gen_backend
             if self.visual_gen_backend not in ["vae", "jit"]:
                 raise ValueError(f"Unsupported visual_gen_backend: {self.visual_gen_backend}")
+            self.use_jit_denoiser = config.use_jit_denoiser
+            if self.use_jit_denoiser and self.visual_gen_backend != "jit":
+                raise ValueError("use_jit_denoiser requires visual_gen_backend='jit'")
             if self.visual_gen_backend == "jit":
                 self.latent_patch_size = config.jit_patch_size
                 self.timestep_shift = config.timestep_shift
@@ -225,11 +246,70 @@ class Bagel(PreTrainedModel):
 
         self.config = config
         self._init_weights()
+        if getattr(config, "use_jit_denoiser", False):
+            self._init_jit_model()
 
     def _init_weights(self, module=None):
         if self.config.visual_gen:
             nn.init.constant_(self.llm2vae.weight, 0)
             nn.init.constant_(self.llm2vae.bias, 0)
+
+    def _init_jit_model(self):
+        img_size = self.config.jit_image_size
+        self.jit_model = build_jit_model(
+            model_name=self.config.jit_model_name,
+            img_size=img_size,
+            num_classes=JIT_NUM_CLASSES,
+            in_channels=self.latent_channel,
+        )
+        if self.jit_model.patch_size != self.config.jit_patch_size:
+            raise ValueError(
+                f"JiT patch size ({self.jit_model.patch_size}) does not match config.jit_patch_size ({self.config.jit_patch_size})"
+            )
+        if self.config.jit_checkpoint_path:
+            load_jit_checkpoint(self.jit_model, self.config.jit_checkpoint_path, use_ema=True)
+        if getattr(self.config, "freeze_jit", True):
+            self.jit_model.eval()
+            for p in self.jit_model.parameters():
+                p.requires_grad = False
+
+    def _compute_jit_loss(self, padded_images, patchified_vae_latent_shapes, packed_timesteps):
+        device = padded_images.device
+        if padded_images.shape[-1] != self.config.jit_image_size or padded_images.shape[-2] != self.config.jit_image_size:
+            raise ValueError(
+                f"JiT expects square images of size {self.config.jit_image_size}, "
+                f"got {padded_images.shape[-2:]}"
+            )
+        token_counts = [h * w for (h, w) in patchified_vae_latent_shapes]
+        starts = []
+        curr = 0
+        for count in token_counts:
+            starts.append(curr)
+            curr += count
+        timesteps = packed_timesteps[starts].to(device)
+        timesteps = torch.sigmoid(timesteps)
+        t_broadcast = timesteps.view(-1, 1, 1, 1)
+
+        noise = torch.randn_like(padded_images) * self.config.jit_noise_scale
+        z = t_broadcast * padded_images + (1 - t_broadcast) * noise
+
+        labels = torch.full(
+            (padded_images.size(0),),
+            JIT_NUM_CLASSES,
+            dtype=torch.long,
+            device=device,
+        )
+        jit_model = self.jit_model.to(device=device, dtype=padded_images.dtype)
+        x_pred = jit_model(z, timesteps, labels)
+        if x_pred.dtype != padded_images.dtype:
+            x_pred = x_pred.to(padded_images.dtype)
+
+        denom = (1 - t_broadcast).clamp_min(self.config.jit_t_eps)
+        v_target = (padded_images - z) / denom
+        v_pred = (x_pred - z) / denom
+        mse = (v_pred - v_target).pow(2).mean()
+        total_mse_tokens = torch.tensor(v_target.numel(), device=device)
+        return mse, total_mse_tokens
 
     def forward(
         self,
@@ -342,35 +422,39 @@ class Bagel(PreTrainedModel):
             packed_sequence[packed_vit_token_indexes] = packed_vit_token_embed
 
         if need_visual_gen:
-            p = self.latent_patch_size
-            packed_latent_chunks = []
-            for latent, (h, w) in zip(padded_latent, patchified_vae_latent_shapes):
-                latent = latent[:, : h * p, : w * p].reshape(self.latent_channel, h, p, w, p)
-                latent = torch.einsum("chpwq->hwpqc", latent).reshape(-1, p * p * self.latent_channel)
-                packed_latent_chunks.append(latent)
-            packed_latent_clean = torch.cat(packed_latent_chunks, dim=0)
-
-            torch.manual_seed(42)
-            if getattr(self, "visual_gen_backend", "vae") == "jit":
-                noise = torch.randn_like(packed_latent_clean) * self.config.jit_noise_scale
-                packed_timesteps = torch.sigmoid(packed_timesteps)
-                packed_latent = packed_timesteps[:, None] * packed_latent_clean + (1 - packed_timesteps[:, None]) * noise
-                target = (packed_latent_clean - packed_latent) / (
-                    1 - packed_timesteps[:, None]
-                ).clamp_min(self.config.jit_t_eps)
+            if getattr(self, "use_jit_denoiser", False) and self.visual_gen_backend == "jit":
+                packed_latent_clean = None
+                target = None
             else:
-                noise = torch.randn_like(packed_latent_clean)
-                packed_timesteps = torch.sigmoid(packed_timesteps)
-                packed_timesteps = (
-                    self.timestep_shift * packed_timesteps / (1 + (self.timestep_shift - 1) * packed_timesteps)
-                )
-                packed_latent = (1 - packed_timesteps[:, None]) * packed_latent_clean + packed_timesteps[:, None] * noise
-                target = noise - packed_latent_clean
+                p = self.latent_patch_size
+                packed_latent_chunks = []
+                for latent, (h, w) in zip(padded_latent, patchified_vae_latent_shapes):
+                    latent = latent[:, : h * p, : w * p].reshape(self.latent_channel, h, p, w, p)
+                    latent = torch.einsum("chpwq->hwpqc", latent).reshape(-1, p * p * self.latent_channel)
+                    packed_latent_chunks.append(latent)
+                packed_latent_clean = torch.cat(packed_latent_chunks, dim=0)
 
-            packed_timestep_embeds = self.time_embedder(packed_timesteps)
-            latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids)
-            packed_latent = self.vae2llm(packed_latent) + packed_timestep_embeds + latent_token_pos_emb
-            packed_sequence[packed_vae_token_indexes] = packed_latent
+                torch.manual_seed(42)
+                if getattr(self, "visual_gen_backend", "vae") == "jit":
+                    noise = torch.randn_like(packed_latent_clean) * self.config.jit_noise_scale
+                    packed_timesteps = torch.sigmoid(packed_timesteps)
+                    packed_latent = packed_timesteps[:, None] * packed_latent_clean + (1 - packed_timesteps[:, None]) * noise
+                    target = (packed_latent_clean - packed_latent) / (
+                        1 - packed_timesteps[:, None]
+                    ).clamp_min(self.config.jit_t_eps)
+                else:
+                    noise = torch.randn_like(packed_latent_clean)
+                    packed_timesteps = torch.sigmoid(packed_timesteps)
+                    packed_timesteps = (
+                        self.timestep_shift * packed_timesteps / (1 + (self.timestep_shift - 1) * packed_timesteps)
+                    )
+                    packed_latent = (1 - packed_timesteps[:, None]) * packed_latent_clean + packed_timesteps[:, None] * noise
+                    target = noise - packed_latent_clean
+
+                packed_timestep_embeds = self.time_embedder(packed_timesteps)
+                latent_token_pos_emb = self.latent_pos_embed(packed_latent_position_ids)
+                packed_latent = self.vae2llm(packed_latent) + packed_timestep_embeds + latent_token_pos_emb
+                packed_sequence[packed_vae_token_indexes] = packed_latent
 
         extra_inputs = {}
         if self.use_moe:
@@ -391,10 +475,18 @@ class Bagel(PreTrainedModel):
         )
 
         mse = None
+        total_mse_tokens = torch.tensor(0, device=self.device)
         if need_visual_gen:
-            packed_mse_preds = self.llm2vae(last_hidden_state[mse_loss_indexes])
-            has_mse = packed_timesteps > 0
-            mse = (packed_mse_preds - target[has_mse]) ** 2
+            if getattr(self, "use_jit_denoiser", False) and self.visual_gen_backend == "jit":
+                mse, total_mse_tokens = self._compute_jit_loss(
+                    padded_images=padded_latent,
+                    patchified_vae_latent_shapes=patchified_vae_latent_shapes,
+                    packed_timesteps=packed_timesteps,
+                )
+            else:
+                packed_mse_preds = self.llm2vae(last_hidden_state[mse_loss_indexes])
+                has_mse = packed_timesteps > 0
+                mse = (packed_mse_preds - target[has_mse]) ** 2
 
         loss_dict = dict(mse=mse, ce=torch.tensor(0, device=self.device))
 
@@ -413,16 +505,14 @@ class Bagel(PreTrainedModel):
         if need_visual_gen:
             mse = loss_dict["mse"]
             assert mse is not None, "mse is not supported when visual_gen is False"
-            total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
-            # dist.all_reduce(total_mse_tokens, op=dist.ReduceOp.SUM)
-            # mse = mse.mean(dim=-1).sum() * dist.get_world_size() / total_mse_tokens
-            # loss_dict["mse"] = mse.detach()
-            mse = mse.mean(dim=-1).sum() / total_mse_tokens
+            if total_mse_tokens.item() == 0:
+                total_mse_tokens = torch.tensor(len(mse_loss_indexes), device=self.device)
+            if not (getattr(self, "use_jit_denoiser", False) and self.visual_gen_backend == "jit"):
+                mse = mse.mean(dim=-1).sum() / total_mse_tokens
             loss_dict["mse"] = mse
             loss = loss + mse * self.config.mse_weight
         else:
             loss_dict["mse"] = torch.tensor(0, device=self.device)
-            total_mse_tokens = torch.tensor(0, device=self.device)
 
         return {
             "loss": loss,
