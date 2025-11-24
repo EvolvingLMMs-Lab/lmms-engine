@@ -1,14 +1,11 @@
 import inspect
-import warnings
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.nn.functional as F
+from torch.distributed._tensor import DTensor
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.modeling_attn_mask_utils import (
-    _prepare_4d_causal_attention_mask,
-    _prepare_4d_causal_attention_mask_for_sdpa,
-)
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeForConditionalGeneration,
     Qwen3VLMoeModel,
@@ -19,7 +16,9 @@ from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeTextAttention,
     Qwen3VLMoeTextDecoderLayer,
+    Qwen3VLMoeTextExperts,
     Qwen3VLMoeTextModel,
+    Qwen3VLMoeTextSparseMoeBlock,
     apply_rotary_pos_emb,
     rotate_half,
 )
@@ -28,8 +27,6 @@ from transformers.utils import is_flash_attn_2_available, is_torchdynamo_compili
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     gather_heads_scatter_seq,
     gather_seq_scatter_heads,
-    get_ulysses_sequence_parallel_group,
-    get_ulysses_sequence_parallel_rank,
     get_ulysses_sequence_parallel_world_size,
     get_visual_embeds_for_rank,
     pad_and_mask_visual_for_ulysses,
@@ -37,13 +34,8 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     slice_input_tensor,
     ulysses_pad,
 )
-from lmms_engine.utils import Logging
 
-from ..sequence_packing_utils import (
-    BaseModelOutputWithPastAndRmpad,
-    _get_unpad_data,
-    _unpad_input,
-)
+from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 if is_flash_attn_2_available():
     try:
@@ -58,34 +50,6 @@ if is_flash_attn_2_available():
         _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
     except:
         raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
-
-
-def _get_module_attr(module, attr_name):
-    """
-    Safely get attribute from a module that may be wrapped by FSDP.
-    """
-    if attr_name in module.__dict__:
-        return module.__dict__[attr_name]
-
-    # Try normal attribute access
-    if hasattr(module, attr_name):
-        return getattr(module, attr_name)
-
-    # Try accessing through parent class attributes (for class-level defaults)
-    for cls in type(module).__mro__:
-        if attr_name in cls.__dict__:
-            return cls.__dict__[attr_name]
-
-    # Try accessing through FSDP wrapped module (FSDP1 style)
-    if hasattr(module, "_fsdp_wrapped_module"):
-        return getattr(module._fsdp_wrapped_module, attr_name)
-
-    # If still not found, raise error with helpful debugging info
-    available_attrs = [x for x in dir(module) if not x.startswith("__")][:20]
-    raise AttributeError(
-        f"Module {type(module).__name__} has no attribute '{attr_name}'. "
-        f"Available attributes (first 20): {available_attrs}"
-    )
 
 
 def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):
@@ -538,8 +502,8 @@ def attn_forward(
         q_len = hidden_states.shape[0] if hidden_states.ndim == 2 else hidden_states.shape[1]
     kv_seq_len = q_len
 
-    head_dim = _get_module_attr(self, "head_dim")
-    config = _get_module_attr(self, "config")
+    head_dim = self.head_dim
+    config = self.config
 
     num_heads = config.num_attention_heads
     num_key_value_heads = config.num_key_value_heads
@@ -600,60 +564,69 @@ def attn_forward(
     return attn_output, None
 
 
-def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
-    import torch.nn.functional as F
-
-    gate = _get_module_attr(self, "gate")
-    num_experts = gate.out_features
-    num_experts_per_tok = _get_module_attr(self, "top_k")
-
-    is_3d = hidden_states.ndim == 3
-    if is_3d:
-        batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states = hidden_states.view(-1, hidden_dim)
-    else:
-        hidden_dim = hidden_states.shape[-1]
-
+def moe_sparse_layer_forward(
+    self: Qwen3VLMoeTextSparseMoeBlock, hidden_states: torch.Tensor, **kwargs
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Modified from the original code to support parallelization, similar to the MoE in torchtitan
+    """
+    batch_size, sequence_length, hidden_dim = hidden_states.shape
+    hidden_states = hidden_states.view(-1, hidden_dim)
+    # router_logits: (batch * sequence_length, n_experts)
     router_logits = self.gate(hidden_states)
 
     routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-    routing_weights, selected_experts = torch.topk(routing_weights, num_experts_per_tok, dim=-1)
-
+    routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
     selected_experts = selected_experts.to(torch.float32)
 
+    # Always normalize the routing weights
     routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-
+    # we cast back to the input dtype
     routing_weights = routing_weights.to(hidden_states.dtype)
 
-    num_tokens_per_expert = torch.histc(selected_experts, bins=num_experts, min=0, max=num_experts)
+    # Calculate the number of tokens per expert
+    # [num_tokens on expert_0, num_tokens on expert_1, ...]
+    num_tokens_per_expert = torch.histc(selected_experts, bins=self.num_experts, min=0, max=self.num_experts)
+    # Histc does not support half tensor or int64, so we cast to float32 and cast back to int64
     selected_experts = selected_experts.to(torch.int64)
     num_tokens_per_expert = num_tokens_per_expert.to(torch.int64)
 
+    # Will need to compute num_tokens * top_k num tokens, sorted by the token index and match the expert order
     token_indices_experts_sorted = torch.argsort(selected_experts.view(-1), stable=True)
-
+    # Get scores for each token
     top_scores_experts_sorted = routing_weights.view(-1)[token_indices_experts_sorted]
-    token_indices_experts_sorted = token_indices_experts_sorted // num_experts_per_tok
-    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
+    # Divide by top_k to get the token index that matches the expert order
+    # [token_index_on_expert_0, token_index_on_expert_1, ...]
+    token_indices_experts_sorted = token_indices_experts_sorted // self.top_k
 
+    token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
     routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
 
-    from torch.distributed._tensor import DTensor
+    out_experts_split = self.experts(routed_input, num_tokens_per_expert)
 
-    if isinstance(self.experts.gate_up_proj, DTensor):
-        out_experts_split = self.experts(routed_input, num_tokens_per_expert)
-    else:
-        routed_input_split = torch.split(
-            routed_input,
-            split_size_or_sections=num_tokens_per_expert.tolist(),
-            dim=0,
-        )
-        out_experts_split = self.experts(*routed_input_split)
-
+    # Gather the output from the experts
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
     final_hidden_states = torch.zeros_like(hidden_states)
     final_hidden_states = final_hidden_states.scatter_add(dim=0, index=token_indices_experts_sorted, src=routed_output)
 
-    if is_3d:
-        final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-
+    final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
     return final_hidden_states, router_logits
+
+
+def experts_forward(self: Qwen3VLMoeTextExperts, *routed_input):
+    out_experts_split = []
+    if isinstance(self.down_proj, DTensor):
+        down_proj = self.down_proj.to_local()
+        gate_up_proj = self.gate_up_proj.to_local()
+    else:
+        down_proj = self.down_proj
+        gate_up_proj = self.gate_up_proj
+
+    for idx, x in enumerate(routed_input):
+        gate_up = torch.matmul(x, gate_up_proj[idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden = up * self.act_fn(gate)
+        hidden = torch.matmul(hidden, down_proj[idx])
+        out_experts_split.append(hidden)
+
+    return torch.cat(out_experts_split, dim=0)

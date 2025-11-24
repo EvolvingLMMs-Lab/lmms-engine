@@ -87,6 +87,7 @@ def apply_liger_kernel_to_qwen3_vl_moe(
         from .qwen3_vl_moe_ops import (
             decoder_layer_forward as qwen3_vl_moe_decoder_layer_forward,
         )
+        from .qwen3_vl_moe_ops import experts_forward as qwen3_vl_moe_experts_forward
         from .qwen3_vl_moe_ops import model_forward as qwen3_vl_moe_model_forward
         from .qwen3_vl_moe_ops import (
             text_model_forward as qwen3_vl_moe_text_model_forward,
@@ -96,6 +97,7 @@ def apply_liger_kernel_to_qwen3_vl_moe(
         modeling_qwen3_vl_moe.Qwen3VLMoeTextModel.forward = qwen3_vl_moe_text_model_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextDecoderLayer.forward = qwen3_vl_moe_decoder_layer_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextAttention.forward = qwen3_vl_moe_attn_forward
+        modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts.forward = qwen3_vl_moe_experts_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
         patch_vlm_for_ulysses_input_slicing(modeling_qwen3_vl_moe.Qwen3VLMoeModel)
