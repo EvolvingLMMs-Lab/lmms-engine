@@ -128,7 +128,7 @@ BAGEL expects datasets with the following structure:
 
 To overwrite the arguments in Bagel training, we suggest the user to use the `extra_kwargs` in the config and get the parameters from that. You can check how it is being used in `src/lmms_engine/datasets/processor/bagel_processor.py` and `src/lmms_engine/models/bagel/bagel.py` in the `from_pretrained` method
 
-## FSDP2 Configuration
+### FSDP2 Configuration
 
 FSDP2 (Fully Sharded Data Parallel v2) is recommended for training large BAGEL models:
 
@@ -204,7 +204,7 @@ BAGEL supports efficient sequence packing to maximize GPU utilization:
 - Essential for training large models
 
 
-## Model Architecture Details
+### Model Architecture Details
 
 ### Components
 

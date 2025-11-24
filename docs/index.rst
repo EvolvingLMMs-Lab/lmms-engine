@@ -49,6 +49,16 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
 
    models/bagel
    models/qwenvl
+   models/dllm
+   models/fla_models
+   models/rae_siglip
+   models/sit
+   models/wanvideo
+   models/qwen2_llm
+   models/qwen2_5_omni
+   models/qwen3_vl_moe
+   models/qwen3_moe
+   models/qwen3_omni_moe
 
 Indices and tables
 ==================

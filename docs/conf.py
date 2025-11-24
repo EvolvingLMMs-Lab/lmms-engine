@@ -34,6 +34,9 @@ myst_enable_extensions = [
     "deflist",
 ]
 
+# Control heading levels in TOC
+myst_heading_anchors = 3
+
 # Add markdown support
 source_suffix = {
     ".rst": "restructuredtext",
@@ -47,6 +50,10 @@ html_theme_options = {
     "style_external_links": False,
     "vcs_pageview_mode": "edit",
     "style_nav_header_background": "#2980B9",
+    "collapse_navigation": False,
+    "navigation_depth": 4,
+    "includehidden": True,
+    "titles_only": False,
 }
 
 # Output options
