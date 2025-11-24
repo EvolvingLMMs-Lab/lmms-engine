@@ -31,45 +31,6 @@ if TYPE_CHECKING:
     from lmms_engine.train.config import TrainingArguments
 
 
-def stack_expert_params_qwen3_vl_moe(model: Qwen3VLMoeForConditionalGeneration) -> None:
-    logger.info("Stacking expert parameters for Qwen3-VL MoE model")
-
-    with torch.no_grad():
-        for decoder_layer in tqdm(
-            model.model.language_model.layers, desc="Stacking expert parameters", disable=not dist.get_rank() == 0
-        ):
-            # Check if this layer has MoE structure
-            if not isinstance(decoder_layer.mlp, Qwen3VLMoeTextSparseMoeBlock):
-                continue
-
-            if not hasattr(decoder_layer.mlp, "experts"):
-                continue
-
-            # No need to copy parameters
-            def ep_forward(self, *routed_input):
-                out_experts_split = []
-
-                # Handle DTensor case
-                if isinstance(self.down_proj, DTensor):
-                    down_proj = self.down_proj.to_local()
-                    gate_up_proj = self.gate_up_proj.to_local()
-                else:
-                    down_proj = self.down_proj
-                    gate_up_proj = self.gate_up_proj
-
-                # Process each local expert
-                for idx, x in enumerate(routed_input):
-                    gate_up = torch.matmul(x, gate_up_proj[idx])
-                    gate, up = gate_up.chunk(2, dim=-1)
-                    hidden = up * self.act_fn(gate)
-                    hidden = torch.matmul(hidden, down_proj[idx])
-                    out_experts_split.append(hidden)
-
-                return torch.cat(out_experts_split, dim=0)
-
-            decoder_layer.mlp.experts.forward = types.MethodType(ep_forward, decoder_layer.mlp.experts)
-
-
 def apply_qwen3_vl_moe_parallel(
     model: Qwen3VLMoeForConditionalGeneration,
     ep_mesh: DeviceMesh,
@@ -79,14 +40,7 @@ def apply_qwen3_vl_moe_parallel(
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3-VL MoE"
 
     num_moe_layers = 0
-    for decoder_layer in model.model.language_model.layers:
-        # Only apply EP to MoE layers i.e. SparseMoeBlock
-        if not isinstance(decoder_layer.mlp, Qwen3VLMoeTextSparseMoeBlock):
-            continue
-
-        if not hasattr(decoder_layer.mlp, "experts"):
-            continue
-
+    for decoder_layer in model.language_model.layers:
         module = decoder_layer.mlp
         ep_plan = Qwen3VLMoeParallelStyle()
         parallelize_module(
@@ -149,17 +103,10 @@ def apply_qwen3_vl_moe_fsdp2(
         fully_shard(model.model.visual, **fsdp_kwargs)
 
     # Wrap text model decoder layers
-    for decoder_layer in model.model.language_model.layers:
-        # Check if this is a MoE layer
-        is_moe_layer = isinstance(decoder_layer.mlp, Qwen3VLMoeTextSparseMoeBlock) and hasattr(
-            decoder_layer.mlp, "experts"
-        )
-
-        if is_moe_layer and ep_size > 1:
-            fully_shard(decoder_layer.mlp, **expert_fsdp_kwargs)
-        elif is_moe_layer:
-            fully_shard(decoder_layer.mlp, **fsdp_kwargs)
-
+    for decoder_layer in model.language_model.layers:
+        expert_mod = decoder_layer.mlp
+        if ep_size > 1:
+            fully_shard(expert_mod, **expert_fsdp_kwargs)
         fully_shard(decoder_layer.self_attn, **fsdp_kwargs)
 
     fully_shard(model.model.language_model.embed_tokens, **fsdp_kwargs)
@@ -172,7 +119,6 @@ def apply_qwen3_vl_moe_parallelize_fn(
     **kwargs,
 ):
     ep_size = pgm.process_group_manager.ep_size
-    stack_expert_params_qwen3_vl_moe(model)
     full_state_dict = model.state_dict()
     if ep_size > 1:
         ep_mesh = pgm.process_group_manager.device_mesh["dp_shard_in_ep"]

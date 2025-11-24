@@ -111,13 +111,10 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
             )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        if isinstance(module, Qwen3VLMoeTextExperts):
-            self.num_experts = module.num_experts
-
         return distribute_module(
             module,
             device_mesh,
             partition_fn=Qwen3VLMoeParallelStyle._partition_fn,
-            input_fn=self._input_fn,
-            output_fn=self._output_fn,
+            input_fn=Qwen3VLMoeParallelStyle._input_fn,
+            output_fn=Qwen3VLMoeParallelStyle._output_fn,
         )
