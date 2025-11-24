@@ -232,7 +232,7 @@ def attn_forward(
     value_states = self.v_proj(hidden_states).view(hidden_shape)
     cos, sin = position_embeddings
     ########## AlltoAll for Ulysses ##########
-    ulysses_sp_size = getattr(self.config, "ulysses_sp_size", 1)
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     if ulysses_sp_size > 1:
         assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
 
@@ -291,7 +291,7 @@ def attn_forward(
     if ulysses_sp_size > 1:
         # (bsz, seq_len, n_head/n, head_dim) -> (bsz, seq_len/n, n_head, head_dim)
         attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
-    
+
     attn_output = attn_output.reshape(-1, self.config.num_attention_heads * self.head_dim).contiguous()
 
     attn_output = self.o_proj(attn_output)
