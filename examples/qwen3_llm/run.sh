@@ -1,11 +1,11 @@
 #!/bin/bash
 
 ################################################################################
-# Qwen2.5 LLM Training with FSDP2
+# Qwen3 LLM Training with FSDP2
 ################################################################################
 #
 # DESCRIPTION:
-#   Train Qwen2.5 language model (text-only) using FSDP2 distributed training.
+#   Train Qwen3 language model (text-only) using FSDP2 distributed training.
 #   This is for pure language modeling tasks without multimodal capabilities.
 #
 # KEY FEATURES:
@@ -44,12 +44,12 @@
 # CONFIGURATION:
 #   Edit example_config.yaml to customize:
 #   - Model size: change load_from_pretrained_path
-#     * Qwen2.5-1.5B-Instruct (1.5B parameters)
-#     * Qwen2.5-3B-Instruct (3B parameters)
-#     * Qwen2.5-7B-Instruct (7B parameters)
-#     * Qwen2.5-14B-Instruct (14B parameters)
-#     * Qwen2.5-32B-Instruct (32B parameters)
-#     * Qwen2.5-72B-Instruct (72B parameters)
+#     * Qwen/Qwen3-0.6B (0.6B parameters)
+#     * Qwen/Qwen3-1.7B (1.7B parameters)
+#     * Qwen/Qwen3-4B (4B parameters)
+#     * Qwen/Qwen3-8B (8B parameters)
+#     * Qwen/Qwen3-14B (14B parameters)
+#     * Qwen/Qwen3-32B (32B parameters)
 #   - Sequence length: adjust packing_length
 #   - Batch size: per_device_train_batch_size
 #   - Learning rate: learning_rate
@@ -85,7 +85,7 @@ torchrun --nproc_per_node=${NGPUS} \
 #   --master_addr=<RANK_0_IP> \
 #   --master_port=12358 \
 #   -m lmms_engine.launch.cli \
-#   config_yaml=examples/qwen2_5_llm/example_config.yaml
+#   config_yaml=examples/qwen3_llm/example_config.yaml
 #
 # On rank 1 node:
 # torchrun --nproc_per_node=8 \
@@ -94,6 +94,6 @@ torchrun --nproc_per_node=${NGPUS} \
 #   --master_addr=<RANK_0_IP> \
 #   --master_port=12358 \
 #   -m lmms_engine.launch.cli \
-#   config_yaml=examples/qwen2_5_llm/example_config.yaml
+#   config_yaml=examples/qwen3_llm/example_config.yaml
 #
 ################################################################################

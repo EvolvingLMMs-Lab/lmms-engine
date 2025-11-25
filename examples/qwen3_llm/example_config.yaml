@@ -2,10 +2,10 @@ trainer_type: fsdp2_trainer
 
 dataset_config:
   extra_kwargs: {}
-  dataset_type: qwen3_vl_iterable  # Can handle text-only data
+  dataset_type: vision_iterable  # Can handle text-only data
   dataset_format: yaml
   processor_config:
-    processor_name: Qwen/Qwen3-4B-Instruct-2507
+    processor_name: Qwen/Qwen3-8B
     processor_type: qwen2
   # Update this to your dataset path
   dataset_path: data/data.yaml
@@ -181,7 +181,7 @@ trainer_args:
 
 model_config:
   extra_kwargs: {}
-  load_from_pretrained_path: Qwen/Qwen3-4B-Instruct-2507
+  load_from_pretrained_path: Qwen/Qwen3-8B
   load_from_config: null
   attn_implementation: flash_attention_2
   model_type: null
