@@ -150,6 +150,7 @@ def _pad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
 def _unpad_tensor(x: Tensor, dim: int, padding_size: int) -> Tensor:
     slc = [slice(None)] * len(x.shape)
     slc[dim] = slice(0, -padding_size)
+    slc = tuple(slc)
     return x[slc]
 
 
@@ -317,6 +318,76 @@ def gather_outputs_and_unpad(
             return x
         x = _unpad_tensor(x, unpad_dim, padding_size)
     return x
+
+
+def pad_to_max_across_ranks(
+    x: Tensor,
+    dim: int = 0,
+    group: Optional[dist.ProcessGroup] = None,
+) -> tuple[Tensor, int]:
+    """
+    Pad a tensor to match the maximum size across all ranks along a specified dimension.
+
+    This function handles the case where each rank may have a different tensor size
+    along the specified dimension. It finds the max size across all ranks and pads
+    the local tensor to that size.
+
+    Args:
+        x (Tensor): Input tensor to pad. Can have variable size along `dim` across ranks.
+        dim (int): Dimension along which sizes may vary. Default: 0.
+        group (ProcessGroup, optional): Process group for communication. If None, uses
+            `get_ulysses_sequence_parallel_group()`. If still None, returns `x` unchanged.
+
+    Returns:
+        tuple[Tensor, int]: A tuple of (padded_tensor, total_padding_to_remove) where:
+            - padded_tensor: The input tensor padded to max size along `dim`
+            - total_padding_to_remove: Total padding added across all ranks (for unpadding after gather)
+
+    Examples:
+        Example 1 - Variable sizes with SP=2:
+            Rank 0: tensor of shape [870] -> padded to [871], total_padding=1
+            Rank 1: tensor of shape [871] -> unchanged [871], total_padding=1
+
+        Example 2 - Variable sizes with SP=4:
+            Sizes: [200, 210, 205, 208], max=210
+            Each rank pads to 210, total_padding = (10 + 0 + 5 + 2) = 17
+
+    Usage:
+        padded_x, total_pad = pad_to_max_across_ranks(x, dim=0)
+        gathered_x = gather_outputs_and_unpad(padded_x, gather_dim=0, unpad_dim=0, padding_size=total_pad)
+    """
+    group = get_ulysses_sequence_parallel_group() if group is None else group
+    if group is None:
+        return x, 0
+
+    sp_size = dist.get_world_size(group)
+
+    # Get local size along the specified dimension
+    local_size = x.size(dim)
+
+    # All-gather sizes from all ranks to find max size
+    local_size_tensor = torch.tensor([local_size], device=x.device, dtype=torch.long)
+    all_sizes = [torch.zeros(1, device=x.device, dtype=torch.long) for _ in range(sp_size)]
+    dist.all_gather(all_sizes, local_size_tensor, group=group)
+    all_sizes = torch.cat(all_sizes)
+    max_size = all_sizes.max().item()
+
+    # Calculate total padding across all ranks (needed for unpadding after gather)
+    total_padding = (max_size * sp_size) - all_sizes.sum().item()
+
+    # Pad local tensor to max size along the specified dimension
+    pad_amount = max_size - local_size
+    if pad_amount > 0:
+        # Build padding tuple: F.pad expects padding in reverse dimension order
+        # For dim=0 and ndim=1: pad=(0, pad_amount)
+        # For dim=0 and ndim=2: pad=(0, 0, 0, pad_amount)
+        pad_config = [0] * (2 * x.ndim)
+        # F.pad pads from last dim to first, so index for dim d is 2*(ndim-1-d)
+        pad_idx = 2 * (x.ndim - 1 - dim) + 1  # +1 for the "after" padding
+        pad_config[pad_idx] = pad_amount
+        x = torch.nn.functional.pad(x, pad_config, value=0.0)
+
+    return x, total_padding
 
 
 def ulysses_pad(

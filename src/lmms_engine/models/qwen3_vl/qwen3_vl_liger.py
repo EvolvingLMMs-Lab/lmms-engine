@@ -1,13 +1,16 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
+from loguru import logger
 from transformers import Qwen3VLForConditionalGeneration
 from transformers.cache_utils import Cache
 from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLCausalLMOutputWithPast
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,
+    gather_outputs_and_unpad,
     get_ulysses_sequence_parallel_world_size,
+    pad_to_max_across_ranks,
     slice_input_tensor,
 )
 
@@ -109,9 +112,17 @@ def qwen3_vl_lce_forward(
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
+        # If using sp, we follow the loss calculation in verl, get loss for each token, then gather and sum them up
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            reduction = "none"
         lce = LigerFusedLinearCrossEntropyLoss(reduction=reduction)
-
         loss = lce(self.lm_head.weight, shift_hidden_states, shift_labels)
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            # Pad to max size across ranks, then gather and unpad
+            loss, total_padding = pad_to_max_across_ranks(loss, dim=0)
+            loss = gather_outputs_and_unpad(loss, gather_dim=0, unpad_dim=0, padding_size=total_padding)
+            loss = torch.sum(loss) / (torch.sum(attention_mask) + 1e-8)
+
         if reduction == "sum":
             loss /= kwargs["num_items_in_batch"]
 
