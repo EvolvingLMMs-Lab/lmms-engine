@@ -5,9 +5,10 @@ trainer_type: fsdp2_trainer
 
 dataset_config:
   dataset_type: llava_video
-  dataset_format: yaml
+  dataset_format: parquet
+  dataset_path: "/blob/llava_video_parquet/*.parquet"
   processor_config:
-    processor_name: lmms-lab/llava-onevision-qwen2-7b-ov
+    processor_name: "llava-hf/llava-onevision-qwen2-7b-ov-hf"
     processor_type: llava_video
   # Update this to your dataset path
   # Supports LLaVA-Video-178K format or custom JSON/YAML datasets
@@ -28,13 +29,14 @@ dataset_config:
 
   # Video sampling configuration
   video_sampling_strategy: fps
-  frame_num: 64
+  frame_num: 16  # Reduced from 64 for memory efficiency
   fps: 1
   video_backend: decord
 
-  # LLaVA-Video specific parameters (moved to extra_kwargs)
+  # LLaVA-Video specific parameters
   extra_kwargs:
-    frames_upbound: 64  # Maximum number of frames (7B model), use 32 for 72B model
+    data_folder: "/blob/LLaVA-Video-178K"  # Base folder for video files
+    frames_upbound: 16  # Reduced from 64 to fit in memory (0.9B model)
     force_sample: true  # Force uniform sampling to frames_upbound
     add_time_instruction: true  # Inject time instruction into prompts
 
@@ -235,7 +237,7 @@ trainer_args:
 model_config:
   extra_kwargs: {}
   # Start from LLaVA-OneVision checkpoint
-  load_from_pretrained_path: lmms-lab/llava-onevision-qwen2-7b-ov-si
+  load_from_pretrained_path: "llava-hf/llava-onevision-qwen2-0.5b-ov-hf"
   load_from_config: null
   attn_implementation: flash_attention_2
   model_type: llava_onevision  # Use llava_onevision (was llava_video before refactoring)

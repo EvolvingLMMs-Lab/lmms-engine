@@ -154,8 +154,19 @@ class LLaVAVideoDataset(MultiModalDataset):
         kwargs = {}
         messages = data["messages"]
 
-        # Get data_folder from config if available
-        data_folder = getattr(self.config, "data_folder", None)
+        # Get data_folder from multiple sources (in order of priority)
+        # 1. From self.data_folder (set by yaml format)
+        # 2. From config.extra_kwargs
+        # 3. From config.data_folder (if it exists)
+        data_folder = None
+        if hasattr(self, 'data_folder') and self.data_folder is not None:
+            # For yaml format, data_folder is a list
+            data_folder = self.data_folder if not isinstance(self.data_folder, list) else None
+        if data_folder is None:
+            extra_kwargs = getattr(self.config, "extra_kwargs", {}) or {}
+            data_folder = extra_kwargs.get("data_folder", None)
+        if data_folder is None:
+            data_folder = getattr(self.config, "data_folder", None)
 
         # Extract images and videos from messages
         for message in messages:
@@ -257,7 +268,7 @@ class LLaVAVideoDataset(MultiModalDataset):
             return self._load_video_from_frames(full_path, fps)
         else:
             # Use parent class method for standard video files
-            return self.load_video_with_time(video_path, fps, data_folder)
+            return self.load_video_with_time(full_path, fps, data_folder=None)
 
     def _load_video_from_frames(
         self,

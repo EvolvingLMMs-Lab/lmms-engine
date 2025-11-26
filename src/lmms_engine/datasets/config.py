@@ -9,7 +9,7 @@ from .processor import ProcessorConfig
 
 class DatasetConfig(Args):
     dataset_type: str
-    dataset_format: Literal["json", "jsonl", "csv", "yaml", "hf_dataset", "arrow"]
+    dataset_format: Literal["json", "jsonl", "csv", "yaml", "hf_dataset", "arrow", "parquet"]
     processor_config: Union[dict, ProcessorConfig]
 
     # Dataset configuration

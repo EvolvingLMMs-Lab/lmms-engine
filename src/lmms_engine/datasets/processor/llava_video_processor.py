@@ -57,8 +57,8 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
 
         # Process videos - align with LlavaOnevisionProcessor (processing_llava_onevision.py line 177-190)
         if videos is not None and len(videos) > 0:
-            # Use video_processor from transformers
-            video_inputs = self.processor.video_processor(videos, **output_kwargs.get("videos_kwargs", {}))
+            # Use video_processor from transformers with return_tensors="pt" like image_processor
+            video_inputs = self.processor.video_processor(videos, return_tensors="pt", **output_kwargs.get("videos_kwargs", {}))
 
             # Calculate num_video_tokens like transformers
             pixel_values_videos = video_inputs.get("pixel_values_videos", [])

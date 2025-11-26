@@ -345,7 +345,7 @@ class MultiModalDataset(BaseDataset, MultiModalDataLoadingMixin):
             data_dict = self.load_from_json(self.data_list[index])
         elif self.config.dataset_format == "yaml":
             data_dict = self.load_from_json(self.data_list[index], self.data_folder[index])
-        elif self.config.dataset_format == "hf_dataset":
+        elif self.config.dataset_format == "hf_dataset" or self.config.dataset_format == "parquet":
             data_dict = self.load_from_hf(self.data_list[index])
         else:
             raise NotImplementedError
