@@ -100,6 +100,11 @@ def apply_liger_kernel_to_qwen3_vl(
     if get_ulysses_sequence_parallel_world_size() > 1:
         patch_vlm_for_ulysses_input_slicing(Qwen3VLTextModel)
 
+    # Use linear instead of conv3d
+    from .qwen3_vl_ops import patch_embed_forward as qwen3_ops_patch_embed_forward
+
+    modeling_qwen3_vl.Qwen3VLVisionPatchEmbed.forward = qwen3_ops_patch_embed_forward
+
     if model is not None:
         # The model instance already exists, so we need to additionally patch the
         # instance variables that reference already-instantiated modules

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import torch
+import torch.nn.functional as F
 from loguru import logger
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPast
@@ -13,6 +14,7 @@ from transformers.models.qwen3_vl.modeling_qwen3_vl import (
     Qwen3VLTextAttention,
     Qwen3VLTextDecoderLayer,
     Qwen3VLTextModel,
+    Qwen3VLVisionPatchEmbed,
     apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available, is_torchdynamo_compiling
@@ -145,6 +147,22 @@ class Qwen3VLModelOutputWithPast(HFQwen3VLModelOutputWithPast):
     word_idx: Optional[torch.IntTensor] = None
 
 
+def patch_embed_forward(
+    self: Qwen3VLVisionPatchEmbed,
+    hidden_states: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Patch the forward of the Qwen3VLVisionPatchEmbed.
+    """
+    target_dtype = self.proj.weight.dtype
+    proj_weight = self.proj.weight
+    proj_bias = self.proj.bias
+    hidden_states = F.linear(
+        hidden_states.to(dtype=target_dtype), proj_weight.view(-1, self.embed_dim).transpose(0, 1), proj_bias
+    )
+    return hidden_states
+
+
 def model_forward(
     self: Qwen3VLModel,
     input_ids: torch.LongTensor = None,
@@ -238,6 +256,7 @@ def model_forward(
     video_mask = None
 
     if pixel_values is not None:
+        pixel_values = pixel_values.contiguous()
         image_embeds, deepstack_image_embeds = self.get_image_features(pixel_values, image_grid_thw)
         image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
         image_mask, _ = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds)
@@ -292,7 +311,7 @@ def model_forward(
             sp_size=get_ulysses_sequence_parallel_world_size(),
         )
 
-    if get_ulysses_sequence_parallel_world_size() > 1:
+    if get_ulysses_sequence_parallel_world_size() > 1 and visual_pos_masks is not None:
         visual_pos_masks = slice_input_tensor(visual_pos_masks, dim=0)
 
     outputs = self.language_model(
