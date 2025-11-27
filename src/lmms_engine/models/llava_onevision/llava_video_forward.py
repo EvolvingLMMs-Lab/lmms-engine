@@ -5,7 +5,6 @@ This module provides custom video processing methods for LlavaOnevisionModel tha
 slow-fast frame processing for video understanding.
 
 Based on LLaVA-NeXT implementation and transformers v4.57.1 LlavaOnevisionModel.
-Reference: g:\lmms\LLaVA-NeXT\llava\model\llava_arch.py
 """
 
 import math
