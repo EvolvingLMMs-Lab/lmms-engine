@@ -180,6 +180,9 @@ class LLaVAVideoDataset(MultiModalDataset):
                         data_folder=data_folder,
                         fps=self.config.fps,
                     )
+                    # Skip if video loading failed
+                    if frames is None:
+                        return None
                     videos.append(frames)
                     video_metadata = metadata
                     kwargs["fps"] = metadata["sample_fps"]
@@ -236,6 +239,22 @@ class LLaVAVideoDataset(MultiModalDataset):
             return LLaVACollator(self.processor)
         else:
             return VisionCollator(self.processor)
+
+    def __getitem__(self, index):
+        """
+        Get a sample from the dataset by index.
+        Override parent method to handle corrupted videos gracefully.
+        """
+        data_dict = super().__getitem__(index)
+
+        # If data loading failed (e.g., corrupted video), try next sample
+        if data_dict is None:
+            from loguru import logger
+            logger.warning(f"Sample {index} failed to load (corrupted video), trying next sample...")
+            next_index = (index + 1) % len(self.data_list)
+            return self.__getitem__(next_index)
+
+        return data_dict
 
     def _load_video_or_frames(
         self,

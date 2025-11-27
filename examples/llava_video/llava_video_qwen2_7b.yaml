@@ -22,7 +22,7 @@ dataset_config:
   bucket_name: null
   packing: false
   packing_strategy: first_fit
-  packing_length: 32768
+  packing_length: 8192
   filter_overlong: true
   filter_overlong_workers: 8
   max_length: null
@@ -50,7 +50,7 @@ trainer_args:
   prediction_loss_only: false
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps:  2
   eval_accumulation_steps: null
   eval_delay: 0
   torch_empty_cache_steps: null
@@ -248,8 +248,8 @@ model_config:
   monkey_patch_kwargs:
     patch_type: ["video"]  # Apply video extensions ("liger" is added automatically via use_liger_kernel)
 
-    # Video-specific parameters (optional, experimental feature)
-    add_faster_video: false  # Enable slow-fast frame (every Nth frame is high-res)
+    # Video-specific parameters (enable slow-fast frame processing)
+    add_faster_video: true  # Enable slow-fast frame (every Nth frame is high-res)
     faster_token_stride: 10  # Stride for slow frames (e.g., every 10th frame)
     mm_spatial_pool_stride: 2  # Base spatial pooling stride (2 for slow, 4 for fast)
     mm_spatial_pool_mode: bilinear  # Pooling mode: bilinear, average, or max

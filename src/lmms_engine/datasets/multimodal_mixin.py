@@ -202,12 +202,17 @@ class MultiModalDataLoadingMixin:
         if data_folder is not None:
             video_path = os.path.join(data_folder, video_path)
 
-        if isinstance(video_path, str) or isinstance(video_path, BytesIO):
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
-        elif isinstance(video_path, list):
-            vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
-        else:
-            raise ValueError(f"Unsupported video path type: {type(video_path)}")
+        try:
+            if isinstance(video_path, str) or isinstance(video_path, BytesIO):
+                vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+            elif isinstance(video_path, list):
+                vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
+            else:
+                raise ValueError(f"Unsupported video path type: {type(video_path)}")
+        except Exception as e:
+            # Skip corrupted videos by returning None
+            logger.warning(f"Failed to load video {video_path}: {e}. Skipping this sample...")
+            return None, None
 
         total_frames = len(vr)
         video_fps = vr.get_avg_fps()
