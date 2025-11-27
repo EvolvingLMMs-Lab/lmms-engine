@@ -63,7 +63,6 @@ def apply_video_extensions_to_llava_onevision(
     mm_spatial_pool_stride: int = 2,
     mm_spatial_pool_mode: str = "bilinear",
 ):
-
     from transformers.models.llava_onevision.modeling_llava_onevision import (
         LlavaOnevisionModel,
     )
@@ -95,7 +94,6 @@ def apply_video_extensions_to_llava_onevision(
 
 
 def _initialize_faster_token(model: PreTrainedModel):
- 
     if hasattr(model.model, "faster_token"):
         logger.info("faster_token already initialized, skipping")
         return
