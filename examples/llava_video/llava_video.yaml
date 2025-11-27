@@ -39,6 +39,10 @@ dataset_config:
     frames_upbound: 16  # Reduced from 64 to fit in memory (0.9B model)
     force_sample: true  # Force uniform sampling to frames_upbound
     add_time_instruction: true  # Inject time instruction into prompts
+    # Slow-fast parameters for token calculation (must match model_config)
+    faster_token_stride: 10
+    mm_spatial_pool_stride: 2
+    mm_spatial_pool_mode: bilinear
 
 trainer_args:
   output_dir: ./output/llava_video_training
@@ -244,14 +248,12 @@ model_config:
   torch_dtype: bfloat16
 
   # Slow-fast frame configuration via monkey_patch_kwargs
-  # This uses the composable patch system: "liger" + "video"
+  # Applying "video" patch automatically enables slow-fast frame processing
   monkey_patch_kwargs:
-    patch_type: ["video"]  # Apply video extensions ("liger" is added automatically via use_liger_kernel)
-
-    # Video-specific parameters (enable slow-fast frame processing)
-    add_faster_video: true  # Enable slow-fast frame (every Nth frame is high-res)
-    faster_token_stride: 10  # Stride for slow frames (e.g., every 10th frame)
-    mm_spatial_pool_stride: 2  # Base spatial pooling stride (2 for slow, 4 for fast)
+    patch_type: ["video"]
+    # Video-specific parameters
+    faster_token_stride: 10  # Every Nth frame is high-res slow frame
+    mm_spatial_pool_stride: 2  # Base spatial pooling stride (slow=2, fast=4)
     mm_spatial_pool_mode: bilinear  # Pooling mode: bilinear, average, or max
 
 extra_kwargs: null

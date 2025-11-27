@@ -243,10 +243,12 @@ def forward(
     vision_aspect_ratio = vision_aspect_ratio if vision_aspect_ratio is not None else self.config.vision_aspect_ratio
 
     # Get slow-fast frame configuration
-    add_faster_video = getattr(self.config, "add_faster_video", False)
     faster_token_stride = getattr(self.config, "faster_token_stride", 10)
     mm_spatial_pool_stride = getattr(self.config, "mm_spatial_pool_stride", 2)
     mm_spatial_pool_mode = getattr(self.config, "mm_spatial_pool_mode", "bilinear")
+
+    # Check if slow-fast is enabled by checking if faster_token exists
+    add_faster_video = hasattr(self, "faster_token")
 
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")

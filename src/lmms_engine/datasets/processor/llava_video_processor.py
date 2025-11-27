@@ -28,6 +28,12 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         video_metadata: Optional[dict] = None,
         **kwargs,
     ):
+        # Extract slow-fast parameters before _merge_kwargs filters them
+        slow_fast_params = {}
+        for key in ["faster_token_stride", "mm_spatial_pool_stride", "mm_spatial_pool_mode"]:
+            if key in kwargs:
+                slow_fast_params[key] = kwargs.pop(key)
+
         output_kwargs = self.processor._merge_kwargs(
             LlavaOnevisionProcessorKwargs,
             tokenizer_init_kwargs=self.tokenizer.init_kwargs,
@@ -58,7 +64,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                 videos, return_tensors="pt", **output_kwargs.get("videos_kwargs", {})
             )
 
-            # Calculate num_video_tokens like transformers
+            # Calculate num_video_tokens with slow-fast support
             pixel_values_videos = video_inputs.get("pixel_values_videos", [])
 
             for one_video in pixel_values_videos:
@@ -70,10 +76,9 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
 
                 num_frames = one_video.shape[0]
 
-                # Calculate tokens: same logic as processing_llava_onevision.py line 187-189
+                # Calculate tokens with slow-fast frame support
                 patches_height_width = int(self.processor.num_image_tokens**0.5)  # sqrt
-                pooled_height_width = (patches_height_width + 1) // 2  # ceil division
-                num_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
+                num_tokens = self._calculate_video_tokens(num_frames, patches_height_width, **slow_fast_params)
 
                 num_video_tokens.append(num_tokens)
 
@@ -208,6 +213,63 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                 expanded_encode_id.extend(encode_id[prev:])
 
         return expanded_encode_id, len(visual_pos)
+
+    def _calculate_video_tokens(
+        self,
+        num_frames: int,
+        patches_height_width: int,
+        **kwargs,
+    ) -> int:
+        """
+        Calculate the number of video tokens based on slow-fast configuration.
+
+        This aligns with the actual token generation in llava_video_forward.py.
+        When slow-fast mode parameters are present, different frames are pooled with
+        different strides, and each frame gets a faster_token appended.
+
+        Args:
+            num_frames: Number of frames in the video
+            patches_height_width: Height/width of the patch grid (sqrt of num_image_tokens)
+            **kwargs: Additional arguments that may contain slow-fast config
+
+        Returns:
+            Total number of video tokens including newline token
+        """
+        # Get slow-fast configuration from multiple sources (in order of priority):
+        # 1. From kwargs (passed at runtime)
+        # 2. From self.config.extra_kwargs (from dataset config)
+        # 3. If faster_token_stride is not present, use standard mode
+
+        extra_kwargs = getattr(self.config, "extra_kwargs", {}) or {}
+
+        faster_token_stride = kwargs.get("faster_token_stride", extra_kwargs.get("faster_token_stride", None))
+        mm_spatial_pool_stride = kwargs.get("mm_spatial_pool_stride", extra_kwargs.get("mm_spatial_pool_stride", 2))
+
+        # If faster_token_stride is configured, enable slow-fast mode
+        if faster_token_stride is not None and mm_spatial_pool_stride > 1:
+            # Slow-fast mode: calculate tokens for mixed stride frames
+            # Slow frames: pooled with stride=mm_spatial_pool_stride
+            # Fast frames: pooled with stride=mm_spatial_pool_stride*2
+            # Each frame gets +1 for faster_token
+
+            pooled_slow = (patches_height_width + 1) // mm_spatial_pool_stride
+            pooled_fast = (patches_height_width + 1) // (mm_spatial_pool_stride * 2)
+
+            # Count slow and fast frames
+            num_slow_frames = (num_frames + faster_token_stride - 1) // faster_token_stride
+            num_fast_frames = num_frames - num_slow_frames
+
+            # Calculate tokens: each pooled frame + faster_token
+            slow_tokens = num_slow_frames * (pooled_slow * pooled_slow + 1)  # +1 for faster_token per frame
+            fast_tokens = num_fast_frames * (pooled_fast * pooled_fast + 1)  # +1 for faster_token per frame
+
+            num_tokens = slow_tokens + fast_tokens + 1  # +1 for final newline token
+        else:
+            # Standard mode: all frames pooled uniformly
+            pooled_height_width = (patches_height_width + 1) // mm_spatial_pool_stride
+            num_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
+
+        return num_tokens
 
     @staticmethod
     def inject_time_instruction(

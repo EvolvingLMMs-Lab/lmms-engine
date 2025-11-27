@@ -59,40 +59,11 @@ def apply_liger_kernel_to_llava_onevision(
 @MONKEY_PATCHER.register("llava_onevision", "video")
 def apply_video_extensions_to_llava_onevision(
     model: PreTrainedModel = None,
-    add_faster_video: bool = False,
     faster_token_stride: int = 10,
     mm_spatial_pool_stride: int = 2,
     mm_spatial_pool_mode: str = "bilinear",
 ):
-    """
-    Apply video-specific extensions to LLaVA-OneVision model.
 
-    This patch adds slow-fast frame processing capabilities without affecting
-    the base model or liger kernel optimizations. It can be applied independently
-    or in combination with other patches.
-
-    Args:
-        model: The LLaVA-OneVision model instance
-        add_faster_video: Enable slow-fast frame processing
-        faster_token_stride: Stride for slow frames (every Nth frame is slow)
-        mm_spatial_pool_stride: Base stride for spatial pooling (2 for slow, 4 for fast)
-        mm_spatial_pool_mode: Pooling mode - "bilinear", "average", or "max"
-
-    Note:
-        - This patch only handles video feature processing
-        - Liger kernel optimizations should be applied separately via the "liger" patch
-        - Parameters are passed via monkey_patch_kwargs in the config
-
-    Usage in YAML:
-        model_config:
-          model_type: llava_onevision
-          monkey_patch_kwargs:
-            patch_type: ["liger", "video"]
-            add_faster_video: true
-            faster_token_stride: 10
-            mm_spatial_pool_stride: 2
-            mm_spatial_pool_mode: bilinear
-    """
     from transformers.models.llava_onevision.modeling_llava_onevision import (
         LlavaOnevisionModel,
     )
@@ -100,12 +71,15 @@ def apply_video_extensions_to_llava_onevision(
     if transformer_version < version.parse(SUPPORTED_TRANSFORMER_VERSION):
         logger.warning(TRANSFORMER_DEPRECATION_WARNING)
 
-    # Initialize faster_token parameter if slow-fast frame is enabled
-    if add_faster_video:
-        _initialize_faster_token(model)
-        logger.info(f"Enabled slow-fast frame processing with stride={faster_token_stride}")
-    else:
-        logger.info("Slow-fast frame processing is disabled")
+    # Store slow-fast parameters in model.config so forward can access them
+    model.config.faster_token_stride = faster_token_stride
+    model.config.mm_spatial_pool_stride = mm_spatial_pool_stride
+    model.config.mm_spatial_pool_mode = mm_spatial_pool_mode
+
+    # Initialize faster_token parameter for slow-fast frame processing
+    # Applying video patch automatically enables slow-fast
+    _initialize_faster_token(model)
+    logger.info(f"Enabled slow-fast frame processing with stride={faster_token_stride}")
 
     # Apply custom forward for video processing
     # This forward supports both standard pooling and slow-fast frame modes
@@ -121,15 +95,7 @@ def apply_video_extensions_to_llava_onevision(
 
 
 def _initialize_faster_token(model: PreTrainedModel):
-    """
-    Initialize faster_token parameter for slow-fast frame processing.
-
-    The faster_token is a learnable parameter that marks whether a frame is
-    processed as a slow frame (high resolution) or fast frame (low resolution).
-
-    Args:
-        model: LlavaOnevisionForConditionalGeneration instance
-    """
+ 
     if hasattr(model.model, "faster_token"):
         logger.info("faster_token already initialized, skipping")
         return

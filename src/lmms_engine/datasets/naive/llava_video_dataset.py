@@ -71,6 +71,11 @@ class LLaVAVideoDataset(MultiModalDataset):
                 frame_time=video_metadata["frame_time"],
             )
 
+        # Pass slow-fast parameters to processor for token calculation
+        for key in ["faster_token_stride", "mm_spatial_pool_stride", "mm_spatial_pool_mode"]:
+            if key in extra_kwargs:
+                kwargs[key] = extra_kwargs[key]
+
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
         if data_folder is not None:
             images = [Image.open(os.path.join(data_folder, image)) for image in images_list]
@@ -130,6 +135,11 @@ class LLaVAVideoDataset(MultiModalDataset):
             )
         else:
             messages_copy = messages
+
+        # Pass slow-fast parameters to processor for token calculation
+        for key in ["faster_token_stride", "mm_spatial_pool_stride", "mm_spatial_pool_mode"]:
+            if key in extra_kwargs:
+                kwargs[key] = extra_kwargs[key]
 
         hf_messages = TrainUtilities.convert_open_to_hf(messages_copy)
 
@@ -206,6 +216,11 @@ class LLaVAVideoDataset(MultiModalDataset):
             )
         else:
             messages_copy = messages
+
+        # Pass slow-fast parameters to processor for token calculation
+        for key in ["faster_token_stride", "mm_spatial_pool_stride", "mm_spatial_pool_mode"]:
+            if key in extra_kwargs:
+                kwargs[key] = extra_kwargs[key]
 
         hf_messages = TrainUtilities.convert_open_to_hf(messages_copy)
 
