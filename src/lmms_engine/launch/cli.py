@@ -61,11 +61,15 @@ def create_train_task(config):
     trainer_args = config.pop("trainer_args")
     trainer_args = TrainingArguments(**trainer_args)
 
+    # Extract extra_kwargs if present (for custom trainers like bagel_grpo_trainer)
+    extra_kwargs = config.pop("extra_kwargs", None)
+
     train_config = TrainerConfig(
         dataset_config=dataset_config,
         model_config=model_config,
         trainer_type=trainer_type,
         trainer_args=trainer_args,
+        extra_kwargs=extra_kwargs,
     )
     return TrainRunner(config=train_config)
 

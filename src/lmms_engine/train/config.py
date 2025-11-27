@@ -26,7 +26,7 @@ class TrainingArguments(transformers.TrainingArguments):
 
 @dataclass
 class TrainerConfig:
-    trainer_type: Literal["hf_trainer", "fsdp2_trainer"]
+    trainer_type: Literal["hf_trainer", "fsdp2_trainer", "bagel_grpo_trainer"]
     dataset_config: DatasetConfig
     trainer_args: TrainingArguments
     model_config: ModelConfig
