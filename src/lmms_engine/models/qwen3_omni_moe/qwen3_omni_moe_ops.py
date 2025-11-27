@@ -98,6 +98,7 @@ def text_model_forward(
     use_cache: Optional[bool] = None,
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
+    output_router_logits: Optional[bool] = None,
     return_dict: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
     cu_seq_lens: Optional[torch.IntTensor] = None,
@@ -107,6 +108,11 @@ def text_model_forward(
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_hidden_states = (
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    )
+    output_router_logits = (
+        output_router_logits
+        if output_router_logits is not None
+        else getattr(self.config, "output_router_logits", False)
     )
     use_cache = use_cache if use_cache is not None else self.config.use_cache
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -153,13 +159,14 @@ def text_model_forward(
     position_embeddings = self.rotary_emb(hidden_states, position_ids)
     all_hidden_states = () if output_hidden_states else None
     all_attentions = () if output_attentions else None
+    all_router_logits = () if output_router_logits else None
 
     for decoder_layer in self.layers:
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
         if self.gradient_checkpointing and self.training:
-            hidden_states = torch.utils.checkpoint.checkpoint(
+            layer_outputs = torch.utils.checkpoint.checkpoint(
                 decoder_layer.__call__,
                 hidden_states,
                 position_embeddings,
@@ -169,10 +176,11 @@ def text_model_forward(
                 cache_position,
                 cu_seq_lens,
                 indices,
+                output_router_logits,
                 use_reentrant=False,
             )
         else:
-            hidden_states = decoder_layer(
+            layer_outputs = decoder_layer(
                 hidden_states,
                 position_embeddings=position_embeddings,
                 attention_mask=attention_mask,
@@ -181,8 +189,16 @@ def text_model_forward(
                 cache_position=cache_position,
                 cu_seq_lens=cu_seq_lens,
                 indices=indices,
+                output_router_logits=output_router_logits,
                 **kwargs,
             )
+
+        if isinstance(layer_outputs, tuple):
+            hidden_states, router_logits = layer_outputs
+            if output_router_logits and router_logits is not None:
+                all_router_logits += (router_logits,)
+        else:
+            hidden_states = layer_outputs
 
     hidden_states = self.norm(hidden_states)
 
@@ -199,6 +215,7 @@ def text_model_forward(
         attentions=all_attentions,
         seq_lens=cu_seq_lens,
         word_idx=indices,
+        router_logits=all_router_logits if output_router_logits else None,
     )
 
 
@@ -212,6 +229,7 @@ def decoder_layer_forward(
     cache_position: Optional[torch.LongTensor] = None,
     cu_seq_lens: Optional[torch.IntTensor] = None,
     indices: Optional[torch.IntTensor] = None,
+    output_router_logits: bool = False,
     **kwargs,
 ) -> torch.FloatTensor:
     residual = hidden_states
@@ -233,14 +251,20 @@ def decoder_layer_forward(
     residual = hidden_states
     hidden_states = hidden_states.unsqueeze(0)
     hidden_states = self.post_attention_layernorm(hidden_states)
-    hidden_states = self.mlp(hidden_states)
-    # For the MoE layers, we need to unpack
-    if isinstance(hidden_states, tuple):
-        hidden_states, _ = hidden_states
+    mlp_output = self.mlp(hidden_states)
+
+    router_logits = None
+    if isinstance(mlp_output, tuple):
+        hidden_states, router_logits = mlp_output
+    else:
+        hidden_states = mlp_output
+
     # Squeeze to pack shape for later
     hidden_states = hidden_states.squeeze(0)
     hidden_states = residual + hidden_states
 
+    if output_router_logits and router_logits is not None:
+        return hidden_states, router_logits
     return hidden_states
 
 

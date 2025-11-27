@@ -272,9 +272,10 @@ def lce_forward(
 
     # MoE auxiliary loss handling
     aux_loss = None
-    if output_router_logits and hasattr(outputs, "router_logits"):
+    router_logits = getattr(outputs, "router_logits", None)
+    if output_router_logits and router_logits is not None:
         aux_loss = load_balancing_loss_func(
-            outputs.router_logits,
+            router_logits,
             self.num_experts,
             self.num_experts_per_tok,
             attention_mask,

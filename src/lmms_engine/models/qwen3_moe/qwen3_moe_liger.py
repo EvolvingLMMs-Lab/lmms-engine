@@ -144,9 +144,10 @@ def lce_forward(
             loss = self.loss_function(logits, labels, self.vocab_size, **kwargs)
 
     aux_loss = None
-    if output_router_logits:
+    router_logits = getattr(outputs, "router_logits", None)
+    if output_router_logits and router_logits is not None:
         aux_loss = load_balancing_loss_func(
-            outputs.router_logits,
+            router_logits,
             self.num_experts,
             self.num_experts_per_tok,
             attention_mask,
@@ -161,5 +162,5 @@ def lce_forward(
         past_key_values=outputs.past_key_values,
         hidden_states=outputs.hidden_states,
         attentions=outputs.attentions,
-        router_logits=None,  # Current always None
+        router_logits=router_logits,
     )
