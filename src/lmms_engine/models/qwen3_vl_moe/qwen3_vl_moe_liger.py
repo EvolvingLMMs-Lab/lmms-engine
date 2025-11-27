@@ -109,11 +109,12 @@ def lce_forward(
 
         if output_router_logits and router_logits is not None:
             router_aux_loss_coef = getattr(self.config.text_config, "router_aux_loss_coef", 0.001)
+            aux_loss_mask = None if use_rmpad else attention_mask
             aux_loss = load_balancing_loss_func(
                 router_logits,
                 config.num_experts,
                 config.num_experts_per_tok,
-                attention_mask,
+                aux_loss_mask,
             )
             loss = loss + router_aux_loss_coef * aux_loss.to(loss.device)
 

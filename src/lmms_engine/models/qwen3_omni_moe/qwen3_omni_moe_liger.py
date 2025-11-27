@@ -274,11 +274,12 @@ def lce_forward(
     aux_loss = None
     router_logits = getattr(outputs, "router_logits", None)
     if output_router_logits and router_logits is not None:
+        aux_loss_mask = None if use_rmpad else attention_mask
         aux_loss = load_balancing_loss_func(
             router_logits,
             self.num_experts,
             self.num_experts_per_tok,
-            attention_mask,
+            aux_loss_mask,
         )
         if labels is not None and loss is not None:
             # Add auxiliary loss weighted by router_aux_loss_coef
