@@ -53,6 +53,9 @@ class LLaVAVideoDataset(MultiModalDataset):
                         data_folder=data_folder,
                         fps=self.config.fps,
                     )
+                    # Skip if video loading failed
+                    if frames is None:
+                        return None
                     videos.append(frames)
                     video_metadata = metadata
                     kwargs["fps"] = metadata["sample_fps"]
@@ -107,6 +110,9 @@ class LLaVAVideoDataset(MultiModalDataset):
                         data_folder=data_folder,
                         fps=self.config.fps,
                     )
+                    # Skip if video loading failed
+                    if frames is None:
+                        return None
                     videos.append(frames)
                     video_metadata = metadata
                     kwargs["fps"] = metadata["sample_fps"]
@@ -306,18 +312,25 @@ class LLaVAVideoDataset(MultiModalDataset):
             fps: Target frames per second (used for time calculation)
 
         Returns:
-            Tuple of (video_frames, metadata)
+            Tuple of (video_frames, metadata) or (None, None) if loading fails
         """
+        from loguru import logger
+
         # Get all image files in directory
-        frame_files = [
-            os.path.join(frame_dir, f)
-            for f in os.listdir(frame_dir)
-            if os.path.isfile(os.path.join(frame_dir, f)) and f.lower().endswith((".jpg", ".jpeg", ".png"))
-        ]
-        frame_files.sort()  # Ensure frames are in sequence
+        try:
+            frame_files = [
+                os.path.join(frame_dir, f)
+                for f in os.listdir(frame_dir)
+                if os.path.isfile(os.path.join(frame_dir, f)) and f.lower().endswith((".jpg", ".jpeg", ".png"))
+            ]
+            frame_files.sort()  # Ensure frames are in sequence
+        except Exception as e:
+            logger.warning(f"Failed to list frames in directory {frame_dir}: {e}. Skipping this sample...")
+            return None, None
 
         if len(frame_files) == 0:
-            raise ValueError(f"No image frames found in directory: {frame_dir}")
+            logger.warning(f"No image frames found in directory: {frame_dir}. Skipping this sample...")
+            return None, None
 
         total_frames = len(frame_files)
 
@@ -353,8 +366,9 @@ class LLaVAVideoDataset(MultiModalDataset):
                     # Convert to numpy array and add to list
                     frame_array = np.array(frame)
                     video_frames.append(frame_array)
-            except IOError as e:
-                raise ValueError(f"Failed to read frame at path: {frame_path}") from e
+            except Exception as e:
+                logger.warning(f"Failed to read frame at path {frame_path}: {e}. Skipping this sample...")
+                return None, None
 
         # Convert to tensor in TCHW format
         video_frames = np.stack(video_frames, axis=0)  # (T, H, W, C)

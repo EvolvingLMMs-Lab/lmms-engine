@@ -236,8 +236,13 @@ class MultiModalDataLoadingMixin:
                 frame_time = [i / video_fps for i in frame_idx]
 
         # Load frames
-        video_frames = vr.get_batch(frame_idx).asnumpy()
-        video_frames = torch.tensor(video_frames).permute(0, 3, 1, 2)  # Convert to TCHW format
+        try:
+            video_frames = vr.get_batch(frame_idx).asnumpy()
+            video_frames = torch.tensor(video_frames).permute(0, 3, 1, 2)  # Convert to TCHW format
+        except Exception as e:
+            # Skip corrupted videos (decoding errors like NAL unit errors)
+            logger.warning(f"Failed to decode video frames from {video_path}: {e}. Skipping this sample...")
+            return None, None
 
         # Format frame time string
         frame_time_str = ",".join([f"{t:.2f}s" for t in frame_time])
@@ -251,7 +256,10 @@ class MultiModalDataLoadingMixin:
             "sample_fps": sample_fps,
         }
 
-        vr.seek(0)  # Reset video reader
+        try:
+            vr.seek(0)  # Reset video reader
+        except Exception:
+            pass  # Ignore seek errors
         return video_frames, metadata
 
     def load_video_qwen_vl_utils(
