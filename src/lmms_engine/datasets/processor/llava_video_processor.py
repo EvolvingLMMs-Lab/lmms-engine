@@ -15,7 +15,6 @@ from .llava_processor import LLaVADataProcessor
 
 @register_processor("llava_video")
 class LLaVAVideoDataProcessor(LLaVADataProcessor):
-
     def __init__(self, config: ProcessorConfig) -> None:
         super().__init__(config)
         self.video_token = "<video>"
@@ -29,7 +28,6 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         video_metadata: Optional[dict] = None,
         **kwargs,
     ):
-
         output_kwargs = self.processor._merge_kwargs(
             LlavaOnevisionProcessorKwargs,
             tokenizer_init_kwargs=self.tokenizer.init_kwargs,
@@ -43,9 +41,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
 
         # Process images
         if images is not None and len(images) > 0:
-            image_inputs = self.processor.image_processor(
-                images, return_tensors="pt", **output_kwargs["images_kwargs"]
-            )
+            image_inputs = self.processor.image_processor(images, return_tensors="pt", **output_kwargs["images_kwargs"])
             height = image_inputs["pixel_values"].shape[-2]
             width = image_inputs["pixel_values"].shape[-1]
 
@@ -58,7 +54,9 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         # Process videos - align with LlavaOnevisionProcessor (processing_llava_onevision.py line 177-190)
         if videos is not None and len(videos) > 0:
             # Use video_processor from transformers with return_tensors="pt" like image_processor
-            video_inputs = self.processor.video_processor(videos, return_tensors="pt", **output_kwargs.get("videos_kwargs", {}))
+            video_inputs = self.processor.video_processor(
+                videos, return_tensors="pt", **output_kwargs.get("videos_kwargs", {})
+            )
 
             # Calculate num_video_tokens like transformers
             pixel_values_videos = video_inputs.get("pixel_values_videos", [])
@@ -67,12 +65,13 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                 # one_video shape: [num_frames, C, H, W]
                 if isinstance(one_video, (list, tuple)):
                     import numpy as np
+
                     one_video = np.array(one_video)
 
                 num_frames = one_video.shape[0]
 
                 # Calculate tokens: same logic as processing_llava_onevision.py line 187-189
-                patches_height_width = int(self.processor.num_image_tokens ** 0.5)  # sqrt
+                patches_height_width = int(self.processor.num_image_tokens**0.5)  # sqrt
                 pooled_height_width = (patches_height_width + 1) // 2  # ceil division
                 num_tokens = (num_frames * pooled_height_width * pooled_height_width) + 1  # +1 for newline
 
@@ -257,10 +256,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
                         new_content.append(item)
                         # Insert time instruction after video/image placeholder
                         if item.get("type") in ["video_url", "image_url"] and not text_inserted:
-                            new_content.append({
-                                "type": "text",
-                                "text": time_instruction
-                            })
+                            new_content.append({"type": "text", "text": time_instruction})
                             text_inserted = True
 
                     if not text_inserted:

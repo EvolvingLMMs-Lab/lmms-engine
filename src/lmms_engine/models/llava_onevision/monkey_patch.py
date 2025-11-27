@@ -143,4 +143,3 @@ def _initialize_faster_token(model: PreTrainedModel):
 
     model.model.faster_token = faster_token
     logger.info(f"Initialized faster_token parameter with shape {faster_token.shape}")
-

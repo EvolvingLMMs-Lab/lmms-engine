@@ -56,7 +56,7 @@ def apply_2d_pool(
     elif mode == "bilinear":
         height, width = image_features.shape[2:]
         scaled_shape = [math.ceil(height / stride), math.ceil(width / stride)]
-        image_features = nn.functional.interpolate(image_features, size=scaled_shape, mode='bilinear')
+        image_features = nn.functional.interpolate(image_features, size=scaled_shape, mode="bilinear")
     else:
         raise ValueError(f"Unsupported pooling mode: {mode}")
 
@@ -134,11 +134,13 @@ def get_video_features_with_slow_fast(
 
             # Apply pooling to all frames to get slow and fast features
             slow_features = apply_2d_pool(model, video_frames, stride=mm_spatial_pool_stride, mode=mm_spatial_pool_mode)
-            fast_features = apply_2d_pool(model, video_frames, stride=mm_spatial_pool_stride * 2, mode=mm_spatial_pool_mode)
+            fast_features = apply_2d_pool(
+                model, video_frames, stride=mm_spatial_pool_stride * 2, mode=mm_spatial_pool_mode
+            )
 
             # Get faster_token if available
             faster_token = None
-            if hasattr(model, 'faster_token'):
+            if hasattr(model, "faster_token"):
                 faster_token = model.faster_token[None]  # (1, dim)
 
             # Concatenate slow/fast features with faster_token for each frame
@@ -153,7 +155,9 @@ def get_video_features_with_slow_fast(
 
                 # Add faster_token to end of frame if available
                 if faster_token is not None:
-                    frame_feat = torch.cat((frame_feat, faster_token.to(frame_feat.device)), dim=0)  # (seq_len + 1, dim)
+                    frame_feat = torch.cat(
+                        (frame_feat, faster_token.to(frame_feat.device)), dim=0
+                    )  # (seq_len + 1, dim)
 
                 concat_slow_fast_token.append(frame_feat)
 
@@ -169,7 +173,9 @@ def get_video_features_with_slow_fast(
             padded_videos = []
             for video_feat in processed_videos:
                 if video_feat.shape[0] < max_len:
-                    padding = torch.zeros(max_len - video_feat.shape[0], dim, device=video_feat.device, dtype=video_feat.dtype)
+                    padding = torch.zeros(
+                        max_len - video_feat.shape[0], dim, device=video_feat.device, dtype=video_feat.dtype
+                    )
                     video_feat = torch.cat((video_feat, padding), dim=0)
                 padded_videos.append(video_feat)
             video_features = torch.stack(padded_videos, dim=0)  # (batch_size, max_len, dim)
@@ -234,9 +240,7 @@ def forward(
         if vision_feature_select_strategy is not None
         else self.config.vision_feature_select_strategy
     )
-    vision_aspect_ratio = (
-        vision_aspect_ratio if vision_aspect_ratio is not None else self.config.vision_aspect_ratio
-    )
+    vision_aspect_ratio = vision_aspect_ratio if vision_aspect_ratio is not None else self.config.vision_aspect_ratio
 
     # Get slow-fast frame configuration
     add_faster_video = getattr(self.config, "add_faster_video", False)

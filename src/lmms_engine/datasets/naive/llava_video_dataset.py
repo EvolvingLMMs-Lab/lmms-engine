@@ -159,7 +159,7 @@ class LLaVAVideoDataset(MultiModalDataset):
         # 2. From config.extra_kwargs
         # 3. From config.data_folder (if it exists)
         data_folder = None
-        if hasattr(self, 'data_folder') and self.data_folder is not None:
+        if hasattr(self, "data_folder") and self.data_folder is not None:
             # For yaml format, data_folder is a list
             data_folder = self.data_folder if not isinstance(self.data_folder, list) else None
         if data_folder is None:
@@ -250,6 +250,7 @@ class LLaVAVideoDataset(MultiModalDataset):
         # If data loading failed (e.g., corrupted video), try next sample
         if data_dict is None:
             from loguru import logger
+
             logger.warning(f"Sample {index} failed to load (corrupted video), trying next sample...")
             next_index = (index + 1) % len(self.data_list)
             return self.__getitem__(next_index)
@@ -311,8 +312,7 @@ class LLaVAVideoDataset(MultiModalDataset):
         frame_files = [
             os.path.join(frame_dir, f)
             for f in os.listdir(frame_dir)
-            if os.path.isfile(os.path.join(frame_dir, f))
-            and f.lower().endswith((".jpg", ".jpeg", ".png"))
+            if os.path.isfile(os.path.join(frame_dir, f)) and f.lower().endswith((".jpg", ".jpeg", ".png"))
         ]
         frame_files.sort()  # Ensure frames are in sequence
 
