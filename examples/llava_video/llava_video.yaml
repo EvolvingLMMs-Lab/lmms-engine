@@ -5,17 +5,17 @@ trainer_type: fsdp2_trainer
 
 dataset_config:
   dataset_type: llava_video
-  dataset_format: parquet
-  dataset_path: "/blob/llava_video_parquet/*.parquet"
+  dataset_format: yaml
+  dataset_path: null
   processor_config:
     processor_name: "llava-hf/llava-onevision-qwen2-7b-ov-hf"
     processor_type: llava_video
-  # Update this to your dataset path
-  # Supports LLaVA-Video-178K format or custom JSON/YAML datasets
+  # Using inline datasets configuration to load parquet files
+  # This uses the existing parquet loading logic in data_utils.py
   datasets:
-    - path: data/llava_video_dataset.json
-      data_folder: data/videos
-      data_type: json
+    - path: "/blob/llava_video_parquet/*.parquet"
+      data_folder: "/blob/LLaVA-Video-178K"
+      data_type: parquet
   shuffle: true
   eval_dataset_path: null
   object_storage: none

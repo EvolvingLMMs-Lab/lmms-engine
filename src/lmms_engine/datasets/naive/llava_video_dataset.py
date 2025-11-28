@@ -1,6 +1,7 @@
 import os
 from copy import deepcopy
-from typing import Dict, Tuple
+from io import BytesIO
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import torch
@@ -277,6 +278,98 @@ class LLaVAVideoDataset(MultiModalDataset):
             return self.__getitem__(next_index)
 
         return data_dict
+
+    def load_video_with_time(
+        self,
+        video_path: Union[str, List[str], BytesIO],
+        fps: int,
+        data_folder=None,
+    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+        """
+        Load video with time information for LLaVA-Video.
+
+        This method implements the LLaVA-Video video loading logic with:
+        - frames_upbound control
+        - force_sample behavior
+        - Time information (video_time, frame_time, num_frames)
+
+        Args:
+            video_path: Path to video file or BytesIO object
+            fps: Target frames per second (for FPS-based sampling)
+            data_folder: Optional folder path to prepend
+
+        Returns:
+            Tuple of (video_frames, metadata) where metadata contains:
+                - video_time: Total video duration in seconds
+                - frame_time: String of frame timestamps like "0.00s,0.50s,1.00s"
+                - num_frames: Number of sampled frames
+                - sample_fps: Effective sampling FPS
+        """
+        from decord import VideoReader, cpu
+        from loguru import logger
+
+        if data_folder is not None:
+            video_path = os.path.join(data_folder, video_path)
+
+        try:
+            if isinstance(video_path, str) or isinstance(video_path, BytesIO):
+                vr = VideoReader(video_path, ctx=cpu(0), num_threads=1)
+            elif isinstance(video_path, list):
+                vr = VideoReader(video_path[0], ctx=cpu(0), num_threads=1)
+            else:
+                raise ValueError(f"Unsupported video path type: {type(video_path)}")
+        except Exception as e:
+            # Skip corrupted videos by returning None
+            logger.warning(f"Failed to load video {video_path}: {e}. Skipping this sample...")
+            return None, None
+
+        total_frames = len(vr)
+        video_fps = vr.get_avg_fps()
+        video_time = total_frames / video_fps
+
+        # Initial sampling based on FPS
+        avg_fps = round(video_fps / fps) if fps > 0 else 1
+        frame_idx = list(range(0, total_frames, avg_fps))
+        frame_time = [i / video_fps for i in frame_idx]
+
+        # Apply frames_upbound and force_sample logic
+        extra_kwargs = getattr(self.config, "extra_kwargs", {}) or {}
+        frames_upbound = extra_kwargs.get("frames_upbound", 0)
+        force_sample = extra_kwargs.get("force_sample", False)
+
+        if frames_upbound > 0:
+            if len(frame_idx) > frames_upbound or force_sample:
+                # Force uniform sampling to frames_upbound
+                uniform_sampled_frames = np.linspace(0, total_frames - 1, frames_upbound, dtype=int)
+                frame_idx = uniform_sampled_frames.tolist()
+                frame_time = [i / video_fps for i in frame_idx]
+
+        # Load frames
+        try:
+            video_frames = vr.get_batch(frame_idx).asnumpy()
+            video_frames = torch.tensor(video_frames).permute(0, 3, 1, 2)  # Convert to TCHW format
+        except Exception as e:
+            # Skip corrupted videos (decoding errors like NAL unit errors)
+            logger.warning(f"Failed to decode video frames from {video_path}: {e}. Skipping this sample...")
+            return None, None
+
+        # Format frame time string
+        frame_time_str = ",".join([f"{t:.2f}s" for t in frame_time])
+        num_frames = len(frame_idx)
+        sample_fps = num_frames / max(total_frames, 1e-6) * video_fps
+
+        metadata = {
+            "video_time": video_time,
+            "frame_time": frame_time_str,
+            "num_frames": num_frames,
+            "sample_fps": sample_fps,
+        }
+
+        try:
+            vr.seek(0)  # Reset video reader
+        except Exception:
+            pass  # Ignore seek errors
+        return video_frames, metadata
 
     def _load_video_or_frames(
         self,
