@@ -336,9 +336,7 @@ def text_model_forward(
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     output_router_logits = (
-        output_router_logits
-        if output_router_logits is not None
-        else getattr(self.config, "output_router_logits", False)
+        output_router_logits if output_router_logits is not None else getattr(self.config, "output_router_logits", True)
     )
     use_cache = use_cache if use_cache is not None else self.config.use_cache
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -443,7 +441,7 @@ def decoder_layer_forward(
     cache_position: Optional[torch.LongTensor] = None,
     cu_seq_lens: Optional[torch.IntTensor] = None,
     indices: Optional[torch.IntTensor] = None,
-    output_router_logits: bool = False,
+    output_router_logits: bool = True,
     **kwargs,
 ) -> Union[torch.FloatTensor, Tuple[torch.FloatTensor, torch.FloatTensor]]:
     residual = hidden_states
