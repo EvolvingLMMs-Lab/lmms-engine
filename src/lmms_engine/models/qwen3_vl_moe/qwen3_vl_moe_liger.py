@@ -43,7 +43,7 @@ def lce_forward(
     output_router_logits = (
         output_router_logits
         if output_router_logits is not None
-        else getattr(self.config.text_config, "output_router_logits", False)
+        else getattr(self.config.text_config, "output_router_logits", True)
     )
 
     outputs = self.model(

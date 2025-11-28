@@ -66,7 +66,9 @@ def lce_forward(
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
     output_router_logits = (
-        output_router_logits if output_router_logits is not None else self.config.text_config.output_router_logits
+        output_router_logits
+        if output_router_logits is not None
+        else getattr(self.config.text_config, "output_router_logits", True)
     )
 
     tokens_count = attention_mask.sum().item()

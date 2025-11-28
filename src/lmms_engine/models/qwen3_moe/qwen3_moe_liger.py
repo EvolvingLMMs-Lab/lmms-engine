@@ -69,7 +69,7 @@ def lce_forward(
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     output_router_logits = (
-        output_router_logits if output_router_logits is not None else self.config.output_router_logits
+        output_router_logits if output_router_logits is not None else getattr(self.config, "output_router_logits", True)
     )
 
     output_hidden_states = (
