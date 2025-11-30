@@ -55,7 +55,27 @@ class Qwen2RMSNorm(nn.Module):
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+
+        # Handle DTensor weights (FSDP2) mixed with regular tensor inputs
+        weight = self.weight
+        if hasattr(weight, "full_tensor"):  # Check if it's a DTensor-like object or can be converted
+            # This is a generic check, specific DTensor handling might be needed depending on PyTorch version
+            pass
+
+        try:
+            return weight * hidden_states.to(input_dtype)
+        except RuntimeError as e:
+            if "got mixed torch.Tensor and DTensor" in str(e) or "must match the size of tensor" in str(e):
+                # If weight is DTensor but hidden_states is not, we need to get the full weight
+                # This usually happens during inference/sampling when the module wasn't wrapped by FSDP
+                # but parameters were loaded as DTensors (sharded)
+                from torch.distributed.tensor import DTensor
+
+                if isinstance(weight, DTensor):
+                    # Use full_tensor() to gather the full weight from all shards
+                    weight = weight.full_tensor()
+                    return weight * hidden_states.to(input_dtype)
+            raise e
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
@@ -131,8 +151,14 @@ class Qwen2RotaryEmbedding(nn.Module):
             self._dynamic_frequency_update(position_ids, device=x.device)
 
         # Core RoPE block
+        # Ensure inv_freq is on the same device as input
+        if self.inv_freq.device != x.device:
+            self.inv_freq = self.inv_freq.to(x.device)
+
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-        position_ids_expanded = position_ids[:, None, :].float()
+        # Ensure position_ids is on the same device as input
+        position_ids_expanded = position_ids[:, None, :].float().to(x.device)
+
         # Force float32 (see https://github.com/huggingface/transformers/pull/29285)
         device_type = x.device.type
         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"

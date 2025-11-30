@@ -93,7 +93,7 @@ class InterleaveInferencer:
 
         return gen_context
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def gen_image(
         self,
         image_shape,
@@ -258,7 +258,7 @@ class InterleaveInferencer:
         output = output.split("<|im_end|>")[0].split("<|im_start|>")[1]
         return output
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def interleave_inference(
         self,
         input_lists: List[Union[str, Image.Image]],
@@ -371,10 +371,28 @@ class InterleaveInferencer:
             input_list.append(text)
 
         output_list = self.interleave_inference(input_list, **kargs)
+        return output_list[0]
 
-        for i in output_list:
-            if isinstance(i, Image.Image):
-                output_dict["image"] = i
-            elif isinstance(i, str):
-                output_dict["text"] = i
-        return output_dict
+    # def __call__(self, image: Optional[Image.Image] = None, text: Optional[str] = None, **kargs) -> Dict[str, Any]:
+    #     output_dict = {"image": None, "text": None}
+
+    #     if image is None and text is None:
+    #         print("Please provide at least one input: either an image or text.")
+    #         return output_dict
+
+    #     input_list = []
+    #     if image is not None:
+    #         input_list.append(image)
+    #     if text is not None:
+    #         input_list.append(text)
+
+    #     output_list = self.interleave_inference(input_list, **kargs)
+
+    #     for i in output_list:
+    #         if isinstance(i, Image.Image):
+    #             output_dict["image"] = i
+    #         elif isinstance(i, str):
+    #             output_dict["text"] = i
+    #         elif isinstance(i, dict):
+    #             output_dict.update(i)
+    #     return output_dict

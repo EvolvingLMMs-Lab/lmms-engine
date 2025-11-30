@@ -649,6 +649,9 @@ class PackedAttentionMoT(Qwen2Attention):
         if mode == "und":
             packed_attn_output = self.o_proj(packed_attn_output)
         elif mode == "gen":
+            # Fix: Avoid in-place modification of a view (packed_attn_output is a view after reshape)
+            # Clone it to create a new tensor that can be modified in-place safely
+            packed_attn_output = packed_attn_output.clone()
             packed_attn_output[packed_text_indexes] = self.o_proj(packed_attn_output[packed_text_indexes])
             packed_attn_output[packed_vae_token_indexes] = self.o_proj_moe_gen(
                 packed_attn_output[packed_vae_token_indexes]

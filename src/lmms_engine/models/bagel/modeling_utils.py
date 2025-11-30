@@ -109,6 +109,13 @@ class TimestepEmbedder(nn.Module):
 
     def forward(self, t):
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+
+        target_dtype = self.mlp[0].weight.dtype
+        target_device = self.mlp[0].weight.device
+
+        if t_freq.dtype != target_dtype or t_freq.device != target_device:
+            t_freq = t_freq.to(dtype=target_dtype, device=target_device)
+
         t_emb = self.mlp(t_freq)
         return t_emb
 
