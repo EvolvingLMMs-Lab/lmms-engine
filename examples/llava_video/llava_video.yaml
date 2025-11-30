@@ -11,7 +11,6 @@ dataset_config:
     processor_name: "llava-hf/llava-onevision-qwen2-7b-ov-hf"
     processor_type: llava_video
   # Using inline datasets configuration to load parquet files
-  # This uses the existing parquet loading logic in data_utils.py
   datasets:
     - path: "/blob/llava_video_parquet/*.parquet"
       data_folder: "/blob/LLaVA-Video-178K"
