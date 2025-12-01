@@ -267,17 +267,18 @@ class LLaVAVideoDataset(MultiModalDataset):
         Get a sample from the dataset by index.
         Override parent method to handle corrupted videos gracefully.
         """
-        data_dict = super().__getitem__(index)
+        # Try to load valid sample, skip corrupted ones
+        while True:
+            data_dict = super().__getitem__(index)
 
-        # If data loading failed (e.g., corrupted video), try next sample
-        if data_dict is None:
+            # If data loading succeeded (not None), return it
+            if data_dict is not None:
+                return data_dict
+
+            # If loading failed (corrupted video), try next sample
             from loguru import logger
-
             logger.warning(f"Sample {index} failed to load (corrupted video), trying next sample...")
-            next_index = (index + 1) % len(self.data_list)
-            return self.__getitem__(next_index)
-
-        return data_dict
+            index = (index + 1) % len(self.data_list)
 
     def load_video_with_time(
         self,
