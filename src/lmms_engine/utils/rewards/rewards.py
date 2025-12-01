@@ -84,16 +84,43 @@ def image_similarity_score(device):
 
 
 def pickscore_score(device):
+    from loguru import logger
+
     from .pickscore_scorer import PickScoreScorer
 
     scorer = PickScoreScorer(dtype=torch.float32, device=device)
 
     def _fn(images, prompts, metadata):
+        logger.info(f"pickscore_score: input images type: {type(images)}, prompts type: {type(prompts)}")
+
         if isinstance(images, torch.Tensor):
+            logger.info(f"pickscore_score: images tensor shape: {images.shape}")
             images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
             images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
             images = [Image.fromarray(image) for image in images]
-        scores = scorer(prompts, images)
+            logger.info(f"pickscore_score: converted to {len(images)} PIL images")
+
+        # Ensure prompts is a list
+        if not isinstance(prompts, list):
+            prompts = [prompts] if isinstance(prompts, str) else list(prompts)
+        logger.info(f"pickscore_score: prompts len: {len(prompts)}, images len: {len(images)}")
+
+        try:
+            scores = scorer(prompts, images)
+            logger.info(f"pickscore_score: scorer returned type: {type(scores)}, value: {scores}")
+        except Exception as e:
+            logger.error(f"pickscore_score: scorer failed: {e}", exc_info=True)
+            raise
+
+        # Convert tensor to list
+        if isinstance(scores, torch.Tensor):
+            scores = scores.cpu().tolist()
+            logger.info(f"pickscore_score: converted tensor to list, len: {len(scores)}")
+        elif not isinstance(scores, list):
+            scores = list(scores)
+            logger.info(f"pickscore_score: converted to list, len: {len(scores)}")
+
+        logger.info(f"pickscore_score: final scores len: {len(scores)}, scores: {scores}")
         return scores, {}
 
     return _fn
@@ -109,8 +136,15 @@ def imagereward_score(device):
             images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
             images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
             images = [Image.fromarray(image) for image in images]
-        prompts = [prompt for prompt in prompts]
+        # Ensure prompts is a list
+        if not isinstance(prompts, list):
+            prompts = [prompts] if isinstance(prompts, str) else list(prompts)
         scores = scorer(prompts, images)
+        # Convert tensor to list
+        if isinstance(scores, torch.Tensor):
+            scores = scores.cpu().tolist()
+        elif not isinstance(scores, list):
+            scores = list(scores)
         return scores, {}
 
     return _fn
@@ -126,8 +160,15 @@ def qwenvl_score(device):
             images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
             images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
             images = [Image.fromarray(image) for image in images]
-        prompts = [prompt for prompt in prompts]
+        # Ensure prompts is a list
+        if not isinstance(prompts, list):
+            prompts = [prompts] if isinstance(prompts, str) else list(prompts)
         scores = scorer(prompts, images)
+        # Convert tensor to list
+        if isinstance(scores, torch.Tensor):
+            scores = scores.cpu().tolist()
+        elif not isinstance(scores, list):
+            scores = list(scores)
         return scores, {}
 
     return _fn
@@ -451,6 +492,24 @@ def unifiedreward_score_sglang(device):
 
 
 def multi_score(device, score_dict):
+    from types import SimpleNamespace
+
+    from loguru import logger
+
+    # Convert SimpleNamespace to dict if needed
+    if isinstance(score_dict, SimpleNamespace):
+        score_dict = {k: v for k, v in score_dict.__dict__.items()}
+        logger.info(f"multi_score: Converted SimpleNamespace to dict: {score_dict}")
+
+    # Ensure score_dict is a dict
+    if not isinstance(score_dict, dict):
+        logger.error(f"multi_score: score_dict must be a dict or SimpleNamespace, got {type(score_dict)}")
+        raise ValueError(f"score_dict must be a dict, got {type(score_dict)}")
+
+    if len(score_dict) == 0:
+        logger.error(f"multi_score: score_dict is empty! This will result in no rewards being computed.")
+        raise ValueError("score_dict cannot be empty")
+
     score_functions = {
         "deqa": deqa_score_remote,
         "ocr": ocr_score,
@@ -475,31 +534,87 @@ def multi_score(device, score_dict):
 
     # only_strict is only for geneval. During training, only the strict reward is needed, and non-strict rewards don't need to be computed, reducing reward calculation time.
     def _fn(images, prompts, metadata, ref_images=None, only_strict=True):
+        from loguru import logger
+
         total_scores = []
         score_details = {}
 
-        for score_name, weight in score_dict.items():
-            if score_name == "geneval":
-                scores, rewards, strict_rewards, group_rewards, group_strict_rewards = score_fns[score_name](
-                    images, prompts, metadata, only_strict
-                )
-                score_details["accuracy"] = rewards
-                score_details["strict_accuracy"] = strict_rewards
-                for key, value in group_strict_rewards.items():
-                    score_details[f"{key}_strict_accuracy"] = value
-                for key, value in group_rewards.items():
-                    score_details[f"{key}_accuracy"] = value
-            elif score_name == "image_similarity":
-                scores, rewards = score_fns[score_name](images, ref_images)
-            else:
-                scores, rewards = score_fns[score_name](images, prompts, metadata)
-            score_details[score_name] = scores
-            weighted_scores = [weight * score for score in scores]
+        # Debug: log input shapes (use info level to ensure visibility)
+        if isinstance(images, torch.Tensor):
+            logger.info(f"multi_score: images shape: {images.shape}, dtype: {images.dtype}")
+        else:
+            logger.info(
+                f"multi_score: images type: {type(images)}, len: {len(images) if hasattr(images, '__len__') else 'N/A'}"
+            )
+        logger.info(
+            f"multi_score: prompts type: {type(prompts)}, len: {len(prompts) if isinstance(prompts, (list, tuple)) else 'N/A'}"
+        )
+        logger.info(f"multi_score: score_dict: {score_dict}")
 
-            if not total_scores:
-                total_scores = weighted_scores
-            else:
-                total_scores = [total + weighted for total, weighted in zip(total_scores, weighted_scores)]
+        for score_name, weight in score_dict.items():
+            try:
+                if score_name == "geneval":
+                    scores, rewards, strict_rewards, group_rewards, group_strict_rewards = score_fns[score_name](
+                        images, prompts, metadata, only_strict
+                    )
+                    score_details["accuracy"] = rewards
+                    score_details["strict_accuracy"] = strict_rewards
+                    for key, value in group_strict_rewards.items():
+                        score_details[f"{key}_strict_accuracy"] = value
+                    for key, value in group_rewards.items():
+                        score_details[f"{key}_accuracy"] = value
+                elif score_name == "image_similarity":
+                    scores, rewards = score_fns[score_name](images, ref_images)
+                else:
+                    scores, rewards = score_fns[score_name](images, prompts, metadata)
+
+                # Convert scores to list if needed
+                if isinstance(scores, torch.Tensor):
+                    scores = scores.cpu().tolist()
+                elif not isinstance(scores, list):
+                    scores = list(scores)
+
+                logger.info(
+                    f"multi_score: {score_name} scores type: {type(scores)}, len: {len(scores) if hasattr(scores, '__len__') else 'N/A'}, scores: {scores[:5] if len(scores) > 0 else 'empty'}"
+                )
+
+                if len(scores) == 0:
+                    logger.warning(
+                        f"multi_score: {score_name} returned empty scores! images: {type(images)}, prompts: {type(prompts)}"
+                    )
+                    continue
+
+                score_details[score_name] = scores
+                weighted_scores = [weight * score for score in scores]
+
+                if not total_scores:
+                    total_scores = weighted_scores
+                else:
+                    if len(total_scores) != len(weighted_scores):
+                        logger.error(
+                            f"multi_score: length mismatch! total_scores: {len(total_scores)}, weighted_scores: {len(weighted_scores)}"
+                        )
+                    total_scores = [total + weighted for total, weighted in zip(total_scores, weighted_scores)]
+            except Exception as e:
+                logger.error(f"multi_score: Error computing {score_name} score: {e}", exc_info=True)
+                raise
+
+        logger.info(
+            f"multi_score: total_scores len: {len(total_scores)}, total_scores: {total_scores[:5] if len(total_scores) > 0 else 'empty'}"
+        )
+
+        if len(total_scores) == 0:
+            logger.error(
+                f"multi_score: total_scores is empty! score_dict: {score_dict}, images: {type(images)}, prompts: {type(prompts)}"
+            )
+            # Try to compute at least one score manually for debugging
+            if "pickscore" in score_dict:
+                logger.error("Attempting to debug pickscore...")
+                try:
+                    test_scores = score_fns["pickscore"](images, prompts, metadata)
+                    logger.error(f"Direct pickscore call result: {test_scores}")
+                except Exception as e:
+                    logger.error(f"Direct pickscore call failed: {e}", exc_info=True)
 
         score_details["avg"] = total_scores
         return score_details, {}

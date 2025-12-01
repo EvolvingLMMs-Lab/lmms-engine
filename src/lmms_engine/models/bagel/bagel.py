@@ -1075,6 +1075,32 @@ class Bagel(PreTrainedModel):
             -grpo_config.train.adv_clip_max,
             grpo_config.train.adv_clip_max,
         )
+
+        # Debug: Check advantages shape and values
+        from loguru import logger
+
+        logger.info(f"generate_image_learn: advantages shape: {advantages.shape}, dtype: {advantages.dtype}")
+        logger.info(
+            f"generate_image_learn: advantages stats: min={advantages.min()}, max={advantages.max()}, mean={advantages.mean()}, has_nan={torch.isnan(advantages).any()}, has_inf={torch.isinf(advantages).any()}"
+        )
+        logger.info(f"generate_image_learn: latents[0] shape: {latents[0].shape}, batch_size: {latents[0].shape[0]}")
+
+        # Check if advantages needs reshaping for broadcasting
+        # advantages should be [batch_size] or [1] to broadcast with log_prob (which is scalar after mean)
+        if advantages.dim() == 1:
+            if len(advantages) == 1:
+                # Single advantage value, will broadcast to all timesteps
+                logger.info(f"Single advantage value: {advantages[0]}, will broadcast to all timesteps")
+            elif len(advantages) != latents[0].shape[0]:
+                logger.error(
+                    f"Advantages batch size mismatch! advantages: {len(advantages)}, latents batch: {latents[0].shape[0]}"
+                )
+                # Try to fix: if advantages is [batch_size] but we have multiple timesteps, we need to handle it
+                # For now, just use the first advantage for all timesteps
+                if len(advantages) > 0:
+                    logger.warning(f"Using first advantage value {advantages[0]} for all timesteps")
+                    advantages = advantages[0:1]  # Keep as [1] tensor
+            # Keep as 1D for broadcasting with scalar log_prob
         clipfrac = []
         clipfrac_gt_one = []
         clipfrac_lt_one = []
@@ -1185,23 +1211,107 @@ class Bagel(PreTrainedModel):
                     )
 
             # grpo logic
-            ratio = torch.exp(log_prob - sample["log_probs"][i])
-            # print('ratio', ratio)
+            # Debug: Check inputs before loss computation
+            log_prob_diff = log_prob - sample["log_probs"][i]
+            ratio = torch.exp(log_prob_diff)
+
+            # Debug logging (only on first iteration to avoid spam)
+            if i == 0:
+                from loguru import logger
+
+                logger.info(f"Loss computation debug - step {i}:")
+                logger.info(
+                    f"  log_prob: shape={log_prob.shape}, dtype={log_prob.dtype}, min={log_prob.min()}, max={log_prob.max()}, has_nan={torch.isnan(log_prob).any()}"
+                )
+                logger.info(
+                    f"  sample['log_probs'][{i}]: shape={sample['log_probs'][i].shape}, dtype={sample['log_probs'][i].dtype}, min={sample['log_probs'][i].min()}, max={sample['log_probs'][i].max()}, has_nan={torch.isnan(sample['log_probs'][i]).any()}"
+                )
+                logger.info(
+                    f"  log_prob_diff: min={log_prob_diff.min()}, max={log_prob_diff.max()}, has_nan={torch.isnan(log_prob_diff).any()}"
+                )
+                logger.info(
+                    f"  ratio: shape={ratio.shape}, min={ratio.min()}, max={ratio.max()}, has_nan={torch.isnan(ratio).any()}, has_inf={torch.isinf(ratio).any()}"
+                )
+                logger.info(
+                    f"  advantages: shape={advantages.shape}, dtype={advantages.dtype}, min={advantages.min()}, max={advantages.max()}, mean={advantages.mean()}, has_nan={torch.isnan(advantages).any()}, has_inf={torch.isinf(advantages).any()}"
+                )
+                # Check shape compatibility - ratio is scalar, advantages is [1], they can broadcast
+                if ratio.shape != advantages.shape:
+                    logger.debug(
+                        f"Shape difference (will broadcast): ratio: {ratio.shape}, advantages: {advantages.shape}"
+                    )
+                if grpo_config.train.beta > 0:
+                    logger.info(
+                        f"  std_dev_t: shape={std_dev_t.shape}, min={std_dev_t.min()}, max={std_dev_t.max()}, has_zero={(std_dev_t == 0).any()}"
+                    )
+                    logger.info(
+                        f"  prev_sample_mean: shape={prev_sample_mean.shape}, prev_sample_mean_ref: shape={prev_sample_mean_ref.shape}"
+                    )
+
+            # Check for NaN/Inf in ratio before using it
+            if torch.isnan(ratio).any() or torch.isinf(ratio).any():
+                from loguru import logger
+
+                logger.error(
+                    f"NaN/Inf detected in ratio at step {i}! log_prob: {log_prob}, sample_log_probs: {sample['log_probs'][i]}"
+                )
+                # Clamp ratio to prevent NaN
+                ratio = torch.clamp(ratio, min=1e-8, max=1e8)
+
             # Convert config values to float to handle string values from YAML
             clip_range_lt = float(grpo_config.train.clip_range_lt)
             clip_range_gt = float(grpo_config.train.clip_range_gt)
-            unclipped_loss = -advantages * ratio
-            clipped_loss = -advantages * torch.clamp(
+
+            # Ensure ratio and advantages can broadcast properly
+            # ratio is scalar, advantages is [1], so we can use them directly
+            # But to be safe, ensure advantages is squeezed if it's [1]
+            if advantages.dim() == 1 and advantages.shape[0] == 1:
+                advantages_for_loss = advantages.squeeze(0)  # [1] -> scalar
+            else:
+                advantages_for_loss = advantages
+
+            unclipped_loss = -advantages_for_loss * ratio
+            clipped_loss = -advantages_for_loss * torch.clamp(
                 ratio,
                 1.0 - clip_range_lt,
                 1.0 + clip_range_gt,
             )
+
+            # Check for NaN/Inf in losses
+            # Handle both scalar and tensor cases
+            unclipped_is_nan = (
+                torch.isnan(unclipped_loss) if unclipped_loss.dim() == 0 else torch.isnan(unclipped_loss).any()
+            )
+            clipped_is_nan = torch.isnan(clipped_loss) if clipped_loss.dim() == 0 else torch.isnan(clipped_loss).any()
+            if unclipped_is_nan or clipped_is_nan:
+                from loguru import logger
+
+                logger.error(
+                    f"NaN detected in losses at step {i}! unclipped_loss: {unclipped_loss}, clipped_loss: {clipped_loss}"
+                )
+
             policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+
             if grpo_config.train.beta > 0:
-                kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t**2)
+                # Check for zero std_dev_t to prevent division by zero
+                std_dev_t_sq = std_dev_t**2
+                if (std_dev_t_sq == 0).any():
+                    from loguru import logger
+
+                    logger.warning(f"Zero std_dev_t detected at step {i}, adding epsilon")
+                    std_dev_t_sq = std_dev_t_sq + 1e-8
+                kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t_sq)
                 loss = policy_loss + grpo_config.train.beta * kl_loss
             else:
                 loss = policy_loss
+
+            # Final check for NaN/Inf in loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                from loguru import logger
+
+                logger.error(f"NaN/Inf in final loss at step {i}! policy_loss: {policy_loss}, loss: {loss}")
+                if grpo_config.train.beta > 0:
+                    logger.error(f"  kl_loss: {kl_loss}")
             clipfrac.append(torch.mean((ratio - 1.0 > clip_range_gt or 1.0 - ratio > clip_range_lt).float()))
             clipfrac_gt_one.append(torch.mean((ratio - 1.0 > clip_range_gt).float()))
             clipfrac_lt_one.append(torch.mean((1.0 - ratio > clip_range_lt).float()))
@@ -1266,10 +1376,25 @@ class Bagel(PreTrainedModel):
                     device=model_output.device,
                     dtype=model_output.dtype,
                 )
-                prev_sample = prev_sample_mean + std_dev_t * torch.sqrt(-1 * d_timestep) * variance_noise
+                # Check for negative d_timestep
+                sqrt_term = -d_timestep  # d_timestep should be negative
+                if (sqrt_term < 0).any():
+                    sqrt_term = torch.abs(sqrt_term) + 1e-8
+                prev_sample = prev_sample_mean + std_dev_t * torch.sqrt(sqrt_term) * variance_noise
+
+            # Check for negative d_timestep to avoid NaN in sqrt
+            sqrt_term = -d_timestep  # d_timestep should be negative (going from high to low timestep)
+            if (sqrt_term < 0).any():
+                from loguru import logger
+
+                logger.warning(
+                    f"Negative sqrt_term detected in log_prob calculation! d_timestep: {d_timestep}, sqrt_term: {sqrt_term}"
+                )
+                # Use absolute value and add small epsilon
+                sqrt_term = torch.abs(sqrt_term) + 1e-8
 
             log_prob = -((prev_sample.detach() - prev_sample_mean) ** 2) / (
-                2 * ((std_dev_t * torch.sqrt(-1 * d_timestep)) ** 2)
+                2 * ((std_dev_t * torch.sqrt(sqrt_term)) ** 2 + 1e-8)
             )
 
         elif sde_type == "cps":
