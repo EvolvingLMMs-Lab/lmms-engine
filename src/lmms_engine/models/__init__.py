@@ -30,6 +30,11 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
+from .llava_onevision1_5 import (
+    Llavaonevision1_5Config,
+    LLaVAOneVision1_5_ForConditionalGeneration,
+    apply_liger_kernel_to_llava_onevision1_5,
+)
 
 __all__ = [
     "AeroForConditionalGeneration",
@@ -67,4 +72,7 @@ __all__ = [
     "SiTModel",
     "SiTConfig",
     "SiT",
+    "Llavaonevision1_5Config",
+    "LLaVAOneVision1_5_ForConditionalGeneration",
+    "apply_liger_kernel_to_llava_onevision1_5",
 ]
