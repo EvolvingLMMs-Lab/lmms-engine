@@ -206,6 +206,13 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 # 2. A string like "multi_score" (for backward compatibility, will use empty dict)
                 reward_fn_config = getattr(self.grpo_config, "reward_fn", {})
 
+                # Convert SimpleNamespace to dict if needed (from _dict_to_config)
+                from types import SimpleNamespace
+
+                if isinstance(reward_fn_config, SimpleNamespace):
+                    reward_fn_config = {k: v for k, v in reward_fn_config.__dict__.items()}
+                    logger.info(f"Converted SimpleNamespace reward_fn_config to dict: {reward_fn_config}")
+
                 # If it's a string, treat it as a single reward with weight 1.0
                 if isinstance(reward_fn_config, str):
                     reward_fn_config = {reward_fn_config: 1.0}
@@ -558,7 +565,18 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             timesteps = torch.stack(timesteps, dim=0)
             images = torch.stack(images, dim=0)
 
+            # Debug: log shapes before reward computation
+            logger.info(f"Sampling batch {i}: images shape: {images.shape}, prompts len: {len(prompts)}")
+            logger.info(f"Sampling batch {i}: prompts: {prompts[:2] if len(prompts) > 0 else 'empty'}")
+            if prompt_metadata:
+                logger.info(
+                    f"Sampling batch {i}: prompt_metadata type: {type(prompt_metadata)}, len: {len(prompt_metadata) if hasattr(prompt_metadata, '__len__') else 'N/A'}"
+                )
+
             # Compute rewards asynchronously
+            logger.info(
+                f"Submitting reward computation for batch {i}: images shape {images.shape}, {len(prompts)} prompts"
+            )
             rewards = self.executor.submit(self.reward_fn, images, prompts, prompt_metadata, only_strict=True)
             time.sleep(0)  # Yield to start reward computation
 
@@ -574,32 +592,76 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             )
 
         # Wait for all rewards to be computed
-        for sample in tqdm(
-            samples,
-            desc="Waiting for rewards",
-            disable=dist.get_rank() != 0,
-            position=0,
+        for sample_idx, sample in enumerate(
+            tqdm(
+                samples,
+                desc="Waiting for rewards",
+                disable=dist.get_rank() != 0,
+                position=0,
+            )
         ):
-            rewards, reward_metadata = sample["rewards"].result()
+            try:
+                rewards, reward_metadata = sample["rewards"].result()
+            except Exception as e:
+                logger.error(f"Error getting reward result for sample {sample_idx}: {e}", exc_info=True)
+                batch_size = sample["prompt_ids"].shape[0]
+                rewards = {"avg": [0.0] * batch_size}
+                reward_metadata = {}
 
             # Debug reward shape
             batch_size = sample["prompt_ids"].shape[0]
+            logger.debug(f"Sample {sample_idx}: batch_size={batch_size}, rewards keys: {rewards.keys()}")
+
             if "avg" in rewards:
                 avg_val = rewards["avg"]
-                avg_len = len(avg_val) if not hasattr(avg_val, "shape") else avg_val.shape[0]
+                # Handle different types
+                if isinstance(avg_val, torch.Tensor):
+                    avg_len = avg_val.shape[0] if avg_val.dim() > 0 else 1
+                    avg_val = avg_val.cpu().tolist() if avg_val.dim() > 0 else [avg_val.item()]
+                elif isinstance(avg_val, (list, tuple)):
+                    avg_len = len(avg_val)
+                else:
+                    avg_len = 1
+                    avg_val = [float(avg_val)]
+
+                logger.debug(
+                    f"Sample {sample_idx}: rewards['avg'] type: {type(rewards['avg'])}, len: {avg_len}, batch_size: {batch_size}"
+                )
+
                 if avg_len != batch_size:
-                    logger.error(f"Reward length mismatch! rewards['avg'] len: {avg_len}, batch_size: {batch_size}")
+                    logger.error(
+                        f"Reward length mismatch! rewards['avg'] len: {avg_len}, batch_size: {batch_size}, "
+                        f"rewards['avg'] type: {type(rewards['avg'])}, value: {rewards['avg']}"
+                    )
                     # Attempt to fix if it's 0 vs N (maybe empty list?)
                     if avg_len == 0:
                         logger.warning("Empty rewards received. Filling with zeros.")
                         rewards["avg"] = [0.0] * batch_size
+                    elif avg_len == 1 and batch_size > 1:
+                        logger.warning(f"Single reward for batch of {batch_size}. Repeating reward.")
+                        rewards["avg"] = avg_val * batch_size
+                    else:
+                        logger.warning(f"Cannot fix mismatch. Using zeros.")
+                        rewards["avg"] = [0.0] * batch_size
+                else:
+                    rewards["avg"] = avg_val
             else:
                 logger.warning(f"No 'avg' in rewards. Keys: {rewards.keys()}")
                 rewards["avg"] = [0.0] * batch_size
 
-            sample["rewards"] = {
-                key: torch.as_tensor(value, device=self.fsdp2_model.device).float() for key, value in rewards.items()
-            }
+            # Convert all reward values to tensors
+            sample["rewards"] = {}
+            for key, value in rewards.items():
+                if isinstance(value, torch.Tensor):
+                    sample["rewards"][key] = value.to(device=self.fsdp2_model.device).float()
+                elif isinstance(value, (list, tuple)):
+                    sample["rewards"][key] = torch.as_tensor(value, device=self.fsdp2_model.device).float()
+                else:
+                    sample["rewards"][key] = torch.tensor([float(value)], device=self.fsdp2_model.device).float()
+
+            logger.debug(
+                f"Sample {sample_idx}: Final rewards shape: {[(k, v.shape if isinstance(v, torch.Tensor) else len(v)) for k, v in sample['rewards'].items()]}"
+            )
 
         # Collate samples
         samples_collated = {
@@ -655,6 +717,14 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             prompts_decoded = tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
             advantages = self.stat_tracker.update(prompts_decoded, gathered_rewards["avg"])
 
+            # Check if advantages are all zeros (due to zero std)
+            if isinstance(advantages, np.ndarray):
+                if np.all(advantages == 0) or np.std(advantages) < 1e-6:
+                    logger.warning(
+                        "All advantages are zero or have zero std in per-prompt normalization. Using raw rewards minus mean."
+                    )
+                    advantages = gathered_rewards["avg"] - gathered_rewards["avg"].mean()
+
             # Log stat tracker metrics
             if dist.get_rank() == 0:
                 group_size, trained_prompt_num = self.stat_tracker.get_stats()
@@ -673,9 +743,12 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             self.stat_tracker.clear()
         else:
             # Global normalization
-            advantages = (gathered_rewards["avg"] - gathered_rewards["avg"].mean()) / (
-                gathered_rewards["avg"].std() + 1e-4
-            )
+            reward_std = gathered_rewards["avg"].std()
+            if reward_std == 0 or reward_std < 1e-6:
+                logger.warning(f"Reward std is zero or very small ({reward_std}), using raw rewards as advantages")
+                advantages = gathered_rewards["avg"] - gathered_rewards["avg"].mean()
+            else:
+                advantages = (gathered_rewards["avg"] - gathered_rewards["avg"].mean()) / (reward_std + 1e-4)
 
         # Ungather advantages to keep only entries for this process
         advantages = torch.as_tensor(advantages)
@@ -683,6 +756,19 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         rank = dist.get_rank()
         advantages = advantages.reshape(world_size, -1, advantages.shape[-1])[rank]
         advantages = advantages.to(self.fsdp2_model.device)
+
+        # Debug: Check advantages for NaN/Inf
+        if torch.isnan(advantages).any() or torch.isinf(advantages).any():
+            logger.error(f"NaN/Inf detected in advantages! advantages: {advantages}, shape: {advantages.shape}")
+            logger.error(f"  NaN count: {torch.isnan(advantages).sum()}, Inf count: {torch.isinf(advantages).sum()}")
+            # Replace NaN/Inf with zeros
+            advantages = torch.where(
+                torch.isnan(advantages) | torch.isinf(advantages), torch.zeros_like(advantages), advantages
+            )
+        else:
+            logger.info(
+                f"Advantages stats: min={advantages.min()}, max={advantages.max()}, mean={advantages.mean()}, std={advantages.std()}"
+            )
 
         return advantages
 
@@ -808,7 +894,18 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                     leave=False,
                     disable=dist.get_rank() != 0,
                 ):
-                    cur_sample = {k: v[j] for k, v in sample.items()}
+                    # Create cur_sample, but keep advantages as a tensor (not indexed)
+                    cur_sample = {}
+                    for k, v in sample.items():
+                        if k == "advantages":
+                            # Keep advantages as tensor for broadcasting
+                            # If v is [batch_size], we need to select v[j] but keep as [1] tensor
+                            if v.dim() == 1:
+                                cur_sample[k] = v[j : j + 1]  # Keep as [1] tensor
+                            else:
+                                cur_sample[k] = v[j]
+                        else:
+                            cur_sample[k] = v[j]
 
                     # Use autocast
                     autocast_dtype = torch.bfloat16 if self.args.bf16 else torch.float16
