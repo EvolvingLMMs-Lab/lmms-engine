@@ -277,6 +277,7 @@ class LLaVAVideoDataset(MultiModalDataset):
 
             # If loading failed (corrupted video), try next sample
             from loguru import logger
+
             logger.warning(f"Sample {index} failed to load (corrupted video), trying next sample...")
             index = (index + 1) % len(self.data_list)
 
