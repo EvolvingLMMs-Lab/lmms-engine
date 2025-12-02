@@ -102,33 +102,36 @@ def model_forward(
             past_seen_tokens + seqlen,
             device=inputs_embeds.device,
         )
+
+    # LLaVA OneVision uses 3D position_ids for temporal, height, width
     if position_ids is None:
-        position_ids = cache_position.unsqueeze(0)
-    position_ids = position_ids.repeat_interleave(bs, dim=0)
+        # the hard coded `3` is for temporal, height and width.
+        position_ids = cache_position.view(1, 1, -1).expand(3, bs, -1)
+    
+    # Unpad position_ids for sequence packing
+    # position_ids shape: (3, batch_size, seq_len)
+    position_ids_unpacked = []
+    for i in range(3):
+        pos_ids = position_ids[i]  # (batch_size, seq_len)
+        pos_ids_flat = index_first_axis(
+            rearrange(pos_ids.unsqueeze(-1), "b s ... -> (b s) ..."), 
+            indices
+        ).transpose(0, 1)
+        position_ids_unpacked.append(pos_ids_flat)
+    
+    position_ids = torch.stack(position_ids_unpacked, dim=0)  # (3, total_tokens, 1)
 
-    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(
-        0, 1
-    )
-    original_position_ids = position_ids
-
-    # It may already have been prepared by e.g. `generate`
-    if not isinstance(causal_mask_mapping := attention_mask, dict):
-        # Prepare mask arguments
-        mask_kwargs = {
-            "config": self.config,
-            "input_embeds": original_inputs,  # Use original input ids to prepare mask
-            "attention_mask": attention_mask,
-            "cache_position": cache_position,
-            "past_key_values": past_key_values,
-            "position_ids": original_position_ids,
-        }
-        # Create the masks
-        causal_mask_mapping = {
-            "full_attention": create_causal_mask(**mask_kwargs),
-        }
-        # The sliding window alternating layers are not always activated depending on the config
-        if self.has_sliding_layers:
-            causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
+    # Pad the position ids according to the original input ids for Ulysses SP
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        position_ids_list = []
+        for i in range(3):
+            _, pos_ids_padded, pad_size = ulysses_pad(
+                input_ids_rmpad,
+                position_ids[i],
+                sp_size=get_ulysses_sequence_parallel_world_size(),
+            )
+            position_ids_list.append(pos_ids_padded)
+        position_ids = torch.stack(position_ids_list, dim=0)
     
     hidden_states = inputs_embeds
 
@@ -140,7 +143,7 @@ def model_forward(
             hidden_states,
             attention_mask=None,  # Not used in flash attention varlen
             position_ids=position_ids,
-            past_key_values=past_key_values,
+            past_key_value=past_key_values,
             use_cache=use_cache,
             cu_seq_lens=cu_seq_lens,
             indices=indices,
@@ -170,8 +173,13 @@ def decoder_layer_forward(
     cu_seq_lens: Optional[torch.IntTensor] = None,
     indices: Optional[torch.IntTensor] = None,
     position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
     **kwargs,
-) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+) -> torch.FloatTensor:
+    """
+    Simplified decoder layer forward for sequence packing.
+    Returns only hidden_states (not a tuple) to match the usage in model_forward.
+    """
     residual = hidden_states
 
     hidden_states = self.input_layernorm(hidden_states)
@@ -187,6 +195,7 @@ def decoder_layer_forward(
         cu_seq_lens=cu_seq_lens,
         indices=indices,
         position_embeddings=position_embeddings,
+        cache_position=cache_position,
     )
     hidden_states = residual + hidden_states
 
@@ -196,14 +205,7 @@ def decoder_layer_forward(
     hidden_states = self.mlp(hidden_states)
     hidden_states = residual + hidden_states
 
-    outputs = (hidden_states,)
-    if output_attentions:
-        outputs += (self_attn_weights,)
-
-    if use_cache:
-        outputs += (present_key_value,)
-
-    return outputs
+    return hidden_states
 
 
 # The attn forward func for LLaVAOneVision1_5
@@ -218,64 +220,90 @@ def attn_forward(
     cu_seq_lens: Optional[torch.IntTensor] = None,
     indices: Optional[torch.IntTensor] = None,
     position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
+    cache_position: Optional[torch.LongTensor] = None,
     **kwargs,
 ):
+    """
+    Flash Attention forward for LLaVA OneVision 1.5 with sequence packing support.
+    This version uses flash_attn_varlen_func for variable-length sequences.
+    """
     input_shape = hidden_states.shape[:-1]
     hidden_shape = (*input_shape, -1, self.head_dim)
 
-    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
+    # Project and normalize Q/K
+    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape))
+    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
+    value_states = self.v_proj(hidden_states).view(hidden_shape)
+    
     cos, sin = position_embeddings
+    
+    ########## AlltoAll for Ulysses ##########
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
+    if ulysses_sp_size > 1:
+        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
+
+        # NOTE: repeat kv heads to be divided by sequence parallel
+        repeats = max(ulysses_sp_size // key_states.size(1), 1)
+        key_states = repeat_kv(key_states, repeats)
+        value_states = repeat_kv(value_states, repeats)
+
+        # (seq_len/n, n_head, head_dim) -> (seq_len, n_head/n, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+        
+        # Update cu_seq_lens if padding is used
+        if cu_seq_lens.max().item() < query_states.shape[0]:
+            cu_seq_lens = torch.cat(
+                [
+                    cu_seq_lens,
+                    torch.tensor(
+                        [query_states.shape[0]],
+                        device=cu_seq_lens.device,
+                        dtype=cu_seq_lens.dtype,
+                    ),
+                ]
+            )
+
+    # Add batch dimension and transpose for RoPE
+    query_states = query_states.unsqueeze(0).transpose(1, 2)
+    key_states = key_states.unsqueeze(0).transpose(1, 2)
+
+    # Apply rotary position embeddings
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
+    # Remove batch dimension and transpose back
+    query_states = query_states.transpose(1, 2).squeeze(0)
+    key_states = key_states.transpose(1, 2).squeeze(0)
 
-
-    # repeat k/v heads if n_kv_heads < n_heads
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
-    dropout_rate = 0.0 if not self.training else self.attention_dropout
-
-    # In PEFT, usually we cast the layer norms in float32 for training stability reasons
-    # therefore the input hidden states gets silently casted in float32. Hence, we need
-    # cast them back in float16 just to be sure everything works as expected.
-    input_dtype = query_states.dtype
-    if input_dtype == torch.float32:
-        if torch.is_autocast_enabled():
-            target_dtype = torch.get_autocast_gpu_dtype()
-        # Handle the case where the model is quantized
-        elif hasattr(self.config, "_pre_quantization_dtype"):
-            target_dtype = self.config._pre_quantization_dtype
-        else:
-            target_dtype = self.q_proj.weight.dtype
-
-        logger.warning_once(
-            f"The input hidden states seems to be silently casted in float32, this might be related to"
-            f" the fact you have upcasted embedding or layer norm layers in float32. We will cast back the input in"
-            f" {target_dtype}."
+    # Handle past_key_value cache (for inference)
+    if past_key_value is not None:
+        # For training with sequence packing, we don't use cache
+        # This is mainly for inference/generation
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        key_states, value_states = past_key_value.update(
+            key_states.unsqueeze(0).transpose(1, 2), 
+            value_states.unsqueeze(0).transpose(1, 2), 
+            self.layer_idx, 
+            cache_kwargs
         )
+        key_states = key_states.transpose(1, 2).squeeze(0)
+        value_states = value_states.transpose(1, 2).squeeze(0)
 
-        query_states = query_states.to(target_dtype)
-        key_states = key_states.to(target_dtype)
-        value_states = value_states.to(target_dtype)
-
-    # Reashape to the expected shape for Flash Attention
-    query_states = query_states.transpose(1, 2)
-    key_states = key_states.transpose(1, 2)
-    value_states = value_states.transpose(1, 2)
-
+    # Determine sliding window size
+    window_size = (-1, -1)
     if (
         self.config.use_sliding_window
         and getattr(self.config, "sliding_window", None) is not None
         and self.layer_idx >= self.config.max_window_layers
     ):
-        sliding_window = self.config.sliding_window
-    else:
-        sliding_window = None
+        window_size = (self.config.sliding_window, self.config.sliding_window)
 
+    # Calculate max sequence length
     max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    window_size = (-1, -1)
+    
+    # Flash Attention with variable-length sequences
+    dropout_rate = 0.0 if not self.training else self.attention_dropout
     attn_output = flash_attn_varlen_func(
         q=query_states,
         k=key_states,
@@ -290,10 +318,15 @@ def attn_forward(
         dropout_p=dropout_rate,
     )
 
-    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (seq_len, n_head/n, head_dim) -> (seq_len/n, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
+
+    # Reshape and project output
+    attn_output = attn_output.reshape(-1, self.config.num_attention_heads * self.head_dim).contiguous()
     attn_output = self.o_proj(attn_output)
 
-    if not output_attentions:
-        attn_weights = None
+    attn_weights = None if not output_attentions else "NotImplemented"
 
     return attn_output, attn_weights, past_key_value
