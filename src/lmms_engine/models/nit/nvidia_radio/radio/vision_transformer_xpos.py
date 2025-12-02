@@ -1,10 +1,9 @@
 import math
 from typing import Final, List, Optional, Tuple, Union
 
-
+import torch
 from einops import rearrange
 from timm.models import register_model
-import torch
 from torch import Type, nn
 from torch.nn import functional as F
 from torch.nn.init import xavier_normal_, xavier_uniform_, zeros_
@@ -19,9 +18,7 @@ def _get_init_scale(num_encoder_layers: int, num_decoder_layers: int, is_encoder
         return math.sqrt(math.log(2 * num_decoder_layers))
     if is_encoder:
         # Both encoders and decoders
-        return math.sqrt(
-            0.33 * math.log(3 * num_decoder_layers) * math.log(2 * num_encoder_layers)
-        )
+        return math.sqrt(0.33 * math.log(3 * num_decoder_layers) * math.log(2 * num_encoder_layers))
 
     return math.sqrt(math.log(3 * num_decoder_layers))
 
@@ -31,6 +28,7 @@ def _get_init_scale(num_encoder_layers: int, num_decoder_layers: int, is_encoder
 # [5,6]    [5,5,6,6]
 def duplicate_interleave(m):
     return m.view(-1, 1).repeat(1, 2).view(m.shape[0], -1)
+
 
 # 0,1,2,3,4,5,6,7 -> -1,0,-3,2,-5,4,-7,6
 def rotate_every_two(x):
@@ -46,12 +44,7 @@ class XPosEmbedding2D(torch.nn.Module):
     [batch_size, n_heads_per_partition, seq_len, head_dim] (e.g. MinGPTAttention format).
     """
 
-    def __init__(
-        self,
-        head_dim: int,
-        base=50000,
-        scale_base=512
-    ):
+    def __init__(self, head_dim: int, base=50000, scale_base=512):
         super().__init__()
         half_dim = head_dim // 2
         self.half_dim = half_dim
@@ -64,8 +57,7 @@ class XPosEmbedding2D(torch.nn.Module):
         self.sin_cached: torch.Tensor | None = None
         self.scale_cached: torch.Tensor | None = None
         self.scale_base = scale_base
-        self.register_buffer("scale",
-                             (torch.arange(0, half_dim, 2) + 0.4 * half_dim) / (1.4 * half_dim))
+        self.register_buffer("scale", (torch.arange(0, half_dim, 2) + 0.4 * half_dim) / (1.4 * half_dim))
 
     def cos_sin(
         self,
@@ -77,7 +69,7 @@ class XPosEmbedding2D(torch.nn.Module):
             self.token_shape_cached = token_shape
             y = torch.arange(token_shape[0], device=device, dtype=self.inv_freq.dtype)
             x = torch.arange(token_shape[1], device=device, dtype=self.inv_freq.dtype)
-            x, y = torch.meshgrid(x, y, indexing='xy')
+            x, y = torch.meshgrid(x, y, indexing="xy")
 
             y_freqs = torch.einsum("i,j->ij", y.flatten(), self.inv_freq)
             x_freqs = torch.einsum("i,j->ij", x.flatten(), self.inv_freq)
@@ -122,7 +114,7 @@ class MagnetoAttention(nn.Module):
         super().__init__()
         self.num_heads = n_head
         self.head_dim = d_model // n_head
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
         self.qkv = nn.Linear(d_model, d_model * 3, bias=False)
         self.proj = nn.Linear(d_model, d_model)
@@ -171,12 +163,18 @@ class MagnetoAttention(nn.Module):
 
 
 class MagnetoTransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model: int, nhead: int, pos_emb: XPosEmbedding2D,
-                 num_encoder_layers: int, num_decoder_layers: int = 0,
-                 dim_mhsa: int = 0,
-                 dim_feedforward: int = 2048,
-                 layer_norm_eps: float = 1e-5,
-                 batch_first: bool = True):
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        pos_emb: XPosEmbedding2D,
+        num_encoder_layers: int,
+        num_decoder_layers: int = 0,
+        dim_mhsa: int = 0,
+        dim_feedforward: int = 2048,
+        layer_norm_eps: float = 1e-5,
+        batch_first: bool = True,
+    ):
         super().__init__()
 
         if dim_mhsa == 0:
@@ -221,23 +219,24 @@ class MagnetoTransformerEncoderLayer(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    """ Vision Transformer
+    """Vision Transformer
 
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`
         - https://arxiv.org/abs/2010.11929
     """
+
     dynamic_img_size: Final[bool]
 
     def __init__(
-            self,
-            patch_size: Union[int, Tuple[int, int]] = 16,
-            in_chans: int = 3,
-            embed_dim: int = 768,
-            depth: int = 12,
-            num_heads: int = 12,
-            mlp_ratio: float = 4.,
-            num_cls_tokens: int = 1,
-            num_reg_tokens: int = 0,
+        self,
+        patch_size: Union[int, Tuple[int, int]] = 16,
+        in_chans: int = 3,
+        embed_dim: int = 768,
+        depth: int = 12,
+        num_heads: int = 12,
+        mlp_ratio: float = 4.0,
+        num_cls_tokens: int = 1,
+        num_reg_tokens: int = 0,
     ) -> None:
         """
         Args:
@@ -260,21 +259,23 @@ class VisionTransformer(nn.Module):
 
         self.patch_embed = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
-        self.prefix_buffer = nn.Parameter(torch.randn(1, self.num_prefix_tokens, embed_dim) * .02)
+        self.prefix_buffer = nn.Parameter(torch.randn(1, self.num_prefix_tokens, embed_dim) * 0.02)
 
         pos_emb = XPosEmbedding2D(embed_dim)
 
-        self.blocks = nn.ModuleList([
-            MagnetoTransformerEncoderLayer(
-                d_model=embed_dim,
-                nhead=num_heads,
-                num_encoder_layers=depth,
-                num_decoder_layers=0,
-                dim_feedforward=int(embed_dim * mlp_ratio),
-                pos_emb=pos_emb,
-            )
-            for _ in range(depth)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                MagnetoTransformerEncoderLayer(
+                    d_model=embed_dim,
+                    nhead=num_heads,
+                    num_encoder_layers=depth,
+                    num_decoder_layers=0,
+                    dim_feedforward=int(embed_dim * mlp_ratio),
+                    pos_emb=pos_emb,
+                )
+                for _ in range(depth)
+            ]
+        )
 
         for block in self.blocks:
             block.initialize()
@@ -293,8 +294,8 @@ class VisionTransformer(nn.Module):
         for block in self.blocks:
             x = block(x, self.num_prefix_tokens, patch_shape)
 
-        summary = x[:, :self.num_cls_tokens]
-        features = x[:, self.num_prefix_tokens:]
+        summary = x[:, : self.num_cls_tokens]
+        features = x[:, self.num_prefix_tokens :]
 
         return summary, features
 
@@ -319,7 +320,7 @@ class VisionTransformer(nn.Module):
     def _patchify(self, x: torch.Tensor):
         x = self.patch_embed(x)
         patch_shape = x.shape[-2:]
-        x = rearrange(x, 'b c h w -> b (h w) c')
+        x = rearrange(x, "b c h w -> b (h w) c")
 
         prefix = self.prefix_buffer.expand(x.shape[0], -1, -1)
 
@@ -329,29 +330,59 @@ class VisionTransformer(nn.Module):
 
 @register_model
 def vit_base_patch16_xpos(num_cls_tokens: int = 1, num_reg_tokens: int = 0, **kwargs) -> VisionTransformer:
-    return VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12,
-                             num_cls_tokens=num_cls_tokens, num_reg_tokens=num_reg_tokens)
+    return VisionTransformer(
+        patch_size=16,
+        embed_dim=768,
+        depth=12,
+        num_heads=12,
+        num_cls_tokens=num_cls_tokens,
+        num_reg_tokens=num_reg_tokens,
+    )
 
 
 @register_model
 def vit_large_patch16_xpos(num_cls_tokens: int = 1, num_reg_tokens: int = 0, **kwargs) -> VisionTransformer:
-    return VisionTransformer(patch_size=16, embed_dim=1024, depth=24, num_heads=16,
-                             num_cls_tokens=num_cls_tokens, num_reg_tokens=num_reg_tokens)
+    return VisionTransformer(
+        patch_size=16,
+        embed_dim=1024,
+        depth=24,
+        num_heads=16,
+        num_cls_tokens=num_cls_tokens,
+        num_reg_tokens=num_reg_tokens,
+    )
 
 
 @register_model
 def vit_huge_patch16_xpos(num_cls_tokens: int = 1, num_reg_tokens: int = 0, **kwargs) -> VisionTransformer:
-    return VisionTransformer(patch_size=16, embed_dim=1280, depth=32, num_heads=16,
-                             num_cls_tokens=num_cls_tokens, num_reg_tokens=num_reg_tokens)
+    return VisionTransformer(
+        patch_size=16,
+        embed_dim=1280,
+        depth=32,
+        num_heads=16,
+        num_cls_tokens=num_cls_tokens,
+        num_reg_tokens=num_reg_tokens,
+    )
 
 
 @register_model
 def vit_giant_patch16_xpos(num_cls_tokens: int = 1, num_reg_tokens: int = 0, **kwargs) -> VisionTransformer:
-    return VisionTransformer(patch_size=16, embed_dim=1408, depth=40, num_heads=16,
-                             num_cls_tokens=num_cls_tokens, num_reg_tokens=num_reg_tokens)
+    return VisionTransformer(
+        patch_size=16,
+        embed_dim=1408,
+        depth=40,
+        num_heads=16,
+        num_cls_tokens=num_cls_tokens,
+        num_reg_tokens=num_reg_tokens,
+    )
 
 
 @register_model
 def vit_bigG_patch16_xpos(num_cls_tokens: int = 1, num_reg_tokens: int = 0, **kwargs) -> VisionTransformer:
-    return VisionTransformer(patch_size=16, embed_dim=1664, depth=48, num_heads=16,
-                             num_cls_tokens=num_cls_tokens, num_reg_tokens=num_reg_tokens)
+    return VisionTransformer(
+        patch_size=16,
+        embed_dim=1664,
+        depth=48,
+        num_heads=16,
+        num_cls_tokens=num_cls_tokens,
+        num_reg_tokens=num_reg_tokens,
+    )

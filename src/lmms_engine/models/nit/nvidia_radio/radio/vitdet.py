@@ -1,16 +1,15 @@
+import math
+import sys
 from collections import defaultdict
 from contextlib import contextmanager
 from logging import getLogger
-import math
-import sys
-from typing import List, Union, Iterable
+from typing import Iterable, List, Union
 
 import numpy as np
 import torch
-from torch import nn
-
-from timm.models import VisionTransformer
 from einops import rearrange
+from timm.models import VisionTransformer
+from torch import nn
 
 from .extra_models import DinoWrapper
 
@@ -19,11 +18,12 @@ DEFAULT_NUM_GLOBAL = 4
 
 
 class VitDetArgs:
-    def __init__(self,
-                 window_size: int,
-                 num_summary_tokens: int,
-                 num_windowed: int = None,
-                 num_global: int = None,
+    def __init__(
+        self,
+        window_size: int,
+        num_summary_tokens: int,
+        num_windowed: int = None,
+        num_global: int = None,
     ):
         self.window_size = window_size
         self.num_summary_tokens = num_summary_tokens
@@ -33,23 +33,24 @@ class VitDetArgs:
 
 def apply_vitdet_arch(model: Union[VisionTransformer, DinoWrapper], args: VitDetArgs):
     if isinstance(model, VisionTransformer):
-        patch_embed = getattr(model, 'patch_generator', model.patch_embed)
+        patch_embed = getattr(model, "patch_generator", model.patch_embed)
 
         return ViTDetHook(patch_embed, model.blocks, args)
     elif isinstance(model, DinoWrapper):
         inner = model.inner
 
-        patch_embed = getattr(inner, 'patch_generator', inner.patch_embed)
+        patch_embed = getattr(inner, "patch_generator", inner.patch_embed)
         return ViTDetHook(patch_embed, inner.blocks, args)
     else:
-        print(f'Warning: Unable to apply VitDet aug!', file=sys.stderr)
+        print(f"Warning: Unable to apply VitDet aug!", file=sys.stderr)
 
 
 class ViTDetHook:
-    def __init__(self,
-                 embedder: nn.Module,
-                 blocks: nn.Sequential,
-                 args: VitDetArgs,
+    def __init__(
+        self,
+        embedder: nn.Module,
+        blocks: nn.Sequential,
+        args: VitDetArgs,
     ):
         self.blocks = blocks
         self.num_summary_tokens = args.num_summary_tokens
@@ -104,12 +105,14 @@ class ViTDetHook:
         patches = input[0]
 
         if self.num_summary_tokens:
-            self._cls_patch = patches[:, :self.num_summary_tokens]
-            patches = patches[:, self.num_summary_tokens:]
+            self._cls_patch = patches[:, : self.num_summary_tokens]
+            patches = patches[:, self.num_summary_tokens :]
 
         patches = rearrange(
-            patches, 'b (p t) c -> (b p) t c',
-            p=self._num_windows, t=self.window_size ** 2,
+            patches,
+            "b (p t) c -> (b p) t c",
+            p=self._num_windows,
+            t=self.window_size**2,
         )
 
         return (patches,) + input[1:]
@@ -118,16 +121,21 @@ class ViTDetHook:
         patches = input[0]
 
         patches = rearrange(
-            patches, '(b p) t c -> b (p t) c',
-            p=self._num_windows, t=self.window_size ** 2,
+            patches,
+            "(b p) t c -> b (p t) c",
+            p=self._num_windows,
+            t=self.window_size**2,
             b=patches.shape[0] // self._num_windows,
         )
 
         if self.num_summary_tokens:
-            patches = torch.cat([
-                self._cls_patch,
-                patches,
-            ], dim=1)
+            patches = torch.cat(
+                [
+                    self._cls_patch,
+                    patches,
+                ],
+                dim=1,
+            )
 
         return (patches,) + input[1:]
 
@@ -166,16 +174,21 @@ class ViTDetHook:
             patch_order = torch.arange(0, num_feat_patches, device=patches.device)
 
             patch_order = rearrange(
-                patch_order, '(wy py wx px) -> (wy wx py px)',
-                wy=w_rows, wx=w_cols,
-                py=self.window_size, px=self.window_size,
+                patch_order,
+                "(wy py wx px) -> (wy wx py px)",
+                wy=w_rows,
+                wx=w_cols,
+                py=self.window_size,
+                px=self.window_size,
             )
 
             if self.num_summary_tokens:
-                patch_order = torch.cat([
-                    torch.arange(self.num_summary_tokens, dtype=patch_order.dtype, device=patch_order.device),
-                    patch_order + self.num_summary_tokens,
-                ])
+                patch_order = torch.cat(
+                    [
+                        torch.arange(self.num_summary_tokens, dtype=patch_order.dtype, device=patch_order.device),
+                        patch_order + self.num_summary_tokens,
+                    ]
+                )
 
             self._num_windows = w_rows * w_cols
             self._order_cache[self._input_resolution] = (

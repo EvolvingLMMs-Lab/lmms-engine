@@ -2,14 +2,12 @@ from logging import getLogger
 from typing import Tuple
 
 import torch
-from torch import nn
-from torch.nn import functional as F
-
+from einops import rearrange
+from timm.models import convnext as tconv
 from timm.models import register_model
 from timm.models import vision_transformer as tvit
-from timm.models import convnext as tconv
-
-from einops import rearrange
+from torch import nn
+from torch.nn import functional as F
 
 from . import extra_timm_models as et
 
@@ -56,7 +54,7 @@ class Fuser(nn.Module):
         tgt = tgt + pred
 
         if tgt_pre is not None:
-            tgt = rearrange(tgt, 'b c h w -> b (h w) c')
+            tgt = rearrange(tgt, "b c h w -> b (h w) c")
             tgt = torch.cat([tgt_pre, tgt], dim=1)
 
         return tgt
@@ -71,7 +69,7 @@ class AttnDownsample(nn.Module):
         self.window_size = window_size
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
 
     def forward(self, x: torch.Tensor, twod_shape: Tuple[int, int]) -> torch.Tensor:
         ntok = twod_shape[0] * twod_shape[1]
@@ -82,9 +80,11 @@ class AttnDownsample(nn.Module):
 
         x_spat = rearrange(
             x[:, -ntok:],
-            'b (h d1 w d2) c -> (b h w) (d1 d2) c',
-            h=ds_hw[0], w=ds_hw[1],
-            d1=self.window_size, d2=self.window_size,
+            "b (h d1 w d2) c -> (b h w) (d1 d2) c",
+            h=ds_hw[0],
+            w=ds_hw[1],
+            d1=self.window_size,
+            d2=self.window_size,
         )
 
         B, N, C = x_spat.shape
@@ -99,15 +99,21 @@ class AttnDownsample(nn.Module):
         x = x.transpose(1, 2).reshape(B, C)
         x = self.proj(x)
 
-        x = rearrange(x, '(b h w) c -> b (h w) c', b=x_pre.shape[0], h=ds_hw[0], w=ds_hw[1])
+        x = rearrange(x, "(b h w) c -> b (h w) c", b=x_pre.shape[0], h=ds_hw[0], w=ds_hw[1])
 
         x = torch.cat([x_pre, x], dim=1)
         return x
 
 
 class HybridModel(nn.Module):
-    def __init__(self, vit: tvit.VisionTransformer, conv: tconv.ConvNeXt, pretrained: bool = False,
-                 concatenate: bool = False, **kwargs):
+    def __init__(
+        self,
+        vit: tvit.VisionTransformer,
+        conv: tconv.ConvNeXt,
+        pretrained: bool = False,
+        concatenate: bool = False,
+        **kwargs,
+    ):
         super().__init__()
         self.conv = conv
         self.vit = vit
@@ -171,7 +177,7 @@ class HybridModel(nn.Module):
             y_conv = self.conv.stages[i](y_conv)
 
         if self.concatenate:
-            y_conv = rearrange(y_conv, 'b c h w -> b (h w) c')
+            y_conv = rearrange(y_conv, "b c h w -> b (h w) c")
             # Average pool across the board, and replicate for each cls/register token
             conv_summary = y_conv.mean(dim=1, keepdim=True).expand(-1, self.vit.patch_generator.num_cls_patches, -1)
             y_conv = torch.cat([conv_summary, y_conv], dim=1)
@@ -180,14 +186,14 @@ class HybridModel(nn.Module):
             y = self.final_fuse(y_conv, y_vit)
         y = self.final_block(y)
 
-        summary = y[:, :self.vit.patch_generator.num_cls_tokens]
-        features = y[:, self.vit.patch_generator.num_cls_patches:]
+        summary = y[:, : self.vit.patch_generator.num_cls_tokens]
+        features = y[:, self.vit.patch_generator.num_cls_patches :]
 
         return summary, features
 
 
 @register_model
-def hybrid_base(pretrained=False, concatenate: bool = False, weight_init: str = 'skip', **kwargs):
+def hybrid_base(pretrained=False, concatenate: bool = False, weight_init: str = "skip", **kwargs):
     cfg = dict(num_classes=0, **kwargs)
     conv = tconv.convnextv2_base(pretrained=pretrained, **cfg)
     vit = tvit.vit_base_patch16_224(pretrained=pretrained, weight_init=weight_init, **cfg)
@@ -196,7 +202,7 @@ def hybrid_base(pretrained=False, concatenate: bool = False, weight_init: str = 
 
 
 @register_model
-def hybrid_large(pretrained=False, concatenate: bool = False, weight_init: str = 'skip', **kwargs):
+def hybrid_large(pretrained=False, concatenate: bool = False, weight_init: str = "skip", **kwargs):
     cfg = dict(num_classes=0, **kwargs)
     conv = tconv.convnextv2_large(pretrained=pretrained, **cfg)
     vit = tvit.vit_large_patch16_224(pretrained=pretrained, weight_init=weight_init, **cfg)
@@ -205,7 +211,7 @@ def hybrid_large(pretrained=False, concatenate: bool = False, weight_init: str =
 
 
 @register_model
-def hybrid_huge(pretrained=False, concatenate: bool = False, weight_init: str = 'skip', **kwargs):
+def hybrid_huge(pretrained=False, concatenate: bool = False, weight_init: str = "skip", **kwargs):
     cfg = dict(num_classes=0, **kwargs)
     conv = tconv.convnextv2_huge(pretrained=pretrained, **cfg)
     vit = et.vit_huge_patch16_224(pretrained=pretrained, weight_init=weight_init, **cfg)

@@ -9,8 +9,8 @@ from argparse import Namespace
 from typing import NamedTuple, Optional
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class AdaptorInput(NamedTuple):

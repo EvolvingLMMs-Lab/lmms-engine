@@ -9,22 +9,24 @@
 dependencies = ["torch", "timm", "einops"]
 
 import os
-from typing import Dict, Any, Optional, Union, List
 import warnings
+from typing import Any, Dict, List, Optional, Union
 
 import torch
+from timm.models import clean_state_dict
 from torch.hub import load_state_dict_from_url
 
-from timm.models import clean_state_dict
-
 from .radio.adaptor_registry import adaptor_registry
-from .radio.common import DEFAULT_VERSION, RadioResource, RESOURCE_MAP
+from .radio.common import DEFAULT_VERSION, RESOURCE_MAP, RadioResource
 from .radio.enable_damp import configure_damp_from_args
-from .radio.enable_spectral_reparam import disable_spectral_reparam, configure_spectral_reparam_from_args
+from .radio.enable_spectral_reparam import (
+    configure_spectral_reparam_from_args,
+    disable_spectral_reparam,
+)
 from .radio.feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
-from .radio.radio_model import RADIOModel, create_model_from_args
 from .radio.input_conditioner import get_default_conditioner
-from .radio.vitdet import apply_vitdet_arch, VitDetArgs
+from .radio.radio_model import RADIOModel, create_model_from_args
+from .radio.vitdet import VitDetArgs, apply_vitdet_arch
 
 
 def radio_model(
@@ -33,7 +35,7 @@ def radio_model(
     adaptor_names: Union[str, List[str]] = None,
     vitdet_window_size: Optional[int] = None,
     return_checkpoint: bool = False,
-    support_packing: bool=False,
+    support_packing: bool = False,
     **kwargs,
 ) -> RADIOModel:
     if not version:
@@ -45,12 +47,15 @@ def radio_model(
     else:
         resource = RESOURCE_MAP[version]
         chk = load_state_dict_from_url(
-            resource.url, progress=progress, map_location="cpu", weights_only=False,
+            resource.url,
+            progress=progress,
+            map_location="cpu",
+            weights_only=False,
         )
 
     if "state_dict_ema" in chk:
         state_dict = chk["state_dict_ema"]
-        chk['args'].spectral_reparam = False
+        chk["args"].spectral_reparam = False
     else:
         state_dict = chk["state_dict"]
 
@@ -63,18 +68,18 @@ def radio_model(
     if args.spectral_reparam:
         configure_spectral_reparam_from_args(mod, args, state_dict_guidance=mod_state_dict)
 
-    if getattr(args, 'damp', None):
+    if getattr(args, "damp", None):
         configure_damp_from_args(mod, args)
 
     state_dict = clean_state_dict(state_dict)
 
     key_warn = mod.load_state_dict(mod_state_dict, strict=False)
     if key_warn.missing_keys:
-        warnings.warn(f'Missing keys in state dict: {key_warn.missing_keys}')
+        warnings.warn(f"Missing keys in state dict: {key_warn.missing_keys}")
     if key_warn.unexpected_keys:
-        warnings.warn(f'Unexpected keys in state dict: {key_warn.unexpected_keys}')
+        warnings.warn(f"Unexpected keys in state dict: {key_warn.unexpected_keys}")
 
-    if chk['args'].spectral_reparam:
+    if chk["args"].spectral_reparam:
         # Spectral reparametrization uses PyTorch's "parametrizations" API. The idea behind
         # the method is that instead of there being a `weight` tensor for certain Linear layers
         # in the model, we make it a dynamically computed function. During training, this
@@ -83,21 +88,21 @@ def radio_model(
         # once, during this function call, and replace the parametrization with the realized weights.
         # This makes the model run faster, and also use less memory.
         disable_spectral_reparam(mod)
-        chk['args'].spectral_reparam = False
+        chk["args"].spectral_reparam = False
 
     conditioner = get_default_conditioner()
     conditioner.load_state_dict(get_prefix_state_dict(state_dict, "input_conditioner."))
 
-    dtype = getattr(chk['args'], 'dtype', torch.float32)
+    dtype = getattr(chk["args"], "dtype", torch.float32)
     mod.to(dtype=dtype)
     conditioner.dtype = dtype
 
-    cls_token_per_teacher = getattr(chk['args'], 'cls_token_per_teacher', True)
+    cls_token_per_teacher = getattr(chk["args"], "cls_token_per_teacher", True)
     if cls_token_per_teacher:
         name_to_idx_map = dict()
-        for i, t in enumerate(chk['args'].teachers):
-            if t.get('use_summary', True):
-                name = t['name']
+        for i, t in enumerate(chk["args"].teachers):
+            if t.get("use_summary", True):
+                name = t["name"]
                 if name not in name_to_idx_map:
                     name_to_idx_map[name] = i
         summary_idxs = torch.tensor(sorted(name_to_idx_map.values()), dtype=torch.int64)
@@ -116,43 +121,43 @@ def radio_model(
             if tconf["name"] == adaptor_name:
                 break
         else:
-            raise ValueError(f'Unable to find the specified adaptor name. Known names: {list(t["name"] for t in teachers)}')
+            raise ValueError(
+                f'Unable to find the specified adaptor name. Known names: {list(t["name"] for t in teachers)}'
+            )
 
         ttype = tconf["type"]
 
-        pf_idx_head = f'_heads.{tidx}'
-        pf_name_head = f'_heads.{adaptor_name}'
-        pf_idx_feat = f'_feature_projections.{tidx}'
-        pf_name_feat = f'_feature_projections.{adaptor_name}'
+        pf_idx_head = f"_heads.{tidx}"
+        pf_name_head = f"_heads.{adaptor_name}"
+        pf_idx_feat = f"_feature_projections.{tidx}"
+        pf_name_feat = f"_feature_projections.{adaptor_name}"
 
         adaptor_state = dict()
         for k, v in state_dict.items():
             if k.startswith(pf_idx_head):
-                adaptor_state['summary' + k[len(pf_idx_head):]] = v
+                adaptor_state["summary" + k[len(pf_idx_head) :]] = v
             elif k.startswith(pf_name_head):
-                adaptor_state['summary' + k[len(pf_name_head):]] = v
+                adaptor_state["summary" + k[len(pf_name_head) :]] = v
             elif k.startswith(pf_idx_feat):
-                adaptor_state['feature' + k[len(pf_idx_feat):]] = v
+                adaptor_state["feature" + k[len(pf_idx_feat) :]] = v
             elif k.startswith(pf_name_feat):
-                adaptor_state['feature' + k[len(pf_name_feat):]] = v
+                adaptor_state["feature" + k[len(pf_name_feat) :]] = v
 
         adaptor = adaptor_registry.create_adaptor(ttype, chk["args"], tconf, adaptor_state)
         adaptor.head_idx = tidx if cls_token_per_teacher else 0
         adaptors[adaptor_name] = adaptor
 
-    feat_norm_sd = get_prefix_state_dict(state_dict, '_feature_normalizer.')
+    feat_norm_sd = get_prefix_state_dict(state_dict, "_feature_normalizer.")
     feature_normalizer = None
     if feat_norm_sd:
-        feature_normalizer = FeatureNormalizer(feat_norm_sd['mean'].shape[0], dtype=dtype)
+        feature_normalizer = FeatureNormalizer(feat_norm_sd["mean"].shape[0], dtype=dtype)
         feature_normalizer.load_state_dict(feat_norm_sd)
 
-    inter_feat_norm_sd = get_prefix_state_dict(state_dict, '_intermediate_feature_normalizer.')
+    inter_feat_norm_sd = get_prefix_state_dict(state_dict, "_intermediate_feature_normalizer.")
     inter_feature_normalizer = None
     if inter_feat_norm_sd:
         inter_feature_normalizer = IntermediateFeatureNormalizer(
-            *inter_feat_norm_sd['means'].shape[:2],
-            rot_per_layer=inter_feat_norm_sd['rotation'].ndim == 3,
-            dtype=dtype
+            *inter_feat_norm_sd["means"].shape[:2], rot_per_layer=inter_feat_norm_sd["rotation"].ndim == 3, dtype=dtype
         )
         inter_feature_normalizer.load_state_dict(inter_feat_norm_sd)
 
@@ -186,7 +191,5 @@ def radio_model(
 
 
 def get_prefix_state_dict(state_dict: Dict[str, Any], prefix: str):
-    mod_state_dict = {
-        k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)
-    }
+    mod_state_dict = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
     return mod_state_dict

@@ -16,26 +16,31 @@
 # FasterViT:
 # Ali Hatamizadeh, Greg Heinrich, Hongxu Yin, Andrew Tao, Jose M. Alvarez, Jan Kautz, and Pavlo Molchanov. "FasterViT: Fast Vision Transformers with Hierarchical Attention." arXiv preprint arXiv:2306.06189 (2023).
 
+import math
+import warnings
+
+import numpy as np
 import timm
 import torch
 import torch.nn as nn
-from timm.models.registry import register_model
-
-from timm.models.layers import trunc_normal_, DropPath, LayerNorm2d
-import numpy as np
 import torch.nn.functional as F
-import math
-import warnings
+from timm.models.layers import DropPath, LayerNorm2d, trunc_normal_
+from timm.models.registry import register_model
 
 #######################
 ## Codebase from YOLOv8
 ## BEGINNING
 #######################
 
+
 class C2f(nn.Module):
     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
     """From YOLOv8 codebase"""
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, drop_path=None):  # ch_in, ch_out, number, shortcut, groups, expansion
+
+    def __init__(
+        self, c1, c2, n=1, shortcut=False, g=1, e=0.5, drop_path=None
+    ):  # ch_in, ch_out, number, shortcut, groups, expansion
         super().__init__()
         if drop_path is None:
             drop_path = [0.0] * n
@@ -43,7 +48,9 @@ class C2f(nn.Module):
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, 2 * self.c, 1, 1)
         self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0, drop_path=drop_path[i]) for i in range(n))
+        self.m = nn.ModuleList(
+            Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0, drop_path=drop_path[i]) for i in range(n)
+        )
 
     def forward(self, x):
         """Forward pass through C2f layer."""
@@ -57,16 +64,19 @@ class C2f(nn.Module):
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
 
+
 class Bottleneck(nn.Module):
     """Standard bottleneck."""
 
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5, drop_path=0.0):  # ch_in, ch_out, shortcut, groups, kernels, expand
+    def __init__(
+        self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5, drop_path=0.0
+    ):  # ch_in, ch_out, shortcut, groups, kernels, expand
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = Conv(c_, c2, k[1], 1, g=g)
         self.add = shortcut and c1 == c2
-        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
         """'forward()' applies the YOLOv5 FPN to input data."""
@@ -75,20 +85,24 @@ class Bottleneck(nn.Module):
 
 class Conv(nn.Module):
     """Modified to support layer fusion"""
+
     default_act = nn.SiLU()  # default activation
 
-    def __init__(self, a, b, kernel_size=1, stride=1, padding=None, g=1, dilation=1, bn_weight_init=1, bias=False, act=True):
+    def __init__(
+        self, a, b, kernel_size=1, stride=1, padding=None, g=1, dilation=1, bn_weight_init=1, bias=False, act=True
+    ):
         super().__init__()
 
-        self.conv = torch.nn.Conv2d(a, b, kernel_size, stride, autopad(kernel_size, padding, dilation), dilation, g, bias=False)
+        self.conv = torch.nn.Conv2d(
+            a, b, kernel_size, stride, autopad(kernel_size, padding, dilation), dilation, g, bias=False
+        )
         if 1:
             self.bn = torch.nn.BatchNorm2d(b)
             torch.nn.init.constant_(self.bn.weight, bn_weight_init)
             torch.nn.init.constant_(self.bn.bias, 0)
         self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
 
-
-    def forward(self,x):
+    def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
         x = self.act(x)
@@ -101,13 +115,13 @@ class Conv(nn.Module):
             c, bn = self.conv, self.bn
             w = bn.weight / (bn.running_var + bn.eps) ** 0.5
             w = c.weight * w[:, None, None, None]
-            b = bn.bias - bn.running_mean * bn.weight / \
-                (bn.running_var + bn.eps)**0.5
+            b = bn.bias - bn.running_mean * bn.weight / (bn.running_var + bn.eps) ** 0.5
 
             self.conv.weight.data.copy_(w)
             self.conv.bias = nn.Parameter(b)
 
             self.bn = nn.Identity()
+
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
     """Pad to 'same' shape outputs."""
@@ -123,10 +137,16 @@ def autopad(k, p=None, d=1):  # kernel, padding, dilation
 ## END
 #######################
 
+
 def pixel_unshuffle(data, factor=2):
     # performs nn.PixelShuffle(factor) in reverse, torch has some bug for ONNX and TRT, so doing it manually
     B, C, H, W = data.shape
-    return data.view(B, C, factor, H//factor, factor, W//factor).permute(0,1,2,4,3,5).reshape(B, -1, H//factor, W//factor)
+    return (
+        data.view(B, C, factor, H // factor, factor, W // factor)
+        .permute(0, 1, 2, 4, 3, 5)
+        .reshape(B, -1, H // factor, W // factor)
+    )
+
 
 class SwiGLU(nn.Module):
     # should be more advanced, but doesnt improve results so far
@@ -147,7 +167,7 @@ def window_partition(x, window_size):
     """
     B, C, H, W = x.shape
 
-    if window_size == 0 or (window_size==H and window_size==W):
+    if window_size == 0 or (window_size == H and window_size == W):
         windows = x.flatten(2).transpose(1, 2)
         Hp, Wp = H, W
     else:
@@ -158,15 +178,17 @@ def window_partition(x, window_size):
         Hp, Wp = H + pad_h, W + pad_w
 
         x = x.view(B, C, Hp // window_size, window_size, Wp // window_size, window_size)
-        windows = x.permute(0, 2, 4, 3, 5, 1).reshape(-1, window_size*window_size, C)
+        windows = x.permute(0, 2, 4, 3, 5, 1).reshape(-1, window_size * window_size, C)
 
     return windows, (Hp, Wp)
 
+
 class Conv2d_BN(nn.Module):
-    '''
+    """
     Conv2d + BN layer with folding capability to speed up inference
     Can be merged with Conv() function with additional arguments
-    '''
+    """
+
     def __init__(self, a, b, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bn_weight_init=1, bias=False):
         super().__init__()
         self.conv = torch.nn.Conv2d(a, b, kernel_size, stride, padding, dilation, groups, bias=False)
@@ -175,7 +197,7 @@ class Conv2d_BN(nn.Module):
             torch.nn.init.constant_(self.bn.weight, bn_weight_init)
             torch.nn.init.constant_(self.bn.bias, 0)
 
-    def forward(self,x):
+    def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
         return x
@@ -186,12 +208,10 @@ class Conv2d_BN(nn.Module):
             c, bn = self.conv, self.bn
             w = bn.weight / (bn.running_var + bn.eps) ** 0.5
             w = c.weight * w[:, None, None, None]
-            b = bn.bias - bn.running_mean * bn.weight / \
-                (bn.running_var + bn.eps)**0.5
+            b = bn.bias - bn.running_mean * bn.weight / (bn.running_var + bn.eps) ** 0.5
             self.conv.weight.data.copy_(w)
             self.conv.bias = nn.Parameter(b)
             self.bn = nn.Identity()
-
 
 
 def window_reverse(windows, window_size, H, W, pad_hw):
@@ -209,19 +229,23 @@ def window_reverse(windows, window_size, H, W, pad_hw):
     """
     # print(f"window_reverse, windows.shape {windows.shape}")
     Hp, Wp = pad_hw
-    if window_size == 0 or (window_size==H and window_size==W):
+    if window_size == 0 or (window_size == H and window_size == W):
         B = int(windows.shape[0] / (Hp * Wp / window_size / window_size))
         x = windows.transpose(1, 2).view(B, -1, H, W)
     else:
         B = int(windows.shape[0] / (Hp * Wp / window_size / window_size))
         x = windows.view(B, Hp // window_size, Wp // window_size, window_size, window_size, -1)
-        x = x.permute(0, 5, 1, 3, 2, 4).reshape(B,windows.shape[2], Hp, Wp)
+        x = x.permute(0, 5, 1, 3, 2, 4).reshape(B, windows.shape[2], Hp, Wp)
 
         if Hp > H or Wp > W:
-            x = x[:, :, :H, :W, ].contiguous()
+            x = x[
+                :,
+                :,
+                :H,
+                :W,
+            ].contiguous()
 
     return x
-
 
 
 class PosEmbMLPSwinv2D(nn.Module):
@@ -229,8 +253,15 @@ class PosEmbMLPSwinv2D(nn.Module):
     2D positional embedding from Swin Transformer v2
     Added functionality to store the positional embedding in the model and not recompute it every time
     """
+
     def __init__(
-        self, window_size, pretrained_window_size, num_heads, seq_length, no_log=False, cpb_mlp_hidden=512,
+        self,
+        window_size,
+        pretrained_window_size,
+        num_heads,
+        seq_length,
+        no_log=False,
+        cpb_mlp_hidden=512,
     ):
         super().__init__()
         self.window_size = window_size
@@ -250,9 +281,9 @@ class PosEmbMLPSwinv2D(nn.Module):
         self.pretrained_window_size = pretrained_window_size
         self.relative_bias_window_size = window_size
 
-        relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(window_size, num_heads,
-                                                                                                     pretrained_window_size, seq_length,
-                                                                                                     no_log)
+        relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(
+            window_size, num_heads, pretrained_window_size, seq_length, no_log
+        )
 
         self.register_buffer("relative_coords_table", relative_coords_table)
         self.register_buffer("relative_position_index", relative_position_index)
@@ -260,12 +291,8 @@ class PosEmbMLPSwinv2D(nn.Module):
 
     def relative_bias_initialization(self, window_size, num_heads, pretrained_window_size, seq_length, no_log):
         # as in separate function to support window size chage after model weights loading
-        relative_coords_h = torch.arange(
-            -(window_size[0] - 1), window_size[0], dtype=torch.float32
-        )
-        relative_coords_w = torch.arange(
-            -(window_size[1] - 1), window_size[1], dtype=torch.float32
-        )
+        relative_coords_h = torch.arange(-(window_size[0] - 1), window_size[0], dtype=torch.float32)
+        relative_coords_w = torch.arange(-(window_size[1] - 1), window_size[1], dtype=torch.float32)
         relative_coords_table = (
             torch.stack(torch.meshgrid([relative_coords_h, relative_coords_w]))
             .permute(1, 2, 0)
@@ -282,9 +309,7 @@ class PosEmbMLPSwinv2D(nn.Module):
         if not no_log:
             relative_coords_table *= 8  # normalize to -8, 8
             relative_coords_table = (
-                torch.sign(relative_coords_table)
-                * torch.log2(torch.abs(relative_coords_table) + 1.0)
-                / np.log2(8)
+                torch.sign(relative_coords_table) * torch.log2(torch.abs(relative_coords_table) + 1.0) / np.log2(8)
             )
 
         # get pair-wise relative position index for each token inside the window
@@ -292,12 +317,8 @@ class PosEmbMLPSwinv2D(nn.Module):
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-        relative_coords = (
-            coords_flatten[:, :, None] - coords_flatten[:, None, :]
-        )  # 2, Wh*Ww, Wh*Ww
-        relative_coords = relative_coords.permute(
-            1, 2, 0
-        ).contiguous()  # Wh*Ww, Wh*Ww, 2
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
@@ -308,7 +329,6 @@ class PosEmbMLPSwinv2D(nn.Module):
         self.relative_bias_window_size = window_size
 
         return relative_coords_table, relative_position_index, relative_bias
-
 
     def switch_to_deploy(self):
         self.deploy = True
@@ -321,11 +341,11 @@ class PosEmbMLPSwinv2D(nn.Module):
         if not self.deploy or self.training:
             self.grid_exists = False
 
-        #compare if all elements in self.window_size list match those in self.relative_bias_window_size
+        # compare if all elements in self.window_size list match those in self.relative_bias_window_size
         if not all([self.window_size[i] == self.relative_bias_window_size[i] for i in range(len(self.window_size))]):
-            relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(self.window_size, self.num_heads,
-                                                                                                        self.pretrained_window_size, self.seq_length,
-                                                                                                        self.no_log)
+            relative_coords_table, relative_position_index, relative_bias = self.relative_bias_initialization(
+                self.window_size, self.num_heads, self.pretrained_window_size, self.seq_length, self.no_log
+            )
 
             self.relative_coords_table = relative_coords_table.to(self.relative_coords_table.device)
             self.relative_position_index = relative_position_index.to(self.relative_position_index.device)
@@ -338,20 +358,14 @@ class PosEmbMLPSwinv2D(nn.Module):
         if 1:
             self.grid_exists = True
 
-            relative_position_bias_table = self.cpb_mlp(
-                self.relative_coords_table
-            ).view(-1, self.num_heads)
-            relative_position_bias = relative_position_bias_table[
-                self.relative_position_index.view(-1)
-            ].view(
+            relative_position_bias_table = self.cpb_mlp(self.relative_coords_table).view(-1, self.num_heads)
+            relative_position_bias = relative_position_bias_table[self.relative_position_index.view(-1)].view(
                 self.window_size[0] * self.window_size[1],
                 self.window_size[0] * self.window_size[1],
                 -1,
             )  # Wh*Ww,Wh*Ww,nH
 
-            relative_position_bias = relative_position_bias.permute(
-                2, 0, 1
-            ).contiguous()  # nH, Wh*Ww, Wh*Ww
+            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
             relative_position_bias = 16 * torch.sigmoid(relative_position_bias)
 
             self.relative_bias = relative_position_bias.unsqueeze(0)
@@ -361,52 +375,90 @@ class PosEmbMLPSwinv2D(nn.Module):
 
 
 class GRAAttentionBlock(nn.Module):
-    def __init__(self, window_size, dim_in, dim_out,
-                 num_heads, drop_path=0., qk_scale=None, qkv_bias=False,
-                 norm_layer=nn.LayerNorm, layer_scale=None,
-                  use_swiglu=True,
-                  subsample_ratio=1, dim_ratio=1, conv_base=False,
-                  do_windowing=True, multi_query=False, use_shift=0,
-                  cpb_mlp_hidden=512, conv_groups_ratio=0):
-        '''
+    def __init__(
+        self,
+        window_size,
+        dim_in,
+        dim_out,
+        num_heads,
+        drop_path=0.0,
+        qk_scale=None,
+        qkv_bias=False,
+        norm_layer=nn.LayerNorm,
+        layer_scale=None,
+        use_swiglu=True,
+        subsample_ratio=1,
+        dim_ratio=1,
+        conv_base=False,
+        do_windowing=True,
+        multi_query=False,
+        use_shift=0,
+        cpb_mlp_hidden=512,
+        conv_groups_ratio=0,
+    ):
+        """
         Global Resolution Attention Block , see README for details
         Attention with subsampling to get a bigger receptive field for attention
         conv_base - use conv2d instead of avgpool2d for downsample / upsample
 
 
-        '''
+        """
         super().__init__()
 
-        self.shift_size=window_size//2 if use_shift else 0
+        self.shift_size = window_size // 2 if use_shift else 0
 
         self.do_windowing = do_windowing
         self.subsample_ratio = subsample_ratio
 
-
-
         if do_windowing:
             if conv_base:
-                    self.downsample_op = nn.Conv2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
+                self.downsample_op = (
+                    nn.Conv2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio)
+                    if subsample_ratio > 1
+                    else nn.Identity()
+                )
 
-
-                    self.downsample_mixer = nn.Identity()
-                    self.upsample_mixer = nn.Identity()
-                    self.upsample_op = nn.ConvTranspose2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
+                self.downsample_mixer = nn.Identity()
+                self.upsample_mixer = nn.Identity()
+                self.upsample_op = (
+                    nn.ConvTranspose2d(dim_in, dim_out, kernel_size=subsample_ratio, stride=subsample_ratio)
+                    if subsample_ratio > 1
+                    else nn.Identity()
+                )
             else:
-                self.downsample_op = nn.AvgPool2d(kernel_size=subsample_ratio, stride=subsample_ratio) if subsample_ratio > 1 else nn.Identity()
-                self.downsample_mixer = Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1) if subsample_ratio > 1 else nn.Identity()
-                self.upsample_mixer = nn.Upsample(scale_factor=subsample_ratio, mode='nearest') if subsample_ratio > 1 else nn.Identity()
-                self.upsample_op = Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1, padding=0, bias=False) if subsample_ratio > 1 else nn.Identity()
-
+                self.downsample_op = (
+                    nn.AvgPool2d(kernel_size=subsample_ratio, stride=subsample_ratio)
+                    if subsample_ratio > 1
+                    else nn.Identity()
+                )
+                self.downsample_mixer = (
+                    Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1) if subsample_ratio > 1 else nn.Identity()
+                )
+                self.upsample_mixer = (
+                    nn.Upsample(scale_factor=subsample_ratio, mode="nearest") if subsample_ratio > 1 else nn.Identity()
+                )
+                self.upsample_op = (
+                    Conv2d_BN(dim_in, dim_out, kernel_size=1, stride=1, padding=0, bias=False)
+                    if subsample_ratio > 1
+                    else nn.Identity()
+                )
 
         # in case there is no downsampling conv we want to have it separately
         # will help with information propagation between windows
         if subsample_ratio == 1:
             # conv_groups_ratio=0
-            self.pre_conv = Conv2d_BN(dim_in, dim_in, kernel_size=3, stride=1, padding=1, groups=max(1,int(conv_groups_ratio*dim_in)), bias=False)
+            self.pre_conv = Conv2d_BN(
+                dim_in,
+                dim_in,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=max(1, int(conv_groups_ratio * dim_in)),
+                bias=False,
+            )
             # self.pre_conv = nn.Conv2d(dim_in, dim_in, kernel_size=3, stride=1, padding=1, groups=max(1,int(conv_groups_ratio*dim_in)), bias=False)
             # self.pre_conv_act = nn.ReLU6()
-            #for simplicity:
+            # for simplicity:
             self.pre_conv_act = nn.Identity()
             if conv_groups_ratio == -1:
                 self.pre_conv = nn.Identity()
@@ -418,15 +470,21 @@ class GRAAttentionBlock(nn.Module):
 
         self.attn = WindowAttention(
             dim_in,
-            num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
             resolution=window_size,
-            seq_length=window_size**2, dim_out=dim_in, multi_query=multi_query,
-            shift_size=self.shift_size, cpb_mlp_hidden=cpb_mlp_hidden)
+            seq_length=window_size**2,
+            dim_out=dim_in,
+            multi_query=multi_query,
+            shift_size=self.shift_size,
+            cpb_mlp_hidden=cpb_mlp_hidden,
+        )
 
-        self.drop_path1 = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         use_layer_scale = layer_scale is not None and type(layer_scale) in [int, float]
-        self.gamma1 = nn.Parameter(layer_scale * torch.ones(dim_in))  if use_layer_scale else 1
+        self.gamma1 = nn.Parameter(layer_scale * torch.ones(dim_in)) if use_layer_scale else 1
 
         ### mlp layer
         mlp_ratio = 4
@@ -439,8 +497,7 @@ class GRAAttentionBlock(nn.Module):
         self.mlp = Mlp(in_features=dim_in, hidden_features=mlp_hidden_dim, act_layer=activation, use_swiglu=use_swiglu)
 
         self.gamma2 = nn.Parameter(layer_scale * torch.ones(dim_in)) if layer_scale else 1
-        self.drop_path2=DropPath(drop_path) if drop_path > 0. else nn.Identity()
-
+        self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
         skip_connection = x
@@ -456,34 +513,38 @@ class GRAAttentionBlock(nn.Module):
             x = self.downsample_op(x)
             x = self.downsample_mixer(x)
 
-            if self.window_size>0:
+            if self.window_size > 0:
                 H, W = x.shape[2], x.shape[3]
 
-            if self.shift_size > 0 and H>self.window_size and W>self.window_size:
+            if self.shift_size > 0 and H > self.window_size and W > self.window_size:
                 # @swin like cyclic shift, doesnt show better performance
                 x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(2, 3))
 
             x, pad_hw = window_partition(x, self.window_size)
 
-            if self.shift_size > 0 and H>self.window_size and W>self.window_size:
+            if self.shift_size > 0 and H > self.window_size and W > self.window_size:
                 # set atten matrix to have -100 and the top right square
                 # attn[:, :, :-self.shift_size, -self.shift_size:] = -100.0
                 # calculate attention mask for SW-MSA
                 # not used in final version, can be useful for some cases especially for high res
                 H, W = pad_hw
                 img_mask = torch.zeros((1, H, W, 1), device=x.device)  # 1 H W 1
-                h_slices = (slice(0, -self.window_size),
-                            slice(-self.window_size, -self.shift_size),
-                            slice(-self.shift_size, None))
-                w_slices = (slice(0, -self.window_size),
-                            slice(-self.window_size, -self.shift_size),
-                            slice(-self.shift_size, None))
+                h_slices = (
+                    slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None),
+                )
+                w_slices = (
+                    slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None),
+                )
                 cnt = 0
                 for h in h_slices:
                     for w in w_slices:
                         img_mask[:, h, w, :] = cnt
                         cnt += 1
-                img_mask = img_mask.transpose(1,2).transpose(1,3)
+                img_mask = img_mask.transpose(1, 2).transpose(1, 3)
                 mask_windows = window_partition(img_mask, self.window_size)  # nW, window_size, window_size, 1
 
                 mask_windows = mask_windows[0].view(-1, self.window_size * self.window_size)
@@ -491,32 +552,33 @@ class GRAAttentionBlock(nn.Module):
                 attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
 
         # window attention
-        x = x + self.drop_path1(self.gamma1*self.attn(self.norm1(x), attn_mask=attn_mask)) # or pass H,W
+        x = x + self.drop_path1(self.gamma1 * self.attn(self.norm1(x), attn_mask=attn_mask))  # or pass H,W
         # mlp layer
-        x = x + self.drop_path2(self.gamma2*self.mlp(self.norm2(x)))
+        x = x + self.drop_path2(self.gamma2 * self.mlp(self.norm2(x)))
 
         if self.do_windowing:
             if self.window_size > 0:
                 x = window_reverse(x, self.window_size, H, W, pad_hw)
 
             # reverse cyclic shift
-            if self.shift_size > 0 and H>self.window_size and W>self.window_size:
+            if self.shift_size > 0 and H > self.window_size and W > self.window_size:
                 # @swin like cyclic shift, not tested
                 x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(2, 3))
 
             x = self.upsample_mixer(x)
             x = self.upsample_op(x)
 
-
             if x.shape[2] != skip_connection.shape[2] or x.shape[3] != skip_connection.shape[3]:
-                x = torch.nn.functional.pad(x, ( 0, -x.shape[3] + skip_connection.shape[3], 0, -x.shape[2] + skip_connection.shape[2]), mode="reflect")
+                x = torch.nn.functional.pad(
+                    x,
+                    (0, -x.shape[3] + skip_connection.shape[3], 0, -x.shape[2] + skip_connection.shape[2]),
+                    mode="reflect",
+                )
         # need to add skip connection because downsampling and upsampling will break residual connection
         # 0.5 is needed to make sure that the skip connection is not too strong
         # in case of no downsample / upsample we can show that 0.5 compensates for the residual connection
         x = 0.5 * x + 0.5 * skip_connection
         return x
-
-
 
 
 class MultiResolutionAttention(nn.Module):
@@ -527,13 +589,26 @@ class MultiResolutionAttention(nn.Module):
     Every attention block supports windowing
     """
 
-    def __init__(self, window_size, sr_ratio,
-                 dim, dim_ratio, num_heads,
-                 do_windowing=True,
-                 layer_scale=1e-5, norm_layer=nn.LayerNorm,
-                 drop_path = 0, qkv_bias=False, qk_scale=1.0,
-                 use_swiglu=True, multi_query=False, conv_base=False,
-                 use_shift=0, cpb_mlp_hidden=512, conv_groups_ratio=0) -> None:
+    def __init__(
+        self,
+        window_size,
+        sr_ratio,
+        dim,
+        dim_ratio,
+        num_heads,
+        do_windowing=True,
+        layer_scale=1e-5,
+        norm_layer=nn.LayerNorm,
+        drop_path=0,
+        qkv_bias=False,
+        qk_scale=1.0,
+        use_swiglu=True,
+        multi_query=False,
+        conv_base=False,
+        use_shift=0,
+        cpb_mlp_hidden=512,
+        conv_groups_ratio=0,
+    ) -> None:
         """
         Args:
             input_resolution: input image resolution
@@ -548,7 +623,6 @@ class MultiResolutionAttention(nn.Module):
 
         self.attention_blocks = nn.ModuleList()
 
-
         for i in range(depth):
             subsample_ratio = sr_ratio[i]
             if len(window_size) > i:
@@ -556,22 +630,34 @@ class MultiResolutionAttention(nn.Module):
             else:
                 window_size_local = window_size[0]
 
-            self.attention_blocks.append(GRAAttentionBlock(window_size=window_size_local,
-                                            dim_in=dim, dim_out=dim, num_heads=num_heads,
-                                            qkv_bias=qkv_bias, qk_scale=qk_scale, norm_layer=norm_layer,
-                                            layer_scale=layer_scale, drop_path=drop_path,
-                                            use_swiglu=use_swiglu, subsample_ratio=subsample_ratio, dim_ratio=dim_ratio,
-                                            do_windowing=do_windowing, multi_query=multi_query, conv_base=conv_base,
-                                            use_shift=use_shift, cpb_mlp_hidden=cpb_mlp_hidden, conv_groups_ratio=conv_groups_ratio),
-                                        )
+            self.attention_blocks.append(
+                GRAAttentionBlock(
+                    window_size=window_size_local,
+                    dim_in=dim,
+                    dim_out=dim,
+                    num_heads=num_heads,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    norm_layer=norm_layer,
+                    layer_scale=layer_scale,
+                    drop_path=drop_path,
+                    use_swiglu=use_swiglu,
+                    subsample_ratio=subsample_ratio,
+                    dim_ratio=dim_ratio,
+                    do_windowing=do_windowing,
+                    multi_query=multi_query,
+                    conv_base=conv_base,
+                    use_shift=use_shift,
+                    cpb_mlp_hidden=cpb_mlp_hidden,
+                    conv_groups_ratio=conv_groups_ratio,
+                ),
+            )
 
     def forward(self, x):
-
         for attention_block in self.attention_blocks:
             x = attention_block(x)
 
         return x
-
 
 
 class Mlp(nn.Module):
@@ -579,13 +665,9 @@ class Mlp(nn.Module):
     Multi-Layer Perceptron (MLP) block
     """
 
-    def __init__(self,
-                 in_features,
-                 hidden_features=None,
-                 out_features=None,
-                 act_layer=nn.GELU,
-                 use_swiglu=True,
-                 drop=0.):
+    def __init__(
+        self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, use_swiglu=True, drop=0.0
+    ):
         """
         Args:
             in_features: input features dimension.
@@ -611,16 +693,18 @@ class Mlp(nn.Module):
         x = x.view(x_size)
         return x
 
+
 class Downsample(nn.Module):
     """
     Down-sampling block
     Pixel Unshuffle is used for down-sampling, works great accuracy - wise but takes 10% more TRT time
     """
 
-    def __init__(self,
-                 dim,
-                 shuffle = False,
-                 ):
+    def __init__(
+        self,
+        dim,
+        shuffle=False,
+    ):
         """
         Args:
             dim: feature size dimension.
@@ -633,7 +717,7 @@ class Downsample(nn.Module):
 
         if shuffle:
             self.norm = lambda x: pixel_unshuffle(x, factor=2)
-            self.reduction = Conv2d_BN(dim*4, dim_out, 1, 1, 0, bias=False)
+            self.reduction = Conv2d_BN(dim * 4, dim_out, 1, 1, 0, bias=False)
             # pixel unshuffleging works well but doesnt provide any speedup
         else:
             # removed layer norm for better, in this formulation we are getting 10% better speed
@@ -641,7 +725,6 @@ class Downsample(nn.Module):
             # therefore we remove it compared to the original implementation in FasterViT
             self.norm = nn.Identity()
             self.reduction = Conv2d_BN(dim, dim_out, 3, 2, 1, bias=False)
-
 
     def forward(self, x):
         x = self.norm(x)
@@ -672,19 +755,19 @@ class PatchEmbed(nn.Module):
                 Conv2d_BN(in_chans, in_dim, 3, 2, 1, bias=False),
                 nn.ReLU(),
                 Conv2d_BN(in_dim, dim, 3, 2, 1, bias=False),
-                nn.ReLU()
-                )
+                nn.ReLU(),
+            )
         else:
             self.proj = lambda x: pixel_unshuffle(x, factor=4)
-            self.conv_down = nn.Sequential(Conv2d_BN(in_chans*16, dim, 3, 1, 1),
-                                           nn.ReLU(),
-                                           )
+            self.conv_down = nn.Sequential(
+                Conv2d_BN(in_chans * 16, dim, 3, 1, 1),
+                nn.ReLU(),
+            )
 
     def forward(self, x):
         x = self.proj(x)
         x = self.conv_down(x)
         return x
-
 
 
 class ConvBlock(nn.Module):
@@ -693,11 +776,14 @@ class ConvBlock(nn.Module):
     Experimented with plan resnet-18 like modules, they are the best in terms of throughput
     Finally, YOLOv8 idea seem to work fine (resnet-18 like block with squeezed feature dimension, and feature concatendation at the end)
     """
-    def __init__(self, dim,
-                 drop_path=0.,
-                 layer_scale=None,
-                 kernel_size=3,
-                 ):
+
+    def __init__(
+        self,
+        dim,
+        drop_path=0.0,
+        layer_scale=None,
+        kernel_size=3,
+    ):
         super().__init__()
 
         self.conv1 = Conv2d_BN(dim, dim, kernel_size=kernel_size, stride=1, padding=1)
@@ -711,7 +797,7 @@ class ConvBlock(nn.Module):
             self.layer_scale = True
         else:
             self.layer_scale = False
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
         input = x
@@ -730,11 +816,23 @@ class WindowAttention(nn.Module):
     # Windowed Attention from SwinV2
     # use a MLP trick to deal with various input image resolutions, then fold it to improve speed
 
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, resolution=0,
-                 seq_length=0, dim_out=None, multi_query=False, shift_size=0, cpb_mlp_hidden=512):
+    def __init__(
+        self,
+        dim,
+        num_heads=8,
+        qkv_bias=False,
+        qk_scale=None,
+        resolution=0,
+        seq_length=0,
+        dim_out=None,
+        multi_query=False,
+        shift_size=0,
+        cpb_mlp_hidden=512,
+    ):
         # taken from EdgeViT and tweaked with attention bias.
         super().__init__()
-        if not dim_out: dim_out = dim
+        if not dim_out:
+            dim_out = dim
         self.shift_size = shift_size
         self.multi_query = multi_query
         self.num_heads = num_heads
@@ -743,23 +841,25 @@ class WindowAttention(nn.Module):
 
         self.dim_internal = dim
 
-        self.scale = qk_scale or head_dim ** -0.5
+        self.scale = qk_scale or head_dim**-0.5
         if not multi_query:
             self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         else:
-            self.qkv = nn.Linear(dim, dim + 2*self.head_dim, bias=qkv_bias)
+            self.qkv = nn.Linear(dim, dim + 2 * self.head_dim, bias=qkv_bias)
 
         self.proj = nn.Linear(dim, dim_out, bias=False)
         # attention positional bias
-        self.pos_emb_funct = PosEmbMLPSwinv2D(window_size=[resolution, resolution],
-                                              pretrained_window_size=[resolution, resolution],
-                                              num_heads=num_heads,
-                                              seq_length=seq_length,
-                                              cpb_mlp_hidden=cpb_mlp_hidden)
+        self.pos_emb_funct = PosEmbMLPSwinv2D(
+            window_size=[resolution, resolution],
+            pretrained_window_size=[resolution, resolution],
+            num_heads=num_heads,
+            seq_length=seq_length,
+            cpb_mlp_hidden=cpb_mlp_hidden,
+        )
 
         self.resolution = resolution
 
-    def forward(self, x, attn_mask = None):
+    def forward(self, x, attn_mask=None):
         B, N, C = x.shape
 
         if not self.multi_query:
@@ -777,7 +877,7 @@ class WindowAttention(nn.Module):
 
         attn = self.pos_emb_funct(attn)
 
-        #add window shift
+        # add window shift
         if attn_mask is not None:
             nW = attn_mask.shape[0]
             attn = attn.view(B // nW, nW, self.num_heads, N, N) + attn_mask.unsqueeze(1).unsqueeze(0)
@@ -789,38 +889,37 @@ class WindowAttention(nn.Module):
         return x
 
 
-
 class ERADIOLayer(nn.Module):
     """
     E-RADIO Layer
     """
 
-    def __init__(self,
-                 dim,
-                 depth,
-                 num_heads,
-                 window_size,
-                 conv=False,
-                 downsample=True,
-                 mlp_ratio=4.,
-                 qkv_bias=False,
-                 qk_scale=None,
-                 norm_layer=nn.LayerNorm,
-                 drop_path=0.,
-                 layer_scale=None,
-                 layer_scale_conv=None,
-                 sr_dim_ratio=1,
-                 sr_ratio=1,
-                 multi_query=False,
-                 use_swiglu=True,
-                 yolo_arch=False,
-                 downsample_shuffle=False,
-                 conv_base=False,
-                 use_shift=False,
-                 cpb_mlp_hidden=512,
-                 conv_groups_ratio=0,
-                 verbose: bool = True,
-
+    def __init__(
+        self,
+        dim,
+        depth,
+        num_heads,
+        window_size,
+        conv=False,
+        downsample=True,
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        norm_layer=nn.LayerNorm,
+        drop_path=0.0,
+        layer_scale=None,
+        layer_scale_conv=None,
+        sr_dim_ratio=1,
+        sr_ratio=1,
+        multi_query=False,
+        use_swiglu=True,
+        yolo_arch=False,
+        downsample_shuffle=False,
+        conv_base=False,
+        use_shift=False,
+        cpb_mlp_hidden=512,
+        conv_groups_ratio=0,
+        verbose: bool = True,
     ):
         """
         Args:
@@ -844,33 +943,40 @@ class ERADIOLayer(nn.Module):
 
         super().__init__()
         self.conv = conv
-        self.yolo_arch=False
+        self.yolo_arch = False
         self.verbose = verbose
         if conv:
             if not yolo_arch:
-                self.blocks = nn.ModuleList([
-                    ConvBlock(dim=dim,
+                self.blocks = nn.ModuleList(
+                    [
+                        ConvBlock(
+                            dim=dim,
                             drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                            layer_scale=layer_scale_conv)
-                    for i in range(depth)])
+                            layer_scale=layer_scale_conv,
+                        )
+                        for i in range(depth)
+                    ]
+                )
                 self.blocks = nn.Sequential(*self.blocks)
             else:
-                self.blocks = C2f(dim,dim,n=depth,shortcut=True,e=0.5)
-                self.yolo_arch=True
+                self.blocks = C2f(dim, dim, n=depth, shortcut=True, e=0.5)
+                self.yolo_arch = True
         else:
-            if not isinstance(window_size, list): window_size = [window_size]
+            if not isinstance(window_size, list):
+                window_size = [window_size]
             self.window_size = window_size[0]
             self.do_single_windowing = True
-            if not isinstance(sr_ratio, list): sr_ratio = [sr_ratio]
+            if not isinstance(sr_ratio, list):
+                sr_ratio = [sr_ratio]
             self.sr_ratio = sr_ratio
-            if any([sr!=1 for sr in sr_ratio]) or len(set(window_size))>1:
+            if any([sr != 1 for sr in sr_ratio]) or len(set(window_size)) > 1:
                 self.do_single_windowing = False
                 do_windowing = True
             else:
                 self.do_single_windowing = True
                 do_windowing = False
 
-            #for v2_2
+            # for v2_2
             if conv_groups_ratio != -1:
                 self.do_single_windowing = False
                 do_windowing = True
@@ -878,29 +984,30 @@ class ERADIOLayer(nn.Module):
             self.blocks = nn.ModuleList()
             for i in range(depth):
                 self.blocks.append(
-                    MultiResolutionAttention(window_size=window_size,
-                                             sr_ratio=sr_ratio,
-                                             dim=dim,
-                                             dim_ratio = sr_dim_ratio,
-                                             num_heads=num_heads,
-                                             norm_layer=norm_layer,
-                                             drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                                             layer_scale=layer_scale,
-                                             qkv_bias=qkv_bias,
-                                             qk_scale=qk_scale,
-                                             use_swiglu=use_swiglu,
-                                             do_windowing=do_windowing,
-                                             multi_query=multi_query,
-                                             conv_base=conv_base,
-                                             cpb_mlp_hidden=cpb_mlp_hidden,
-                                             use_shift =0 if ((not use_shift) or ((i) % 2 == 0)) else True    ,
-                                             conv_groups_ratio=conv_groups_ratio,
-                    ))
+                    MultiResolutionAttention(
+                        window_size=window_size,
+                        sr_ratio=sr_ratio,
+                        dim=dim,
+                        dim_ratio=sr_dim_ratio,
+                        num_heads=num_heads,
+                        norm_layer=norm_layer,
+                        drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
+                        layer_scale=layer_scale,
+                        qkv_bias=qkv_bias,
+                        qk_scale=qk_scale,
+                        use_swiglu=use_swiglu,
+                        do_windowing=do_windowing,
+                        multi_query=multi_query,
+                        conv_base=conv_base,
+                        cpb_mlp_hidden=cpb_mlp_hidden,
+                        use_shift=0 if ((not use_shift) or ((i) % 2 == 0)) else True,
+                        conv_groups_ratio=conv_groups_ratio,
+                    )
+                )
             self.blocks = nn.Sequential(*self.blocks)
 
         self.transformer = not conv
         self.downsample = None if not downsample else Downsample(dim=dim, shuffle=downsample_shuffle)
-
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -917,28 +1024,29 @@ class ERADIOLayer(nn.Module):
             else:
                 current_max_window_size = self.window_size
 
-            max_window_size = max([res_upsample*current_max_window_size for res_upsample in self.sr_ratio])
+            max_window_size = max([res_upsample * current_max_window_size for res_upsample in self.sr_ratio])
             if H % max_window_size != 0 or W % max_window_size != 0:
-                new_h = int(np.ceil(H/max_window_size)*max_window_size)
-                new_w = int(np.ceil(W/max_window_size)*max_window_size)
-                x = F.interpolate(x, size=(new_h, new_w), mode='nearest')
+                new_h = int(np.ceil(H / max_window_size) * max_window_size)
+                new_w = int(np.ceil(W / max_window_size) * max_window_size)
+                x = F.interpolate(x, size=(new_h, new_w), mode="nearest")
                 if self.verbose:
-                    warnings.warn(f"Choosen window size is not optimal for given resolution. Interpolation of features maps will be done and it can affect the performance. Max window size is {max_window_size}, feature map size is {H}x{W}, interpolated feature map size is {new_h}x{new_w}.")
-
+                    warnings.warn(
+                        f"Choosen window size is not optimal for given resolution. Interpolation of features maps will be done and it can affect the performance. Max window size is {max_window_size}, feature map size is {H}x{W}, interpolated feature map size is {new_h}x{new_w}."
+                    )
 
         if self.transformer and self.do_single_windowing:
             H, W = x.shape[2], x.shape[3]
             x, pad_hw = window_partition(x, self.window_size)
 
-        #run main blocks
+        # run main blocks
         x = self.blocks(x)
 
         if self.transformer and self.do_single_windowing:
             x = window_reverse(x, self.window_size, H, W, pad_hw)
 
         if self.transformer and interpolate:
-            #lets keep original resolution, might be not ideal, but for the upsampling tower we need to keep the expected resolution.
-            x = F.interpolate(x, size=(H, W), mode='nearest')
+            # lets keep original resolution, might be not ideal, but for the upsampling tower we need to keep the expected resolution.
+            x = F.interpolate(x, size=(H, W), mode="nearest")
 
         if self.downsample is None:
             return x, x
@@ -947,7 +1055,7 @@ class ERADIOLayer(nn.Module):
 
 
 class InterpolateLayer(nn.Module):
-    def __init__(self, size=None, scale_factor=None, mode='nearest'):
+    def __init__(self, size=None, scale_factor=None, mode="nearest"):
         super(InterpolateLayer, self).__init__()
         self.size = size
         self.scale_factor = scale_factor
@@ -962,45 +1070,68 @@ class HiResNeck(nn.Module):
     The block is used to output dense features from all stages
     Otherwise, by default, only the last stage features are returned with E-RADIO
     """
-    def __init__(self, dim, depths, neck_start_stage, full_features_head_dim, downsample_enabled):
 
-        '''
+    def __init__(self, dim, depths, neck_start_stage, full_features_head_dim, downsample_enabled):
+        """
         Hi Resolution neck to support output of high res features that are useful for dense tasks.
         depths - total number of layers in the base model
         neck_start_stage - when to start the neck, 0 - start from the first stage, 1 - start from the second stage etc.
                             earlier layers result in higher resolution features at the cost of compute
         full_features_head_dim - number of channels in the dense features head
-        '''
+        """
         super().__init__()
         # create feature projection layers for segmentation output
         self.neck_features_proj = nn.ModuleList()
         self.neck_start_stage = neck_start_stage
         upsample_ratio = 1
         for i in range(len(depths)):
-            level_n_features_output = int(dim * 2 ** i)
+            level_n_features_output = int(dim * 2**i)
 
-            if self.neck_start_stage > i: continue
+            if self.neck_start_stage > i:
+                continue
 
-            if (upsample_ratio > 1) or full_features_head_dim!=level_n_features_output:
+            if (upsample_ratio > 1) or full_features_head_dim != level_n_features_output:
                 feature_projection = nn.Sequential()
                 if False:
-                    feature_projection.add_module("norm",nn.BatchNorm2d(level_n_features_output)) #fast, but worse
-                    feature_projection.add_module("dconv", nn.ConvTranspose2d(level_n_features_output,
-                                                                            full_features_head_dim, kernel_size=upsample_ratio, stride=upsample_ratio))
+                    feature_projection.add_module("norm", nn.BatchNorm2d(level_n_features_output))  # fast, but worse
+                    feature_projection.add_module(
+                        "dconv",
+                        nn.ConvTranspose2d(
+                            level_n_features_output,
+                            full_features_head_dim,
+                            kernel_size=upsample_ratio,
+                            stride=upsample_ratio,
+                        ),
+                    )
                 else:
                     # B, in_channels, H, W -> B, in_channels, H*upsample_ratio, W*upsample_ratio
                     # print("upsample ratio", upsample_ratio, level_n_features_output, level_n_features_output)
-                    feature_projection.add_module("upsample", InterpolateLayer(scale_factor=upsample_ratio, mode='nearest'))
-                    feature_projection.add_module("conv1", nn.Conv2d(level_n_features_output, level_n_features_output, kernel_size=3, stride=1, padding=1, groups=level_n_features_output))
-                    feature_projection.add_module("norm",nn.BatchNorm2d(level_n_features_output))
+                    feature_projection.add_module(
+                        "upsample", InterpolateLayer(scale_factor=upsample_ratio, mode="nearest")
+                    )
+                    feature_projection.add_module(
+                        "conv1",
+                        nn.Conv2d(
+                            level_n_features_output,
+                            level_n_features_output,
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            groups=level_n_features_output,
+                        ),
+                    )
+                    feature_projection.add_module("norm", nn.BatchNorm2d(level_n_features_output))
                     # B, in_channels, H*upsample_ratio, W*upsample_ratio -> B, full_features_head_dim, H*upsample_ratio, W*upsample_ratio
-                    feature_projection.add_module("conv2", nn.Conv2d(level_n_features_output, full_features_head_dim, kernel_size=1, stride=1, padding=0))
+                    feature_projection.add_module(
+                        "conv2",
+                        nn.Conv2d(level_n_features_output, full_features_head_dim, kernel_size=1, stride=1, padding=0),
+                    )
             else:
                 feature_projection = nn.Sequential()
 
             self.neck_features_proj.append(feature_projection)
 
-            if i>0 and downsample_enabled[i]:
+            if i > 0 and downsample_enabled[i]:
                 upsample_ratio *= 2
 
     def forward(self, x, il_level=-1, full_features=None):
@@ -1010,52 +1141,66 @@ class HiResNeck(nn.Module):
         if full_features is None:
             full_features = self.neck_features_proj[il_level - self.neck_start_stage](x)
         else:
-            #upsample torch tensor x to match full_features size, and add to full_features
+            # upsample torch tensor x to match full_features size, and add to full_features
             feature_projection = self.neck_features_proj[il_level - self.neck_start_stage](x)
-            if feature_projection.shape[2] != full_features.shape[2] or feature_projection.shape[3] != full_features.shape[3]:
-                feature_projection = torch.nn.functional.pad(feature_projection, ( 0, -feature_projection.shape[3] + full_features.shape[3], 0, -feature_projection.shape[2] + full_features.shape[2]))
+            if (
+                feature_projection.shape[2] != full_features.shape[2]
+                or feature_projection.shape[3] != full_features.shape[3]
+            ):
+                feature_projection = torch.nn.functional.pad(
+                    feature_projection,
+                    (
+                        0,
+                        -feature_projection.shape[3] + full_features.shape[3],
+                        0,
+                        -feature_projection.shape[2] + full_features.shape[2],
+                    ),
+                )
             full_features = full_features + feature_projection
         return full_features
+
 
 class ERADIO(nn.Module):
     """
     Efficient RADIO
     """
 
-    def __init__(self,
-                 dim,
-                 in_dim,
-                 depths,
-                 window_size,
-                 mlp_ratio,
-                 num_heads,
-                 drop_path_rate=0.2,
-                 in_chans=3,
-                 num_classes=1000,
-                 qkv_bias=False,
-                 qk_scale=None,
-                 layer_scale=None,
-                 layer_scale_conv=None,
-                 layer_norm_last=False,
-                 sr_ratio = [1, 1, 1, 1],
-                 max_depth = -1,
-                 conv_base=False,
-                 use_swiglu=False,
-                 multi_query=False,
-                 norm_layer=nn.LayerNorm,
-                 drop_uniform=False,
-                 yolo_arch=False,
-                 shuffle_down=False,
-                 downsample_shuffle=False,
-                 return_full_features=False,
-                 full_features_head_dim=128,
-                 neck_start_stage=1,
-                 use_neck=False,
-                 use_shift=False,
-                 cpb_mlp_hidden=512,
-                 conv_groups_ratio=0,
-                 verbose: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        dim,
+        in_dim,
+        depths,
+        window_size,
+        mlp_ratio,
+        num_heads,
+        drop_path_rate=0.2,
+        in_chans=3,
+        num_classes=1000,
+        qkv_bias=False,
+        qk_scale=None,
+        layer_scale=None,
+        layer_scale_conv=None,
+        layer_norm_last=False,
+        sr_ratio=[1, 1, 1, 1],
+        max_depth=-1,
+        conv_base=False,
+        use_swiglu=False,
+        multi_query=False,
+        norm_layer=nn.LayerNorm,
+        drop_uniform=False,
+        yolo_arch=False,
+        shuffle_down=False,
+        downsample_shuffle=False,
+        return_full_features=False,
+        full_features_head_dim=128,
+        neck_start_stage=1,
+        use_neck=False,
+        use_shift=False,
+        cpb_mlp_hidden=512,
+        conv_groups_ratio=0,
+        verbose: bool = False,
+        **kwargs,
+    ):
         """
         Args:
             dim: feature size dimension.
@@ -1098,41 +1243,44 @@ class ERADIO(nn.Module):
         if drop_uniform:
             dpr = [drop_path_rate for x in range(sum(depths))]
 
-        if not isinstance(max_depth, list): max_depth = [max_depth] * len(depths)
+        if not isinstance(max_depth, list):
+            max_depth = [max_depth] * len(depths)
 
         self.levels = nn.ModuleList()
         for i in range(len(depths)):
             conv = True if (i == 0 or i == 1) else False
 
-            level = ERADIOLayer(dim=int(dim * 2 ** i),
-                                   depth=depths[i],
-                                   num_heads=num_heads[i],
-                                   window_size=window_size[i],
-                                   mlp_ratio=mlp_ratio,
-                                   qkv_bias=qkv_bias,
-                                   qk_scale=qk_scale,
-                                   conv=conv,
-                                   drop_path=dpr[sum(depths[:i]):sum(depths[:i + 1])],
-                                   downsample=(i < len(depths) - 1),
-                                   layer_scale=layer_scale,
-                                   layer_scale_conv=layer_scale_conv,
-                                   sr_ratio=sr_ratio[i],
-                                   use_swiglu=use_swiglu,
-                                   multi_query=multi_query,
-                                   norm_layer=norm_layer,
-                                   yolo_arch=yolo_arch,
-                                   downsample_shuffle=downsample_shuffle,
-                                   conv_base=conv_base,
-                                   cpb_mlp_hidden=cpb_mlp_hidden,
-                                   use_shift=use_shift,
-                                   conv_groups_ratio=conv_groups_ratio,
-                                   verbose=verbose)
+            level = ERADIOLayer(
+                dim=int(dim * 2**i),
+                depth=depths[i],
+                num_heads=num_heads[i],
+                window_size=window_size[i],
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
+                conv=conv,
+                drop_path=dpr[sum(depths[:i]) : sum(depths[: i + 1])],
+                downsample=(i < len(depths) - 1),
+                layer_scale=layer_scale,
+                layer_scale_conv=layer_scale_conv,
+                sr_ratio=sr_ratio[i],
+                use_swiglu=use_swiglu,
+                multi_query=multi_query,
+                norm_layer=norm_layer,
+                yolo_arch=yolo_arch,
+                downsample_shuffle=downsample_shuffle,
+                conv_base=conv_base,
+                cpb_mlp_hidden=cpb_mlp_hidden,
+                use_shift=use_shift,
+                conv_groups_ratio=conv_groups_ratio,
+                verbose=verbose,
+            )
 
             self.levels.append(level)
 
         if self.return_full_features or self.use_neck:
-            #num_heads
-            downsample_enabled = [self.levels[i-1].downsample is not None for i in range(len(self.levels))]
+            # num_heads
+            downsample_enabled = [self.levels[i - 1].downsample is not None for i in range(len(self.levels))]
             self.high_res_neck = HiResNeck(dim, depths, neck_start_stage, full_features_head_dim, downsample_enabled)
 
         self.switched_to_deploy = False
@@ -1144,7 +1292,7 @@ class ERADIO(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -1159,7 +1307,7 @@ class ERADIO(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay_keywords(self):
-        return {'rpb'}
+        return {"rpb"}
 
     def forward_features(self, x):
         _, _, H, W = x.shape
@@ -1174,7 +1322,7 @@ class ERADIO(nn.Module):
                 full_features = self.high_res_neck(pre_downsample_x, il, full_features)
 
         # x = self.norm(full_features if (self.return_full_features or self.use_neck) else x)
-        x = self.norm(x) # new version for
+        x = self.norm(x)  # new version for
 
         if not self.return_full_features:
             return x, None
@@ -1193,18 +1341,17 @@ class ERADIO(nn.Module):
         return x
 
     def switch_to_deploy(self):
-        '''
+        """
         A method to perform model self-compression
         merges BN into conv layers
         converts MLP relative positional bias into precomputed buffers
-        '''
+        """
         if not self.switched_to_deploy:
             for level in [self.patch_embed, self.levels, self.head]:
                 for module in level.modules():
-                    if hasattr(module, 'switch_to_deploy'):
+                    if hasattr(module, "switch_to_deploy"):
                         module.switch_to_deploy()
         self.switched_to_deploy = True
-
 
     def change_window_size(self, new_window_size):
         """
@@ -1238,8 +1385,7 @@ class ERADIO(nn.Module):
                 else:
                     module.window_size = window_size
 
-
-    def set_optimal_window_size(self, image_dim, max_window_size = 16):
+    def set_optimal_window_size(self, image_dim, max_window_size=16):
         """
         Using hand picked window size for various resolutions.
 
@@ -1267,7 +1413,7 @@ class ERADIO(nn.Module):
             for i in range(1, int(math.sqrt(n) + 1)):
                 if n % i == 0:
                     yield i
-                    if i*i != n:
+                    if i * i != n:
                         large_divisors.append(n / i)
             for divisor in reversed(large_divisors):
                 yield divisor
@@ -1278,7 +1424,7 @@ class ERADIO(nn.Module):
         # we do windowed attention in the 3rd stage for the first time, therefore //16,
         # we do subsampled attention with downsample by 2 so need to get //32 actually
         # ideally we should rewrite this to be dependent on the structure of the model like what if subsampled is removed etc
-        all_divisors = np.array(list(divisorGenerator(image_dim//32)))
+        all_divisors = np.array(list(divisorGenerator(image_dim // 32)))
         new_window_size = int(min(all_divisors[all_divisors <= max_window_size][-1], max_window_size))
 
         # for image_dim in [128, 224, 256, 384, 512, 768, 1024]:
@@ -1286,7 +1432,7 @@ class ERADIO(nn.Module):
         #     new_window_size = int(min(all_divisors[all_divisors <= max_window_size][-1], max_window_size))
         #     print(f"Setting window size to {new_window_size} for image resolution {image_dim}")
 
-        self.change_window_size(new_window_size = new_window_size)
+        self.change_window_size(new_window_size=new_window_size)
 
 
 @register_model
@@ -1338,9 +1484,11 @@ def eradio_xxxtiny(pretrained=False, **kwargs):  # ,
         model.load_state_dict(torch.load(pretrained))
     return model
 
+
 @register_model
 def eradio_xxxtiny_8x_ws12(pretrained=False, **kwargs):
-    model = ERADIO(depths=[1, 3, 4, 5],
+    model = ERADIO(
+        depths=[1, 3, 4, 5],
         num_heads=[2, 4, 8, 16],
         window_size=[None, None, [12, 12], 12],
         dim=32,
@@ -1356,8 +1504,9 @@ def eradio_xxxtiny_8x_ws12(pretrained=False, **kwargs):
         use_neck=True,
         full_features_head_dim=256,
         neck_start_stage=2,
-        conv_groups_ratio = 1,
-        **kwargs)
+        conv_groups_ratio=1,
+        **kwargs,
+    )
     if pretrained:
         model.load_state_dict(torch.load(pretrained)["state_dict"])
     return model
@@ -1365,7 +1514,8 @@ def eradio_xxxtiny_8x_ws12(pretrained=False, **kwargs):
 
 @register_model
 def eradio_xxxtiny_8x_ws16(pretrained=False, **kwargs):
-    model = ERADIO(depths=[1, 3, 4, 5],
+    model = ERADIO(
+        depths=[1, 3, 4, 5],
         num_heads=[2, 4, 8, 16],
         window_size=[None, None, [16, 16], 16],
         dim=32,
@@ -1381,11 +1531,13 @@ def eradio_xxxtiny_8x_ws16(pretrained=False, **kwargs):
         use_neck=True,
         full_features_head_dim=256,
         neck_start_stage=1,
-        conv_groups_ratio = 1,
-        **kwargs)
+        conv_groups_ratio=1,
+        **kwargs,
+    )
     if pretrained:
         model.load_state_dict(torch.load(pretrained)["state_dict"])
     return model
+
 
 @register_model
 def eradio(pretrained=False, **kwargs):

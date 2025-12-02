@@ -1,19 +1,18 @@
+import warnings
 from distutils.version import LooseVersion
 from types import MethodType
 from typing import List, Optional, Tuple, Union
-import warnings
 
 import torch
-from torch import nn
 import torch.nn.functional as F
-
-from timm.models.registry import register_model
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from timm.models.registry import register_model
+from torch import nn
 
 from .forward_intermediates import forward_intermediates
 from .input_conditioner import InputConditioner
 
-_has_torch_sdpa = hasattr(F, 'scaled_dot_product_attention')
+_has_torch_sdpa = hasattr(F, "scaled_dot_product_attention")
 
 
 class PaliGemmaWrapper(nn.Module):
@@ -53,17 +52,20 @@ class PaliGemmaWrapper(nn.Module):
 
 
 def _get_paligemma_model(repo: str, embed_dim: int = None, dtype: torch.dtype = torch.bfloat16):
-    from transformers import PaliGemmaForConditionalGeneration, __version__ as tx_version
+    from transformers import PaliGemmaForConditionalGeneration
+    from transformers import __version__ as tx_version
 
-    if LooseVersion(tx_version) > LooseVersion('4.44.2'):
-        warnings.warn(f'Your transformers version "{tx_version}" is higher than 4.44.2, and for whatever reason, PaliGemma might be broken.')
+    if LooseVersion(tx_version) > LooseVersion("4.44.2"):
+        warnings.warn(
+            f'Your transformers version "{tx_version}" is higher than 4.44.2, and for whatever reason, PaliGemma might be broken.'
+        )
 
     extra_args = dict()
 
     if dtype is not None:
-        extra_args['torch_dtype'] = dtype
-        rev = str(dtype).split('.')[-1]
-        extra_args['revision'] = rev
+        extra_args["torch_dtype"] = dtype
+        rev = str(dtype).split(".")[-1]
+        extra_args["revision"] = rev
 
     model = PaliGemmaForConditionalGeneration.from_pretrained(repo, **extra_args)
 
@@ -73,9 +75,10 @@ def _get_paligemma_model(repo: str, embed_dim: int = None, dtype: torch.dtype = 
 
     return vis_model
 
+
 @register_model
 def paligemma_896_student(**kwargs):
-    model = _get_paligemma_model('google/paligemma-3b-pt-896', embed_dim=1152, dtype=None)
+    model = _get_paligemma_model("google/paligemma-3b-pt-896", embed_dim=1152, dtype=None)
 
     return model
 
@@ -86,9 +89,11 @@ def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
 
     q, k, v = qkv[0], qkv[1], qkv[2]
     x = F.scaled_dot_product_attention(
-        q, k, v,
+        q,
+        k,
+        v,
         is_causal=False,
-        dropout_p=self.attn_drop.p if self.training else 0.,
+        dropout_p=self.attn_drop.p if self.training else 0.0,
         scale=self.scale,
     )
     x = x.transpose(1, 2).reshape(B, N, C)
@@ -96,11 +101,12 @@ def dv2_sdpa(self, x: torch.Tensor) -> torch.Tensor:
     x = self.proj_drop(x)
     return x
 
+
 def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=True, **kwargs):
     if cache_dir:
         torch.hub.set_dir(cache_dir)
     model: nn.Module = torch.hub.load(
-        'facebookresearch/dinov2',
+        "facebookresearch/dinov2",
         dino_v2_model,
         pretrained=pretrained,
         # **kwargs,
@@ -108,10 +114,11 @@ def _load_dino_v2(dino_v2_model, cache_dir: Optional[str] = None, pretrained=Tru
 
     if _has_torch_sdpa:
         for n, m in model.named_modules():
-            if n.endswith('.attn'):
+            if n.endswith(".attn"):
                 m.forward = MethodType(dv2_sdpa, m)
 
     return model
+
 
 class DinoWrapper(nn.Module):
     def __init__(self, dino_model: nn.Module):
@@ -130,11 +137,11 @@ class DinoWrapper(nn.Module):
 
     @property
     def num_cls_tokens(self):
-        return getattr(self.inner, 'num_tokens', 1)
+        return getattr(self.inner, "num_tokens", 1)
 
     @property
     def num_registers(self):
-        return getattr(self.inner, 'num_register_tokens', 0)
+        return getattr(self.inner, "num_register_tokens", 0)
 
     @property
     def num_summary_tokens(self):
@@ -147,8 +154,8 @@ class DinoWrapper(nn.Module):
     def forward(self, *args, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         parts = self.inner.forward_features(*args, **kwargs)
 
-        cls_token = parts['x_norm_clstoken']
-        features = parts['x_norm_patchtokens']
+        cls_token = parts["x_norm_clstoken"]
+        features = parts["x_norm_patchtokens"]
 
         return cls_token, features
 
@@ -157,12 +164,13 @@ class DinoWrapper(nn.Module):
         x = self.inner.blocks(x)
         x_norm = self.inner.norm(x)
 
-        return x_norm[:, 0], x_norm[:, self.num_summary_tokens:]
+        return x_norm[:, 0], x_norm[:, self.num_summary_tokens :]
 
     def patchify(self, x: torch.Tensor) -> torch.Tensor:
         return self.inner.prepare_tokens_with_masks(x)
 
-    def forward_intermediates(self,
+    def forward_intermediates(
+        self,
         x: torch.Tensor,
         norm: bool = False,
         **kwargs,
@@ -199,8 +207,9 @@ def _dino_student(arch: str, **kwargs):
 
 @register_model
 def dino_v2_l_student(**kwargs):
-    return _dino_student('dinov2_vitl14_reg', **kwargs)
+    return _dino_student("dinov2_vitl14_reg", **kwargs)
+
 
 @register_model
 def dino_v2_g_student(**kwargs):
-    return _dino_student('dinov2_vitg14_reg', **kwargs)
+    return _dino_student("dinov2_vitg14_reg", **kwargs)

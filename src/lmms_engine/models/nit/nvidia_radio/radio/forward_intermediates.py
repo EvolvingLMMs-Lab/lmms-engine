@@ -6,18 +6,21 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from typing import Callable, Dict, List, Optional, Set, Tuple, Union, Any, Iterable
 from types import MethodType
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import torch
 from torch import nn
 
-from .feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
+from .feature_normalizer import (
+    IntermediateFeatureNormalizerBase,
+    NullIntermediateFeatureNormalizer,
+)
 
 
 def _take_indices(
-        num_blocks: int,
-        n: Optional[Union[int, List[int], Tuple[int]]],
+    num_blocks: int,
+    n: Optional[Union[int, List[int], Tuple[int]]],
 ) -> Tuple[Set[int], int]:
     if isinstance(n, int):
         assert n >= 0
@@ -28,23 +31,23 @@ def _take_indices(
 
 
 def forward_intermediates(
-        model: nn.Module,
-        patch_extractor: Callable[[torch.Tensor], torch.Tensor],
-        norm: nn.Module,
-        num_summary_tokens: int,
-        num_cls_tokens: int,
-        x: torch.Tensor,
-        indices: Optional[Union[int, List[int], Tuple[int]]] = None,
-        return_prefix_tokens: bool = False,
-        stop_early: bool = False,
-        output_fmt: str = 'NCHW',
-        intermediates_only: bool = False,
-        aggregation: Optional[str] = "sparse",
-        inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
-        norm_alpha_scheme = "post-alpha",
-        block_kwargs: Dict = None,
+    model: nn.Module,
+    patch_extractor: Callable[[torch.Tensor], torch.Tensor],
+    norm: nn.Module,
+    num_summary_tokens: int,
+    num_cls_tokens: int,
+    x: torch.Tensor,
+    indices: Optional[Union[int, List[int], Tuple[int]]] = None,
+    return_prefix_tokens: bool = False,
+    stop_early: bool = False,
+    output_fmt: str = "NCHW",
+    intermediates_only: bool = False,
+    aggregation: Optional[str] = "sparse",
+    inter_feature_normalizer: Optional[IntermediateFeatureNormalizerBase] = None,
+    norm_alpha_scheme="post-alpha",
+    block_kwargs: Dict = None,
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
-    """ Forward features that returns intermediates.
+    """Forward features that returns intermediates.
 
     The Dense layer aggregation method is inspired from the paper: "Dense Connector for MLLMs"
     by Yao, Huanjin et al. (2024). arXiv preprint arXiv:2405.13800}
@@ -61,9 +64,9 @@ def forward_intermediates(
         norm_alpha_scheme: apply alpha before ("pre-alpha") or after accumulation ("post-alpha")
     Returns:
     """
-    assert output_fmt in ('NCHW', 'NLC'), 'Output format must be one of NCHW or NLC.'
-    assert aggregation in ('sparse', 'dense'), 'Aggregation must be one of sparse or dense.'
-    reshape = output_fmt == 'NCHW'
+    assert output_fmt in ("NCHW", "NLC"), "Output format must be one of NCHW or NLC."
+    assert aggregation in ("sparse", "dense"), "Aggregation must be one of sparse or dense."
+    reshape = output_fmt == "NCHW"
     intermediates = []
 
     block_kwargs = block_kwargs or dict()
@@ -78,13 +81,13 @@ def forward_intermediates(
     x = patch_extractor(x)
 
     if stop_early:
-        blocks = blocks[:max_index + 1]
+        blocks = blocks[: max_index + 1]
 
-    if inter_feature_normalizer is None or norm_alpha_scheme == 'none':
+    if inter_feature_normalizer is None or norm_alpha_scheme == "none":
         inter_feature_normalizer = NullIntermediateFeatureNormalizer.get_instance(x.dtype, x.device)
 
-    assert norm_alpha_scheme in ('none', 'pre-alpha', 'post-alpha'), f'Unsupported alpha scheme: {norm_alpha_scheme}'
-    post_alpha_scheme = norm_alpha_scheme == 'post-alpha'
+    assert norm_alpha_scheme in ("none", "pre-alpha", "post-alpha"), f"Unsupported alpha scheme: {norm_alpha_scheme}"
+    post_alpha_scheme = norm_alpha_scheme == "post-alpha"
 
     accumulator = 0
     alpha_sum = 0
@@ -112,8 +115,8 @@ def forward_intermediates(
                 accumulator = 0
                 alpha_sum = 0
             else:
-                 y, alpha = inter_feature_normalizer(x, i, skip=num_summary_tokens)
-                 x_ = alpha * y
+                y, alpha = inter_feature_normalizer(x, i, skip=num_summary_tokens)
+                x_ = alpha * y
             # normalize intermediates with final norm layer if enabled
             intermediates.append(norm(x_))
             take_off = min(take_off + 1, len(take_indices) - 1)

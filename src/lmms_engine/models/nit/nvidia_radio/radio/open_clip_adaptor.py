@@ -8,12 +8,11 @@
 from argparse import Namespace
 
 import torch
-from torch import nn
 import torch.nn.functional as F
-
-from .adaptor_registry import adaptor_registry, dict_t, state_t
+from torch import nn
 
 from .adaptor_generic import GenericAdaptor
+from .adaptor_registry import adaptor_registry, dict_t, state_t
 
 
 class OpenCLIP_RADIO(GenericAdaptor):
@@ -23,14 +22,14 @@ class OpenCLIP_RADIO(GenericAdaptor):
         import open_clip
 
         self.oc_model = open_clip.create_model_from_pretrained(
-            model_name=adaptor_config['model'],
-            pretrained=adaptor_config['pretrained'],
+            model_name=adaptor_config["model"],
+            pretrained=adaptor_config["pretrained"],
             return_transform=False,
         )
         # Unload these parameters
         self.oc_model.visual = None
 
-        self.tokenizer = open_clip.get_tokenizer(model_name=adaptor_config['model'])
+        self.tokenizer = open_clip.get_tokenizer(model_name=adaptor_config["model"])
 
     def encode_text(self, text, normalize: bool = False):
         return self.oc_model.encode_text(text, normalize=normalize)

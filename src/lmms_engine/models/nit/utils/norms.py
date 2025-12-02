@@ -5,15 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-
 from functools import partial
 
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 import triton
 import triton.language as tl
-import torch.nn.functional as F
 
 
 def create_norm(norm_type: str, dim: int, eps: float = 1e-6):
@@ -49,38 +47,35 @@ def create_norm(norm_type: str, dim: int, eps: float = 1e-6):
     elif norm_type == "np_rmsnorm":
         return RMSNorm(dim, include_weight=False, eps=1e-6)
     elif norm_type == "fused_rmsnorm":
-        return FusedRMSNorm(dim, eps=1/65536)
+        return FusedRMSNorm(dim, eps=1 / 65536)
     elif norm_type == "fused_rmsnorm_32":
         return FusedRMSNorm32(dim, eps=1e-6)
-    elif norm_type == 'none':
+    elif norm_type == "none":
         return nn.Identity()
     else:
         return nn.Identity()
+
 
 class FP32_Layernorm(nn.LayerNorm):
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         origin_dtype = inputs.dtype
         if self.bias == None and self.weight == None:
-            return F.layer_norm(
-                input=inputs.float(), 
-                normalized_shape=self.normalized_shape, 
-                eps=self.eps
-            ).to(origin_dtype)
+            return F.layer_norm(input=inputs.float(), normalized_shape=self.normalized_shape, eps=self.eps).to(
+                origin_dtype
+            )
         elif self.bias == None:
             return F.layer_norm(
-                input=inputs.float(), 
-                normalized_shape=self.normalized_shape, 
-                weight=self.weight.float(), 
-                eps=self.eps
+                input=inputs.float(), normalized_shape=self.normalized_shape, weight=self.weight.float(), eps=self.eps
             ).to(origin_dtype)
         else:
             return F.layer_norm(
-                input=inputs.float(), 
-                normalized_shape=self.normalized_shape, 
-                weight=self.weight.float(), 
-                bias=self.bias.float(), 
-                eps=self.eps
+                input=inputs.float(),
+                normalized_shape=self.normalized_shape,
+                weight=self.weight.float(),
+                bias=self.bias.float(),
+                eps=self.eps,
             ).to(origin_dtype)
+
 
 class FusedRMSNorm(nn.Module):
     """Fused RMS Norm, wraps a fused Triton Kernel"""
@@ -106,6 +101,7 @@ class FusedRMSNorm(nn.Module):
     def reset_parameters(self):
         torch.nn.init.ones_(self.weight)  # type: ignore
 
+
 class FusedRMSNorm32(nn.Module):
     """Fused RMS Norm, wraps a fused Triton Kernel"""
 
@@ -130,6 +126,7 @@ class FusedRMSNorm32(nn.Module):
 
     def reset_parameters(self):
         torch.nn.init.ones_(self.weight)  # type: ignore
+
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, include_weight: bool = True, eps: float = 1e-6, **block_kwargs):
@@ -182,7 +179,6 @@ class RMSNorm(nn.Module):
             return output
         else:
             return output * self.weight
-
 
 
 # FusedRMSNorm in Triton

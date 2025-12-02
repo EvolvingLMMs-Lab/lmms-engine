@@ -6,20 +6,21 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from typing import Union, Tuple
+from typing import Tuple, Union
 
 import torch
 from torch import nn
 
-
 norm_t = Union[Tuple[float, float, float], torch.Tensor]
 
+
 class InputConditioner(nn.Module):
-    def __init__(self,
-                 input_scale: float,
-                 norm_mean: norm_t,
-                 norm_std: norm_t,
-                 dtype: torch.dtype = None,
+    def __init__(
+        self,
+        input_scale: float,
+        norm_mean: norm_t,
+        norm_std: norm_t,
+        dtype: torch.dtype = None,
     ):
         super().__init__()
 

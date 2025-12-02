@@ -12,27 +12,34 @@
 # but also because Huggingface does a string replace of `gamma` to something else when loading the model state,
 # and this breaks loading of this model.
 
-from enum import Enum
-from functools import partial
 import logging
 import math
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 import warnings
+from enum import Enum
+from functools import partial
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.nn.init import trunc_normal_
 
-_torch_has_sdpa = hasattr(F, 'scaled_dot_product_attention')
+_torch_has_sdpa = hasattr(F, "scaled_dot_product_attention")
 
 
 XFORMERS_ENABLED = os.environ.get("XFORMERS_DISABLED") is None
 try:
     if XFORMERS_ENABLED:
-        from xformers.ops import fmha, scaled_index_add, index_select_cat, SwiGLU, memory_efficient_attention, unbind
+        from xformers.ops import (
+            SwiGLU,
+            fmha,
+            index_select_cat,
+            memory_efficient_attention,
+            scaled_index_add,
+            unbind,
+        )
 
         XFORMERS_AVAILABLE = True
     else:
@@ -143,9 +150,11 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]
         if _torch_has_sdpa:
             x = F.scaled_dot_product_attention(
-                q, k, v,
+                q,
+                k,
+                v,
                 is_causal=False,
-                dropout_p=self.attn_drop.p if self.training else 0.,
+                dropout_p=self.attn_drop.p if self.training else 0.0,
                 scale=self.scale,
             )
         else:
@@ -294,12 +303,14 @@ class LayerScale(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x.mul_(self.grandma) if self.inplace else x * self.grandma
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
         # Huggingface is absurd and it will rename strings that contain `gamma`, which means that the normal DINO implementation
         # of LayerScale won't work with HFHub. So we rename the variable to 'grandma', and support loading checkpoints in either
         # format
-        key_a = f'{prefix}gamma'
-        key_b = f'{prefix}grandma'
+        key_a = f"{prefix}gamma"
+        key_b = f"{prefix}grandma"
         if key_a in state_dict:
             gamma = state_dict[key_a]
         elif key_b in state_dict:
@@ -639,6 +650,7 @@ class DinoVisionTransformer(nn.Module):
         elif ffn_layer == "swiglufused" or ffn_layer == "swiglu":
             ffn_layer = SwiGLUFFNFused
         elif ffn_layer == "identity":
+
             def f(*args, **kwargs):
                 return nn.Identity()
 

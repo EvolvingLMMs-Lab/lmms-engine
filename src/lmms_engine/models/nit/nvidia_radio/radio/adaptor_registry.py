@@ -6,11 +6,11 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 from argparse import Namespace
-from typing import Dict, Any
+from typing import Any, Dict
 
 import torch
 
-from .adaptor_generic import GenericAdaptor, AdaptorBase
+from .adaptor_generic import AdaptorBase, GenericAdaptor
 
 dict_t = Dict[str, Any]
 state_t = Dict[str, torch.Tensor]
@@ -26,12 +26,14 @@ class AdaptorRegistry:
                 raise ValueError(f"Model '{name}' already registered")
             self._registry[name] = factory_function
             return factory_function
+
         return decorator
 
     def create_adaptor(self, name, main_config: Namespace, adaptor_config: dict_t, state: state_t) -> AdaptorBase:
         if name not in self._registry:
             return GenericAdaptor(main_config, adaptor_config, state)
         return self._registry[name](main_config, adaptor_config, state)
+
 
 # Creating an instance of the registry
 adaptor_registry = AdaptorRegistry()

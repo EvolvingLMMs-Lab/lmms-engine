@@ -6,22 +6,23 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from typing import List, Optional, Set, Tuple, Union
 from types import MethodType
+from typing import List, Optional, Set, Tuple, Union
 
 import torch
-from torch import nn
-
+from flash_attn import flash_attn_varlen_func
 from timm.models import VisionTransformer, checkpoint_seq
 from timm.models.vision_transformer import Attention, Block
+from torch import nn
 
-from .feature_normalizer import IntermediateFeatureNormalizerBase, NullIntermediateFeatureNormalizer
-
-from .extra_models import DinoWrapper
-from .vit_patch_generator import ViTPatchGenerator
-from .forward_intermediates import forward_intermediates
 from .dual_hybrid_vit import HybridModel
-from flash_attn import flash_attn_varlen_func
+from .extra_models import DinoWrapper
+from .feature_normalizer import (
+    IntermediateFeatureNormalizerBase,
+    NullIntermediateFeatureNormalizer,
+)
+from .forward_intermediates import forward_intermediates
+from .vit_patch_generator import ViTPatchGenerator
 
 
 def _attn_forward_pack(self: Attention, x: torch.Tensor, cu_seqlens: torch.Tensor) -> torch.Tensor:
@@ -31,18 +32,18 @@ def _attn_forward_pack(self: Attention, x: torch.Tensor, cu_seqlens: torch.Tenso
     q, k = self.q_norm(q), self.k_norm(k)
     max_seqlen = (cu_seqlens[1:] - cu_seqlens[:-1]).max().item()
 
-    x = flash_attn_varlen_func(
-        q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen
-    ).reshape(N, -1)
+    x = flash_attn_varlen_func(q, k, v, cu_seqlens, cu_seqlens, max_seqlen, max_seqlen).reshape(N, -1)
 
     x = self.proj(x)
     x = self.proj_drop(x)
     return x
 
+
 def _block_forward_pack(self: Block, x: torch.Tensor, cu_seqlens: torch.Tensor) -> torch.Tensor:
     x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x), cu_seqlens)))
     x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
     return x
+
 
 def _forward_cpe_pack(self: VisionTransformer, images: List[torch.Tensor]) -> torch.Tensor:
     device = images[0].device
@@ -53,15 +54,14 @@ def _forward_cpe_pack(self: VisionTransformer, images: List[torch.Tensor]) -> to
         _image = self.patch_generator(image).squeeze(0)
         x.append(_image)
         seqlens.append(_image.shape[0])
-    
+
     x = torch.cat(x, dim=0)
     seqlens = torch.tensor(seqlens, device=device, dtype=torch.int)
-    
-    cu_seqlens = torch.cat([
-        torch.tensor([0], device=device, dtype=torch.int32), 
-        torch.cumsum(seqlens, dim=0, dtype=torch.int32)
-    ])
-    if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
+
+    cu_seqlens = torch.cat(
+        [torch.tensor([0], device=device, dtype=torch.int32), torch.cumsum(seqlens, dim=0, dtype=torch.int32)]
+    )
+    if getattr(self, "grad_checkpointing", False) and not torch.jit.is_scripting():
         for block in self.blocks:
             x = checkpoint_seq(block, x, cu_seqlens)
     else:
@@ -70,9 +70,10 @@ def _forward_cpe_pack(self: VisionTransformer, images: List[torch.Tensor]) -> to
     x = self.norm(x)
     return x, cu_seqlens
 
+
 def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
     x = self.patch_generator(x)
-    if getattr(self, 'grad_checkpointing', False) and not torch.jit.is_scripting():
+    if getattr(self, "grad_checkpointing", False) and not torch.jit.is_scripting():
         x = checkpoint_seq(self.blocks, x)
     else:
         x = self.blocks(x)
@@ -81,8 +82,8 @@ def _forward_cpe(self: VisionTransformer, x: torch.Tensor) -> torch.Tensor:
 
 
 def _take_indices(
-        num_blocks: int,
-        n: Optional[Union[int, List[int], Tuple[int]]],
+    num_blocks: int,
+    n: Optional[Union[int, List[int], Tuple[int]]],
 ) -> Tuple[Set[int], int]:
     if isinstance(n, int):
         assert n >= 0
@@ -93,10 +94,10 @@ def _take_indices(
 
 
 def _forward_intermediates_cpe(
-        self,
-        x: torch.Tensor,
-        norm: bool = False,
-        **kwargs,
+    self,
+    x: torch.Tensor,
+    norm: bool = False,
+    **kwargs,
 ) -> Union[List[torch.Tensor], Tuple[torch.Tensor, List[torch.Tensor]]]:
     return forward_intermediates(
         self,
@@ -112,20 +113,21 @@ def _forward_intermediates_cpe(
 def _forward_cpe_dinov2(self: DinoWrapper, x: torch.Tensor) -> torch.Tensor:
     y = _forward_cpe(self.inner, x)
 
-    return y[:, 0], y[:, self.num_summary_tokens:]
+    return y[:, 0], y[:, self.num_summary_tokens :]
 
 
 def _forward_intermediates_cpe_dinov2(self: DinoWrapper, *args, **kwargs):
     return _forward_intermediates_cpe(self.inner, *args, **kwargs)
 
 
-def _enable_cpe_for_timm_vit(model: VisionTransformer,
-                             max_img_size: Union[int, Tuple[int, int]] = 1024,
-                             num_cls_tokens: int = 1,
-                             pos_dropout: float = 0.1,
-                             register_multiple: int = Optional[None],
-                             num_registers: int = Optional[None],
-                             support_packing: bool = False,
+def _enable_cpe_for_timm_vit(
+    model: VisionTransformer,
+    max_img_size: Union[int, Tuple[int, int]] = 1024,
+    num_cls_tokens: int = 1,
+    pos_dropout: float = 0.1,
+    register_multiple: int = Optional[None],
+    num_registers: int = Optional[None],
+    support_packing: bool = False,
 ):
     if not isinstance(model, VisionTransformer):
         raise ValueError("CPE only support for VisionTransformer models!")
@@ -169,12 +171,13 @@ def _enable_cpe_for_timm_vit(model: VisionTransformer,
             block.attn.forward = MethodType(_attn_forward_pack, block.attn)
 
 
-def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
-                                max_img_size: Union[int, Tuple[int, int]] = 1024,
-                                num_cls_tokens: int = 1,
-                                pos_dropout: float = 0.1,
-                                register_multiple: int = Optional[None],
-                                num_registers: int = Optional[None],
+def _enable_cpe_for_dv2_reg_vit(
+    model: DinoWrapper,
+    max_img_size: Union[int, Tuple[int, int]] = 1024,
+    num_cls_tokens: int = 1,
+    pos_dropout: float = 0.1,
+    register_multiple: int = Optional[None],
+    num_registers: int = Optional[None],
 ):
     patch_size = model.patch_size
     embed_dim = model.embed_dim
@@ -210,9 +213,10 @@ def _enable_cpe_for_dv2_reg_vit(model: DinoWrapper,
     model.forward_intermediates = MethodType(_forward_intermediates_cpe_dinov2, model)
 
 
-def enable_cpe(model: nn.Module,
-               *args,
-               **kwargs,
+def enable_cpe(
+    model: nn.Module,
+    *args,
+    **kwargs,
 ):
     if isinstance(model, VisionTransformer):
         _enable_cpe_for_timm_vit(model, *args, **kwargs)
@@ -221,4 +225,4 @@ def enable_cpe(model: nn.Module,
     elif isinstance(model, HybridModel):
         _enable_cpe_for_timm_vit(model.vit, *args, **kwargs)
     else:
-        raise ValueError(f'CPE not supported for this model type: {type(model)}')
+        raise ValueError(f"CPE not supported for this model type: {type(model)}")

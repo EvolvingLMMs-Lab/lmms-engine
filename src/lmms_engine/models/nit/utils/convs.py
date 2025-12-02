@@ -1,52 +1,49 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from nit.models.efficientvit.models.nn.ops import ConvLayer
 from nit.models.efficientvit.models.nn.act import build_act
+from nit.models.efficientvit.models.nn.ops import ConvLayer
 from nit.models.efficientvit.models.utils import val2tuple
 
+
 def create_conv_1(conv_type, in_channels, out_channels, norm, act_func, groups=1):
-    '''
+    """
     conv_type: dwconv_3x3_1, dsconv_3x3_1, dgconv_3x3_1
-    '''
+    """
     if conv_type == None or conv_type == "":
         return nn.Identity()
-    splited_conv_type = conv_type.split('_')
+    splited_conv_type = conv_type.split("_")
     conv_type = splited_conv_type[0]
-    kernel_size = int(splited_conv_type[1].split('x')[0])
+    kernel_size = int(splited_conv_type[1].split("x")[0])
     stride = int(splited_conv_type[2])
-    if conv_type == 'dwconv':
+    if conv_type == "dwconv":
         return DWConv(in_channels, out_channels, kernel_size, stride, norm=norm, act_func=act_func)
-    elif conv_type == 'dsconv':
+    elif conv_type == "dsconv":
         return DSConv(in_channels, out_channels, kernel_size, stride, norm=norm, act_func=act_func)
-    elif conv_type == 'dgconv':
+    elif conv_type == "dgconv":
         return DGConv(in_channels, out_channels, kernel_size, stride, groups, norm=norm, act_func=act_func)
     else:
         return nn.Identity()
 
 
-
 def create_conv_2(conv_type, in_channels, out_channels, mid_channels):
-    '''
+    """
     conv_type: mbconv_3x3_1, fusedmbconv_3x3_1, glumbconv_3x3_1
-    '''
+    """
     if conv_type == None or conv_type == "":
         return nn.Identity()
-    splited_conv_type = conv_type.split('_')
+    splited_conv_type = conv_type.split("_")
     conv_type = splited_conv_type[0]
-    kernel_size = int(splited_conv_type[1].split('x')[0])
+    kernel_size = int(splited_conv_type[1].split("x")[0])
     stride = int(splited_conv_type[2])
-    if conv_type == 'mbconv':
+    if conv_type == "mbconv":
         return MBConv(in_channels, out_channels, kernel_size, stride, mid_channels)
-    elif conv_type == 'fusedmbconv':
+    elif conv_type == "fusedmbconv":
         return FusedMBConv(in_channels, out_channels, kernel_size, stride, mid_channels)
-    elif conv_type == 'glumbconv':
+    elif conv_type == "glumbconv":
         return GLUMBConv(in_channels, out_channels, kernel_size, stride, mid_channels)
     else:
         return nn.Identity()
-
 
 
 class DWConv(nn.Module):
@@ -78,7 +75,6 @@ class DWConv(nn.Module):
         return x
 
 
-
 class DSConv(nn.Module):
     def __init__(
         self,
@@ -95,7 +91,7 @@ class DSConv(nn.Module):
         use_bias = val2tuple(use_bias, 2)
         norm = val2tuple(norm, 2)
         act_func = val2tuple(act_func, 2)
-        
+
         self.depth_conv = ConvLayer(
             in_channels,
             in_channels,
@@ -119,7 +115,6 @@ class DSConv(nn.Module):
         x = self.depth_conv(x)
         x = self.point_conv(x)
         return x
-
 
 
 class DGConv(nn.Module):
@@ -163,7 +158,6 @@ class DGConv(nn.Module):
         x = self.depth_conv(x)
         x = self.point_conv(x)
         return x
-
 
 
 class MBConv(nn.Module):

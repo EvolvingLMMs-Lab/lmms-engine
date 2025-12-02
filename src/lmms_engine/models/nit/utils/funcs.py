@@ -1,7 +1,9 @@
+from itertools import chain
+from typing import List, Tuple
+
 import torch
 from torch import Tensor
-from typing import List, Tuple
-from itertools import chain
+
 
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)

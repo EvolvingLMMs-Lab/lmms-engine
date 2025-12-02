@@ -6,11 +6,11 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-from logging import getLogger
 import math
 import os
-from typing import Dict, List, Optional, Union, Tuple
+from logging import getLogger
 from types import MethodType
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -33,10 +33,10 @@ def enable_damp(model: nn.Module, std: float):
 
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
-            parametrize.register_parametrization(module, 'weight', DAMP(std))
+            parametrize.register_parametrization(module, "weight", DAMP(std))
 
 
 def configure_damp_from_args(model: nn.Module, args):
-    damp = getattr(args, 'damp', None)
+    damp = getattr(args, "damp", None)
     if damp:
         enable_damp(model, damp)

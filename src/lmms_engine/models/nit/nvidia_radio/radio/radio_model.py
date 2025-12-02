@@ -5,21 +5,19 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
+from types import MethodType
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple, Union
 
 import torch
+from timm.models import VisionTransformer, create_model
 from torch import nn
 
-from timm.models import create_model, VisionTransformer
-from types import MethodType
-
+from . import dual_hybrid_vit, eradio_model
+from .adaptor_base import AdaptorBase, AdaptorInput, RadioOutput
 from .enable_cpe_support import enable_cpe
-from .input_conditioner import InputConditioner
-from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
-from . import eradio_model
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
-from . import dual_hybrid_vit
+from .input_conditioner import InputConditioner
 
 
 class Resolution(NamedTuple):
@@ -46,7 +44,7 @@ class RADIOModel(nn.Module):
         self.model = model
         self.input_conditioner = input_conditioner
         if summary_idxs is not None:
-            self.register_buffer('summary_idxs', summary_idxs)
+            self.register_buffer("summary_idxs", summary_idxs)
         else:
             self.summary_idxs = None
 
@@ -65,25 +63,25 @@ class RADIOModel(nn.Module):
 
     @property
     def num_summary_tokens(self) -> int:
-        if hasattr(self.model, 'num_summary_tokens'):
+        if hasattr(self.model, "num_summary_tokens"):
             return self.model.num_summary_tokens
 
         patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_skip
-        elif getattr(self.model, 'global_pool', None) == 'avg':
+        elif getattr(self.model, "global_pool", None) == "avg":
             return 0
         return 1
 
     @property
     def num_cls_tokens(self) -> int:
-        if hasattr(self.model, 'num_cls_tokens'):
+        if hasattr(self.model, "num_cls_tokens"):
             return self.model.num_cls_tokens
 
-        patch_gen = getattr(self.model, 'patch_generator', None)
+        patch_gen = getattr(self.model, "patch_generator", None)
         if patch_gen is not None:
             return patch_gen.num_cls_tokens
-        elif getattr(self.model, 'global_pool', None) == 'avg':
+        elif getattr(self.model, "global_pool", None) == "avg":
             return 0
         return 1
 
@@ -119,7 +117,7 @@ class RADIOModel(nn.Module):
 
     @property
     def blocks(self) -> Iterable[nn.Module]:
-        blocks = getattr(self.model, 'blocks', None)
+        blocks = getattr(self.model, "blocks", None)
         if blocks is not None:
             return blocks
         return None
@@ -143,59 +141,67 @@ class RADIOModel(nn.Module):
         return Resolution(height=height, width=width)
 
     def switch_to_deploy(self):
-        fn = getattr(self.model, 'switch_to_deploy', None)
+        fn = getattr(self.model, "switch_to_deploy", None)
         if fn is not None:
             fn()
 
-    def forward(self, x: torch.Tensor, feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        '''
+    def forward(
+        self, x: torch.Tensor, feature_fmt: str = "NLC"
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
         Forward process for model.
         Args:
             x: Input tensor. Unless `make_preprocessor_external` has been called, then the dynamic range of `x` is expected to be `[0, 1]`,
                              otherwise `x` is expected to be mean centered with unit standard deviation.
             feature_format: ['NLC', 'NCHW'] - The output format for the features.
-        '''
+        """
         res_step = self.min_resolution_step
         if res_step is not None and (x.shape[-2] % res_step != 0 or x.shape[-1] % res_step != 0):
-            raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
-                             '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
-                             f'Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}')
+            raise ValueError(
+                "The input resolution must be a multiple of `self.min_resolution_step`. "
+                "`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. "
+                f"Input: {x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*x.shape[-2:])}"
+            )
 
         x = self.input_conditioner(x)
         y = self.model.forward_features(x)
         ret = self._extract_final(x, y, feature_fmt=feature_fmt)
         return ret
 
-    def forward_pack(self, x: List[torch.Tensor], feature_fmt: str = 'NLC') -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        '''
+    def forward_pack(
+        self, x: List[torch.Tensor], feature_fmt: str = "NLC"
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
         Forward process for model.
         Args:
             x: Input tensor. Unless `make_preprocessor_external` has been called, then the dynamic range of `x` is expected to be `[0, 1]`,
                              otherwise `x` is expected to be mean centered with unit standard deviation.
             feature_format: ['NLC', 'NCHW'] - The output format for the features.
-        '''
+        """
         res_step = self.min_resolution_step
         for _x in x:
             if res_step is not None and (_x.shape[-2] % res_step != 0 or _x.shape[-1] % res_step != 0):
-                raise ValueError('The input resolution must be a multiple of `self.min_resolution_step`. '
-                                '`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. '
-                                f'Input: {_x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*_x.shape[-2:])}')
+                raise ValueError(
+                    "The input resolution must be a multiple of `self.min_resolution_step`. "
+                    "`self.get_nearest_supported_resolution(<height>, <width>) is provided as a convenience API. "
+                    f"Input: {_x.shape[-2:]}, Nearest: {self.get_nearest_supported_resolution(*_x.shape[-2:])}"
+                )
 
         x = [self.input_conditioner(_x) for _x in x]
         y, cu_seqlens = self.model.forward_features(x)
         all_summary, spatial_features = [], []
         num_cls_tokens = self.model.patch_generator.num_cls_tokens
         num_skip = self.model.patch_generator.num_skip
-        for i in range(len(cu_seqlens)-1):
-            summary = y[cu_seqlens[i]: cu_seqlens[i+1]][: num_cls_tokens]
-            all_feat = y[cu_seqlens[i]: cu_seqlens[i+1]][num_skip :]
+        for i in range(len(cu_seqlens) - 1):
+            summary = y[cu_seqlens[i] : cu_seqlens[i + 1]][:num_cls_tokens]
+            all_feat = y[cu_seqlens[i] : cu_seqlens[i + 1]][num_skip:]
             all_summary.append(summary)
             spatial_features.append(all_feat)
         all_summary = torch.cat(all_summary)
         spatial_features = torch.cat(spatial_features)
         return all_summary, spatial_features
 
-    def _extract_final(self, x: torch.Tensor, y: torch.Tensor, feature_fmt: str = 'NLC'):
+    def _extract_final(self, x: torch.Tensor, y: torch.Tensor, feature_fmt: str = "NLC"):
         if isinstance(self.model, VisionTransformer):
             patch_gen = getattr(self.model, "patch_generator", None)
             if patch_gen is not None:
@@ -222,7 +228,7 @@ class RADIOModel(nn.Module):
             all_summary, all_feat = y
             bb_summary = all_summary
         else:
-            all_summary = y[:, :self.num_cls_tokens]
+            all_summary = y[:, : self.num_cls_tokens]
             if self.summary_idxs is not None and all_summary.shape[1] > 1:
                 if all_summary.shape[1] == 1:
                     # Create dummy duplicates
@@ -230,15 +236,15 @@ class RADIOModel(nn.Module):
                 bb_summary = all_summary[:, self.summary_idxs]
             else:
                 bb_summary = all_summary
-            all_feat = y[:, self.num_summary_tokens:]
+            all_feat = y[:, self.num_summary_tokens :]
 
         all_feat = self.feature_normalizer(all_feat)
 
-        if feature_fmt == 'NCHW':
-            fmt_feat = (all_feat.reshape(all_feat.shape[0], x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size, all_feat.shape[2])
-                                .permute(0, 3, 1, 2)
-            )
-        elif feature_fmt == 'NLC':
+        if feature_fmt == "NCHW":
+            fmt_feat = all_feat.reshape(
+                all_feat.shape[0], x.shape[-2] // self.patch_size, x.shape[-1] // self.patch_size, all_feat.shape[2]
+            ).permute(0, 3, 1, 2)
+        elif feature_fmt == "NLC":
             fmt_feat = all_feat
         else:
             raise ValueError(f'Unsupported feature_fmt: {feature_fmt}. Must be one of ["NLC", "NCHW"]')
@@ -255,25 +261,31 @@ class RADIOModel(nn.Module):
                         summary = all_summary[:, adaptor.head_idx]
                 else:
                     summary = all_summary
-                ada_input = AdaptorInput(images=x, summary=summary.float(), features=all_feat, feature_fmt=feature_fmt, patch_size=self.patch_size)
+                ada_input = AdaptorInput(
+                    images=x,
+                    summary=summary.float(),
+                    features=all_feat,
+                    feature_fmt=feature_fmt,
+                    patch_size=self.patch_size,
+                )
                 v = adaptor(ada_input).to(torch.float32)
                 ret[name] = v
 
         return ret
 
     def forward_intermediates(
-            self,
-            x: torch.Tensor,
-            indices: Optional[Union[int, List[int], Tuple[int]]] = None,
-            return_prefix_tokens: bool = False,
-            norm: bool = False,
-            stop_early: bool = False,
-            output_fmt: str = 'NCHW',
-            intermediates_only: bool = False,
-            aggregation: Optional[str] = "sparse",
-            norm_alpha_scheme: Optional[str] = "post-alpha",
+        self,
+        x: torch.Tensor,
+        indices: Optional[Union[int, List[int], Tuple[int]]] = None,
+        return_prefix_tokens: bool = False,
+        norm: bool = False,
+        stop_early: bool = False,
+        output_fmt: str = "NCHW",
+        intermediates_only: bool = False,
+        aggregation: Optional[str] = "sparse",
+        norm_alpha_scheme: Optional[str] = "post-alpha",
     ) -> List[RadioOutput]:
-        """ Forward features that returns intermediates.
+        """Forward features that returns intermediates.
         Args:
             x: Input image tensor
             indices: Take last n blocks if int, select matching indices if sequence
@@ -314,10 +326,7 @@ class RADIOModel(nn.Module):
             return summ.flatten(1)
 
         if return_prefix_tokens:
-            radio_outputs = [
-                RadioOutput(prepare_summary(summary), features)
-                for summary, features in intermediates
-            ]
+            radio_outputs = [RadioOutput(prepare_summary(summary), features) for summary, features in intermediates]
         else:
             radio_outputs = intermediates
 
@@ -326,7 +335,6 @@ class RADIOModel(nn.Module):
         else:
             final = self._extract_final(x, final, feature_fmt=output_fmt)
             return final, radio_outputs
-
 
 
 def create_model_from_args(args) -> nn.Module:
@@ -356,20 +364,20 @@ def create_model_from_args(args) -> nn.Module:
         **args.model_kwargs,
     )
 
-    if hasattr(model, 'norm') and not getattr(args, 'model_norm', False):
+    if hasattr(model, "norm") and not getattr(args, "model_norm", False):
         model.norm = nn.Identity()
 
     model.head = nn.Identity()
 
     if args.cpe_max_size is not None:
-        uq_teachers = set(t['name'] for t in args.teachers)
+        uq_teachers = set(t["name"] for t in args.teachers)
         enable_cpe(
             model,
             args.cpe_max_size,
             num_cls_tokens=len(uq_teachers) if args.cls_token_per_teacher else 1,
-            register_multiple=getattr(args, 'register_multiple', None),
-            num_registers=getattr(args, 'cpe_num_registers', None),
+            register_multiple=getattr(args, "register_multiple", None),
+            num_registers=getattr(args, "cpe_num_registers", None),
             support_packing=args.support_packing,
         )
-    
+
     return model

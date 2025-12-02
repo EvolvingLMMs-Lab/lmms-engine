@@ -12,38 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import namedtuple
-from typing import Callable, Dict, Optional, List, Union
+from typing import Callable, Dict, List, Optional, Union
 
-from timm.models import VisionTransformer
 import torch
+from timm.models import VisionTransformer
 from torch import nn
 from transformers import PretrainedConfig, PreTrainedModel
 
-
-from .common import RESOURCE_MAP, DEFAULT_VERSION
-
 # Import all required modules.
-from .adaptor_base import AdaptorBase, RadioOutput, AdaptorInput
-from .adaptor_generic import GenericAdaptor, AdaptorBase
+from .adaptor_base import AdaptorBase, AdaptorInput, RadioOutput
+from .adaptor_generic import AdaptorBase, GenericAdaptor
 from .adaptor_mlp import create_mlp_from_config
 from .adaptor_registry import adaptor_registry
 from .cls_token import ClsToken
+from .common import DEFAULT_VERSION, RESOURCE_MAP
 from .dinov2_arch import dinov2_vitg14_reg
 from .enable_cpe_support import enable_cpe
 from .enable_spectral_reparam import configure_spectral_reparam_from_args
 from .eradio_model import eradio
-from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
-from .forward_intermediates import forward_intermediates
-from .radio_model import create_model_from_args
-from .radio_model import RADIOModel as RADIOModelBase, Resolution
-from .input_conditioner import get_default_conditioner, InputConditioner
-from .open_clip_adaptor import OpenCLIP_RADIO
-from .vit_patch_generator import ViTPatchGenerator
-from .vitdet import apply_vitdet_arch, VitDetArgs
+from .extra_models import *
 
 # Register extra models
 from .extra_timm_models import *
-from .extra_models import *
+from .feature_normalizer import FeatureNormalizer, IntermediateFeatureNormalizer
+from .forward_intermediates import forward_intermediates
+from .input_conditioner import InputConditioner, get_default_conditioner
+from .open_clip_adaptor import OpenCLIP_RADIO
+from .radio_model import RADIOModel as RADIOModelBase
+from .radio_model import Resolution, create_model_from_args
+from .vit_patch_generator import ViTPatchGenerator
+from .vitdet import VitDetArgs, apply_vitdet_arch
 
 
 class RADIOConfig(PretrainedConfig):
@@ -74,16 +72,13 @@ class RADIOConfig(PretrainedConfig):
         resource = RESOURCE_MAP[version]
         self.patch_size = patch_size or resource.patch_size
         self.max_resolution = max_resolution or resource.max_resolution
-        self.preferred_resolution = (
-            preferred_resolution or resource.preferred_resolution
-        )
+        self.preferred_resolution = preferred_resolution or resource.preferred_resolution
         self.adaptor_names = adaptor_names
         self.adaptor_configs = adaptor_configs
         self.vitdet_window_size = vitdet_window_size
         self.feature_normalizer_config = feature_normalizer_config
         self.inter_feature_normalizer_config = inter_feature_normalizer_config
         super().__init__(**kwargs)
-
 
 
 class RADIOModel(PreTrainedModel):
@@ -138,7 +133,8 @@ class RADIOModel(PreTrainedModel):
                 config.inter_feature_normalizer_config["num_intermediates"],
                 config.inter_feature_normalizer_config["embed_dim"],
                 rot_per_layer=config.inter_feature_normalizer_config["rot_per_layer"],
-                dtype=dtype)
+                dtype=dtype,
+            )
 
         self.radio_model = RADIOModelBase(
             model,
