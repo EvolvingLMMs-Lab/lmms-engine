@@ -137,11 +137,11 @@ def apply_liger_kernel_to_llava_onevision1_5(
 
     # Apply liger kernel to the text model (language_model)
     apply_liger_kernel_to_llavatext(
-    	rope=rope,
-    	cross_entropy=cross_entropy,
-    	fused_linear_cross_entropy=False,  # Already handled at the top level
-    	rms_norm=rms_norm,
-    	swiglu=swiglu,
-    	model=language_model,
-    	use_rmpad=use_rmpad,
+        rope=rope,
+        cross_entropy=cross_entropy,
+        fused_linear_cross_entropy=False,  # Already handled at the top level
+        rms_norm=rms_norm,
+        swiglu=swiglu,
+        model=language_model,
+        use_rmpad=use_rmpad,
     )
