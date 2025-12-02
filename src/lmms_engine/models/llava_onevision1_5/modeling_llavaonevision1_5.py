@@ -28,22 +28,39 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch.nn import LayerNorm
-
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
+from transformers.cache_utils import (
+    Cache,
+    DynamicCache,
+    SlidingWindowCache,
+    StaticCache,
+)
 from transformers.generation import GenerationMixin
+from transformers.integrations import use_kernel_forward_from_hub
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.modeling_flash_attention_utils import flash_attn_supports_top_left_mask, is_flash_attn_available
+from transformers.modeling_flash_attention_utils import (
+    FlashAttentionKwargs,
+    flash_attn_supports_top_left_mask,
+    is_flash_attn_available,
+)
 from transformers.modeling_outputs import BaseModelOutputWithPast, ModelOutput
 from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
 from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import auto_docstring, can_return_tuple, is_torch_flex_attn_available, is_torchdynamo_compiling, logging
-from transformers.integrations import use_kernel_forward_from_hub
 from transformers.processing_utils import Unpack
-from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-from transformers import AutoModelForCausalLM, AutoConfig
-from .configuration_llavaonevision1_5 import Llavaonevision1_5Config, LLaVAOneVision1_5_TextConfig, RiceConfig
+from transformers.utils import (
+    auto_docstring,
+    can_return_tuple,
+    is_torch_flex_attn_available,
+    is_torchdynamo_compiling,
+    logging,
+)
 
+from .configuration_llavaonevision1_5 import (
+    LLaVAOneVision1_5_TextConfig,
+    Llavaonevision1_5Config,
+    RiceConfig,
+)
 
 if is_flash_attn_available():
     from flash_attn import flash_attn_varlen_func
@@ -51,7 +68,6 @@ if is_flash_attn_available():
 
 if is_torch_flex_attn_available():
     from torch.nn.attention.flex_attention import BlockMask
-
     from transformers.integrations.flex_attention import make_flex_block_causal_mask
 
 
@@ -174,6 +190,7 @@ def rotate_half(x):
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
+
 def apply_rotary_pos_emb_vision(
     q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -186,6 +203,7 @@ def apply_rotary_pos_emb_vision(
     q_embed = q_embed.to(orig_q_dtype)
     k_embed = k_embed.to(orig_k_dtype)
     return q_embed, k_embed
+
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     """Applies Rotary Position Embedding to the query and key tensors.
@@ -236,7 +254,7 @@ class RicePatchEmbed(nn.Module):
     ) -> None:
         super().__init__()
         self.patch_size = patch_size
-        self.temporal_patch_size = 1 # FIXME
+        self.temporal_patch_size = 1  # FIXME
         self.in_channels = in_channels
         self.embed_dim = embed_dim
 
@@ -245,9 +263,7 @@ class RicePatchEmbed(nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         target_dtype = self.proj.weight.dtype
-        hidden_states = hidden_states.view(
-            -1, self.in_channels, self.patch_size, self.patch_size
-        )
+        hidden_states = hidden_states.view(-1, self.in_channels, self.patch_size, self.patch_size)
         hidden_states = self.proj(hidden_states.to(dtype=target_dtype)).view(-1, self.embed_dim)
         return hidden_states
 
@@ -426,9 +442,7 @@ class RiceBlock(nn.Module):
         self.norm2 = LayerNorm(config.hidden_size, eps=1e-5)
         mlp_hidden_dim = int(config.intermediate_size)
 
-        self.attn = RICE_ATTENTION_CLASSES[attn_implementation](
-            config.hidden_size, num_heads=config.num_heads
-        )
+        self.attn = RICE_ATTENTION_CLASSES[attn_implementation](config.hidden_size, num_heads=config.num_heads)
         self.mlp = RiceMlp(dim=config.hidden_size, hidden_dim=mlp_hidden_dim, hidden_act=config.hidden_act)
 
     def forward(
@@ -467,7 +481,6 @@ class LLaVAOneVision1_5_RMSNorm(nn.Module):
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
-
 
 
 class LLaVAOneVision1_5_MLP(nn.Module):
@@ -528,8 +541,12 @@ class LLaVAOneVision1_5_Attention(nn.Module):
         self.o_proj = nn.Linear(
             config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
         )
-        self.q_norm = LLaVAOneVision1_5_RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = LLaVAOneVision1_5_RMSNorm(self.head_dim, eps=config.rms_norm_eps)  # thus post q_norm does not need reshape
+        self.q_norm = LLaVAOneVision1_5_RMSNorm(
+            self.head_dim, eps=config.rms_norm_eps
+        )  # unlike olmo, only on the head dim!
+        self.k_norm = LLaVAOneVision1_5_RMSNorm(
+            self.head_dim, eps=config.rms_norm_eps
+        )  # thus post q_norm does not need reshape
         self.sliding_window = config.sliding_window if config.layer_types[layer_idx] == "sliding_attention" else None
 
     def forward(
@@ -539,7 +556,6 @@ class LLaVAOneVision1_5_Attention(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
-
         position_ids: Optional[torch.LongTensor] = None,
         output_attentions: bool = False,
         use_cache: bool = False,
@@ -560,7 +576,7 @@ class LLaVAOneVision1_5_Attention(nn.Module):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-        
+
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
@@ -925,18 +941,19 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         head_dim = config.hidden_size // config.num_heads
         self.rotary_pos_emb = RiceRotaryEmbedding(head_dim // 2)
 
-        scale = config.hidden_size ** -0.5
+        scale = config.hidden_size**-0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(config.hidden_size))
         self.class_pos_emb = nn.Parameter(torch.randn(1, head_dim // 2))
         # self.window_size = config.window_size
         self.window_size = None
 
         self.pre_layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.blocks = nn.ModuleList(
-            [RiceBlock(config, config._attn_implementation) for _ in range(config.depth)]
-        )
+        self.blocks = nn.ModuleList([RiceBlock(config, config._attn_implementation) for _ in range(config.depth)])
         self.merger = RicePatchMerger(
-            dim=config.text_hidden_size, context_dim=config.hidden_size, spatial_merge_size=config.spatial_merge_size, layer_norm_eps = config.layer_norm_eps
+            dim=config.text_hidden_size,
+            context_dim=config.hidden_size,
+            spatial_merge_size=config.spatial_merge_size,
+            layer_norm_eps=config.layer_norm_eps,
         )
         self.gradient_checkpointing = False
 
@@ -974,7 +991,7 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size)
         rotary_pos_emb = rotary_pos_emb_full[pos_ids].flatten(1)
         return rotary_pos_emb
-    
+
     def get_window_index(self, grid_thw):
         window_index: list = []
         cu_window_seqlens: list = [0]
@@ -1025,7 +1042,7 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         hidden_states = self.patch_embed(hidden_states)
         rotary_pos_emb = self.rot_pos_emb(grid_thw)
         img_feats = hidden_states.shape[0]
-        
+
         cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).cumsum(
             dim=0,
             # Select dtype based on the following factors:
@@ -1048,18 +1065,18 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         write_ptr = 0
         new_cu = [0]
         for i in range(1, num_segments + 1):
-            seg_start = cu[i-1].item()
+            seg_start = cu[i - 1].item()
             seg_end = cu[i].item()
             seg_len = seg_end - seg_start
             new_hidden[write_ptr] = cls_token
             new_rotary_pos_emb[write_ptr] = self.class_pos_emb
-            new_hidden[write_ptr + 1: write_ptr + 1 + seg_len] = hidden_states[seg_start:seg_end]
-            new_rotary_pos_emb[write_ptr + 1: write_ptr + 1 + seg_len] = rotary_pos_emb[seg_start:seg_end]
+            new_hidden[write_ptr + 1 : write_ptr + 1 + seg_len] = hidden_states[seg_start:seg_end]
+            new_rotary_pos_emb[write_ptr + 1 : write_ptr + 1 + seg_len] = rotary_pos_emb[seg_start:seg_end]
             write_ptr += 1 + seg_len
             new_cu.append(write_ptr)
 
         hidden_states = new_hidden
-        cu_seqlens = torch.tensor(new_cu, device=hidden_states.device, dtype=torch.int32) 
+        cu_seqlens = torch.tensor(new_cu, device=hidden_states.device, dtype=torch.int32)
         rotary_pos_emb = new_rotary_pos_emb
 
         hidden_states = self.pre_layernorm(hidden_states)
@@ -1074,13 +1091,13 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
                 )
             else:
                 hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, position_embeddings=position_embeddings)
-        
+
         new_hidden = hidden_states.new_empty((img_feats, D))
 
         for i in range(1, num_segments + 1):
-            seg_start = cu[i-1].item()
+            seg_start = cu[i - 1].item()
             seg_end = cu[i].item()
-            new_hidden[seg_start:seg_end] = hidden_states[seg_start+1:seg_end+1]
+            new_hidden[seg_start:seg_end] = hidden_states[seg_start + 1 : seg_end + 1]
         hidden_states = new_hidden
 
         return self.merger(hidden_states)
@@ -1675,7 +1692,6 @@ class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-
         outputs = self.language_model(
             input_ids=None,
             position_ids=position_ids,
@@ -2068,4 +2084,9 @@ class LLaVAOneVision1_5_ForConditionalGeneration(Qwen2VLPreTrainedModel, Generat
         return input_ids, model_kwargs
 
 
-__all__ = ["LLaVAOneVision1_5_ForConditionalGeneration", "LLaVAOneVision1_5_Model", "Qwen2VLPreTrainedModel", "LLaVAOneVision1_5_TextModel"]
+__all__ = [
+    "LLaVAOneVision1_5_ForConditionalGeneration",
+    "LLaVAOneVision1_5_Model",
+    "Qwen2VLPreTrainedModel",
+    "LLaVAOneVision1_5_TextModel",
+]

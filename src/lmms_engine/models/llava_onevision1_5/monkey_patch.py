@@ -16,13 +16,12 @@ except:
     print("liger kernel not installed, please install it with `pip install liger-kernel`")
 
 import transformers
+from loguru import logger
 from transformers import PreTrainedModel
 
-from loguru import logger
-
-from lmms_engine.models.qwen3.monkey_patch import apply_liger_kernel_to_qwen3
 from lmms_engine.models.aero.monkey_patch import apply_liger_kernel_to_aero
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
+from lmms_engine.models.qwen3.monkey_patch import apply_liger_kernel_to_qwen3
 
 transformer_version = version.parse(transformers.__version__)
 SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
@@ -47,12 +46,12 @@ def apply_liger_kernel_to_llavatext(
         cross_entropy and fused_linear_cross_entropy
     ), "cross_entropy and fused_linear_cross_entropy cannot both be True."
 
-    from .modeling_llavaonevision1_5 import LLaVAOneVision1_5_TextModel
     from . import modeling_llavaonevision1_5
+    from .modeling_llavaonevision1_5 import LLaVAOneVision1_5_TextModel
 
     if rope:
         modeling_llavaonevision1_5.apply_rotary_pos_emb = liger_rotary_pos_emb
-    
+
     if rms_norm:
         modeling_llavaonevision1_5.LLaVAOneVision1_5_RMSNorm = LigerRMSNorm
 
@@ -69,15 +68,11 @@ def apply_liger_kernel_to_llavatext(
         modeling_llavaonevision1_5.LLaVAOneVision1_5_MLP = LigerSwiGLUMLP
 
     if use_rmpad:
-        from .llava_onevision1_5_ops import (
-            attn_forward as llavatext_ops_attn_forward,
-        )
+        from .llava_onevision1_5_ops import attn_forward as llavatext_ops_attn_forward
         from .llava_onevision1_5_ops import (
             decoder_layer_forward as llavatext_ops_decoder_layer_forward,
         )
-        from .llava_onevision1_5_ops import (
-            model_forward as llavatext_ops_model_forward,
-        )
+        from .llava_onevision1_5_ops import model_forward as llavatext_ops_model_forward
 
         modeling_llavaonevision1_5.LLaVAOneVision1_5_TextModel.forward = llavatext_ops_model_forward
         modeling_llavaonevision1_5.LLaVAOneVision1_5_DecoderLayer.forward = llavatext_ops_decoder_layer_forward
@@ -112,41 +107,41 @@ def apply_liger_kernel_to_llavatext(
 
 @MONKEY_PATCHER.register("llavaonevision1_5", "liger")
 def apply_liger_kernel_to_llava_onevision1_5(
-	rope: bool = True,
-	cross_entropy: bool = False,
-	fused_linear_cross_entropy: bool = True,
-	rms_norm: bool = True,
-	swiglu: bool = True,
-	model: PreTrainedModel = None,
-	use_rmpad: bool = True,
+    rope: bool = True,
+    cross_entropy: bool = False,
+    fused_linear_cross_entropy: bool = True,
+    rms_norm: bool = True,
+    swiglu: bool = True,
+    model: PreTrainedModel = None,
+    use_rmpad: bool = True,
 ) -> None:
-	from .modeling_llavaonevision1_5 import LLaVAOneVision1_5_ForConditionalGeneration
+    from .modeling_llavaonevision1_5 import LLaVAOneVision1_5_ForConditionalGeneration
 
-	if fused_linear_cross_entropy:
-		from .llava_onevision1_5_liger import forward as llava_onevision1_5_forward
+    if fused_linear_cross_entropy:
+        from .llava_onevision1_5_liger import forward as llava_onevision1_5_forward
 
-		if use_rmpad:
+        if use_rmpad:
 
-			def wrap_forward(func):
-				@wraps(func)
-				def wrapper(*args, **kwargs):
-					return func(use_rmpad=use_rmpad, *args, **kwargs)
+            def wrap_forward(func):
+                @wraps(func)
+                def wrapper(*args, **kwargs):
+                    return func(use_rmpad=use_rmpad, *args, **kwargs)
 
-				return wrapper
+                return wrapper
 
-			llava_onevision1_5_forward = wrap_forward(llava_onevision1_5_forward)
+            llava_onevision1_5_forward = wrap_forward(llava_onevision1_5_forward)
 
-		LLaVAOneVision1_5_ForConditionalGeneration.forward = llava_onevision1_5_forward
+        LLaVAOneVision1_5_ForConditionalGeneration.forward = llava_onevision1_5_forward
 
-	language_model = getattr(model, "language_model", None) if model is not None else None
+    language_model = getattr(model, "language_model", None) if model is not None else None
 
-	# Apply liger kernel to the text model (language_model)
-	apply_liger_kernel_to_llavatext(
-		rope=rope,
-		cross_entropy=cross_entropy,
-		fused_linear_cross_entropy=False,  # Already handled at the top level
-		rms_norm=rms_norm,
-		swiglu=swiglu,
-		model=language_model,
-		use_rmpad=use_rmpad,
-	)
+    # Apply liger kernel to the text model (language_model)
+    apply_liger_kernel_to_llavatext(
+    	rope=rope,
+    	cross_entropy=cross_entropy,
+    	fused_linear_cross_entropy=False,  # Already handled at the top level
+    	rms_norm=rms_norm,
+    	swiglu=swiglu,
+    	model=language_model,
+    	use_rmpad=use_rmpad,
+    )

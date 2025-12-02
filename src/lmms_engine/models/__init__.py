@@ -4,6 +4,11 @@ from .config import ModelConfig
 from .dream_dllm import DreamDLLMConfig, DreamDLLMForMaskedLM
 from .llada_dllm import LLaDADLLMConfig, LLaDADLLMForMaskedLM
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
+from .llava_onevision1_5 import (
+    LLaVAOneVision1_5_ForConditionalGeneration,
+    Llavaonevision1_5Config,
+    apply_liger_kernel_to_llava_onevision1_5,
+)
 from .monkey_patch import MONKEY_PATCHER
 from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_omni import (
@@ -29,11 +34,6 @@ from .wanvideo import (
     WanVideoConfig,
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
-)
-from .llava_onevision1_5 import (
-    Llavaonevision1_5Config,
-    LLaVAOneVision1_5_ForConditionalGeneration,
-    apply_liger_kernel_to_llava_onevision1_5,
 )
 
 __all__ = [

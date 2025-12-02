@@ -5,6 +5,7 @@ from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
+
 class RiceConfig(PretrainedConfig):
     model_type = "rice_vit"
     base_config_key = "vision_config"
@@ -270,5 +271,6 @@ class Llavaonevision1_5Config(PretrainedConfig):
         self.vocab_size = vocab_size
 
         super().__init__(**kwargs)
+
 
 __all__ = ["Llavaonevision1_5Config", "LLaVAOneVision1_5_TextConfig"]

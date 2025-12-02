@@ -107,32 +107,17 @@ def model_forward(
     if position_ids is None:
         # the hard coded `3` is for temporal, height and width.
         position_ids = cache_position.view(1, 1, -1).expand(3, bs, -1)
-    
-    # Unpad position_ids for sequence packing
-    # position_ids shape: (3, batch_size, seq_len)
-    position_ids_unpacked = []
-    for i in range(3):
-        pos_ids = position_ids[i]  # (batch_size, seq_len)
-        pos_ids_flat = index_first_axis(
-            rearrange(pos_ids.unsqueeze(-1), "b s ... -> (b s) ..."), 
-            indices
-        ).transpose(0, 1)
-        position_ids_unpacked.append(pos_ids_flat)
-    
-    position_ids = torch.stack(position_ids_unpacked, dim=0)  # (3, total_tokens, 1)
+    elif position_ids.dim() == 2:
+        position_ids = position_ids[None, ...].expand(3, -1, -1)
 
-    # Pad the position ids according to the original input ids for Ulysses SP
-    if get_ulysses_sequence_parallel_world_size() > 1:
-        position_ids_list = []
-        for i in range(3):
-            _, pos_ids_padded, pad_size = ulysses_pad(
-                input_ids_rmpad,
-                position_ids[i],
-                sp_size=get_ulysses_sequence_parallel_world_size(),
-            )
-            position_ids_list.append(pos_ids_padded)
-        position_ids = torch.stack(position_ids_list, dim=0)
-    
+    position_ids = position_ids.permute(1, 2, 0)
+
+    position_ids = rearrange(position_ids, "b s d -> (b s) d")
+
+    position_ids = index_first_axis(position_ids, indices)  # -> (packed_len, 3)
+
+    position_ids = position_ids.transpose(0, 1)
+
     hidden_states = inputs_embeds
 
     # create position embeddings to be shared across the decoder layers
@@ -234,9 +219,9 @@ def attn_forward(
     query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape))
     key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
     value_states = self.v_proj(hidden_states).view(hidden_shape)
-    
+
     cos, sin = position_embeddings
-    
+
     ########## AlltoAll for Ulysses ##########
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     if ulysses_sp_size > 1:
@@ -251,7 +236,7 @@ def attn_forward(
         query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
         key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
         value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-        
+
         # Update cu_seq_lens if padding is used
         if cu_seq_lens.max().item() < query_states.shape[0]:
             cu_seq_lens = torch.cat(
@@ -282,10 +267,10 @@ def attn_forward(
         # This is mainly for inference/generation
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
         key_states, value_states = past_key_value.update(
-            key_states.unsqueeze(0).transpose(1, 2), 
-            value_states.unsqueeze(0).transpose(1, 2), 
-            self.layer_idx, 
-            cache_kwargs
+            key_states.unsqueeze(0).transpose(1, 2),
+            value_states.unsqueeze(0).transpose(1, 2),
+            self.layer_idx,
+            cache_kwargs,
         )
         key_states = key_states.transpose(1, 2).squeeze(0)
         value_states = value_states.transpose(1, 2).squeeze(0)
@@ -301,7 +286,7 @@ def attn_forward(
 
     # Calculate max sequence length
     max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
-    
+
     # Flash Attention with variable-length sequences
     dropout_rate = 0.0 if not self.training else self.attention_dropout
     attn_output = flash_attn_varlen_func(
@@ -317,11 +302,6 @@ def attn_forward(
         softmax_scale=self.head_dim**-0.5,
         dropout_p=dropout_rate,
     )
-
-    ########## AlltoAll for Ulysses ##########
-    if ulysses_sp_size > 1:
-        # (seq_len, n_head/n, head_dim) -> (seq_len/n, n_head, head_dim)
-        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
 
     # Reshape and project output
     attn_output = attn_output.reshape(-1, self.config.num_attention_heads * self.head_dim).contiguous()
