@@ -470,7 +470,7 @@ class FSDP2SFTTrainer:
         self.optimizer.load_state_dict(torch.load(optim_path, weights_only=False))
         extra_state = torch.load(extra_state_path, weights_only=False)
         self.total_tokens = extra_state["total_tokens"]
-        self.accumulated_grad_steps = extra_state["accumulated_grad_steps"]
+        self.accumulated_grad_steps = extra_state.get("accumulated_grad_steps", 0)
         self.load_rng_state(extra_state["rng"])
         self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
         self.train_dataloader.load_state_dict(torch.load(dataloader_state_path, weights_only=False))
