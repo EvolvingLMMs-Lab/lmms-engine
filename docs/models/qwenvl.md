@@ -378,7 +378,7 @@ torchrun --nproc_per_node=8 \
     hydra.output_subdir=null
 ```
 
-During multi-node training, if two machines start simultaneously, Hydra runs into a conflict and crashes. The main reason is that Hydra's default working dir is [precise to the second](https://hydra.cc/docs/configure_hydra/workdir/), which causes an error. `hydra.output_subdir=null` is used to avoid this issue.
+In multi-node training, simultaneous starts cause Hydra conflicts due to [timestamped working directories](https://hydra.cc/docs/configure_hydra/workdir/). Use `hydra.output_subdir=null` to fix this.
 
 ## Model Architecture Details
 
