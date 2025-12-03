@@ -201,31 +201,41 @@ class FSDP2SFTTrainer:
 
     def training_step(self, batch):
         self.fsdp2_model.train()
-        self.optimizer.zero_grad()
+        if self.accumulated_grad_steps == 0:
+            self.optimizer.zero_grad()
         loss = self.compute_loss(batch)
         if dist.get_world_size() > 1:
             loss = loss.mean()
-        loss_item = loss.item()
+        loss = loss / self.args.gradient_accumulation_steps
+        loss_item = loss.item() * self.args.gradient_accumulation_steps
         loss.backward()
-        grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
-        # if grad_norm is not finite, skip the update
-        if not torch.isfinite(grad_norm):
-            print(f"WARN: grad_norm is not finite: {grad_norm}")
-            self.optimizer.zero_grad()
-        else:
-            self.optimizer.step()
+        self.accumulated_grad_steps += 1
+        should_update = self.accumulated_grad_steps >= self.args.gradient_accumulation_steps
+        grad_norm = None
+        if should_update:
+            grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
+            # if grad_norm is not finite, skip the update
+            if not torch.isfinite(grad_norm):
+                print(f"WARN: grad_norm is not finite: {grad_norm}")
+                self.optimizer.zero_grad()
+            else:
+                self.optimizer.step()
 
-        self.scheduler.step()
+            self.scheduler.step()
+            self.accumulated_grad_steps = 0
 
         # reduce loss across dp ranks
         lr = self.scheduler.get_last_lr()[0]
         loss_item = torch.tensor(loss_item, device=self.args.device)
         torch.distributed.all_reduce(loss_item, op=torch.distributed.ReduceOp.AVG)
-        return {
+        metrics = {
             "train/loss": loss_item.item(),
             "train/lr": lr,
-            "train/grad_norm": grad_norm.item(),
         }
+        if grad_norm is not None:
+            metrics["train/grad_norm"] = grad_norm.item()
+
+        return metrics
 
     def validation_step(self):
         pass
@@ -328,26 +338,29 @@ class FSDP2SFTTrainer:
                 train_metrics.update(perf_metrics)
                 self.print_batch_input(batch)
 
+                is_accumulation_complete = self.accumulated_grad_steps == 0
+
                 if self.steps_per_epoch is not None and self.steps_per_epoch > 0:
                     epoch_progress = f"{self.global_step / self.steps_per_epoch:.2f}"
                     train_metrics["train/epoch"] = float(epoch_progress)
-                if rank == 0:
-                    self.tracking.log(train_metrics, step=self.global_step)
-                self.global_step += 1
-                if self.should_save:
-                    output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
-                    self.save_checkpoints(
-                        output_dir,
-                        self.global_step,
-                        total_limit=self.args.save_total_limit,
-                    )
+                if is_accumulation_complete:
+                    if rank == 0:
+                        self.tracking.log(train_metrics, step=self.global_step)
+                    self.global_step += 1
+                    if self.should_save:
+                        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
+                        self.save_checkpoints(
+                            output_dir,
+                            self.global_step,
+                            total_limit=self.args.save_total_limit,
+                        )
 
-                if (
-                    self.args.torch_empty_cache_steps is not None
-                    and self.global_step % self.args.torch_empty_cache_steps == 0
-                ):
-                    self.empty_cache()
-                pbar.update(1)
+                    if (
+                        self.args.torch_empty_cache_steps is not None
+                        and self.global_step % self.args.torch_empty_cache_steps == 0
+                    ):
+                        self.empty_cache()
+                    pbar.update(1)
             curr_epoch += 1
 
             if self.eval_dataset is not None:
@@ -411,6 +424,7 @@ class FSDP2SFTTrainer:
             "lr_scheduler_state": self.scheduler.state_dict(),
             "rng": self.get_rng_state(),
             "total_tokens": self.total_tokens,
+            "accumulated_grad_steps": self.accumulated_grad_steps,
         }
         torch.save(extra_state, extra_state_path)
         torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
@@ -456,6 +470,7 @@ class FSDP2SFTTrainer:
         self.optimizer.load_state_dict(torch.load(optim_path, weights_only=False))
         extra_state = torch.load(extra_state_path, weights_only=False)
         self.total_tokens = extra_state["total_tokens"]
+        self.accumulated_grad_steps = extra_state["accumulated_grad_steps"]
         self.load_rng_state(extra_state["rng"])
         self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
         self.train_dataloader.load_state_dict(torch.load(dataloader_state_path, weights_only=False))
