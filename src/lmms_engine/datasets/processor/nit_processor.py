@@ -75,10 +75,11 @@ class NitDataProcessor:
 
     def process(
         self,
-        image: Image.Image,
-        class_id: int,
+        row: dict,
         **kwargs,
     ):
+        image = row["image"]
+        label = row["label"]
         processed_image = self.transform(image.convert("RGB"))  # (C, H, W)
 
         # Calculate tokens
@@ -88,6 +89,6 @@ class NitDataProcessor:
         w_tokens = w // self.config.vae_downsample_factor
         num_tokens = h_tokens * w_tokens * self.config.vae_num_channels
 
-        inputs = {"processed_image": processed_image, "num_tokens": num_tokens, "class_id": class_id}
+        inputs = {"processed_image": processed_image, "num_tokens": num_tokens, "label": label}
 
         return inputs
