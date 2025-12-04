@@ -157,8 +157,43 @@ class NitDataset:
         self.dataset = self.dataset.map(self.processor.process, num_proc=self.config.processor_workers)
         self.data_lens = self.dataset["num_tokens"]
 
+        if self.config.packing:
+            histogram = np.zeros(self.config.packing_length + 1, dtype=int)
+            for length in self.data_lens:
+                if length <= self.config.packing_length:
+                    histogram[length] += 1
+
+            max_sequences_per_pack = getattr(self.config, "max_sequences_per_pack", "max")
+            strategy_set, strategy_repeat_count = LPFHP(
+                histogram,
+                self.config.packing_length,
+                max_sequences_per_pack=max_sequences_per_pack,
+                distribute=True,
+            )
+
+            indices_by_length = defaultdict(list)
+            for idx, length in enumerate(self.data_lens):
+                if length <= self.config.packing_length:
+                    indices_by_length[length].append(idx)
+
+            self.packed_indices = []
+            for count, pack in zip(strategy_repeat_count, strategy_set):
+                for _ in range(count):
+                    current_pack_indices = []
+                    for length in pack:
+                        if indices_by_length[length]:
+                            current_pack_indices.append(indices_by_length[length].pop())
+                        else:
+                            raise ValueError(f"Not enough sequences of length {length} for packing.")
+                    self.packed_indices.append(current_pack_indices)
+
     def __getitem__(self, index):
+        if self.config.packing:
+            indices = self.packed_indices[index]
+            return [self.dataset[idx] for idx in indices]
         return self.dataset[index]
 
     def __len__(self):
+        if self.config.packing:
+            return len(self.packed_indices)
         return len(self.dataset)
