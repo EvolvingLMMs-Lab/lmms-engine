@@ -10,9 +10,10 @@ from lmms_engine.mapping_func import register_dataset
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 # modified from https://github.com/graphcore/examples/blob/v3.2.0/tutorials/blogs_code/packedBERT/lpfhp.py
 """Longest-pack-first histogram-packing."""
-from collections import defaultdict
-import numpy as np
 import time
+from collections import defaultdict
+
+import numpy as np
 
 
 def add_pack(pack, count, tmp, final, limit, offset, max_sequence_length=512):
@@ -135,6 +136,7 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
     )
 
     return strategy_set, strategy_repeat_count
+
 
 #############################################
 #                   NitDataset              #
