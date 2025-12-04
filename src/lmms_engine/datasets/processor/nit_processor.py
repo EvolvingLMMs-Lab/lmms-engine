@@ -52,11 +52,10 @@ class NitDataProcessor:
 
     def process(
         self,
-        x: Image.Image,
-        y: int,
+        image: Image.Image,
     ):
-        x = self.transform(x)
-        return x, y
+        image = self.transform(image)
+        return image
 
     def save_pretrained(self, output_dir: str):
         pass
