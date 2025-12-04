@@ -498,7 +498,7 @@ class FSDP2SFTTrainer:
             self.steps_per_epoch = self.args.max_steps
             self.total_steps = self.args.max_steps
         else:
-            self.steps_per_epoch = len(self.train_dataloader)
+            self.steps_per_epoch = len(self.train_dataloader) // self.args.gradient_accumulation_steps
             self.total_steps = (
                 self.steps_per_epoch * self.args.num_train_epochs if self.args.max_steps < 0 else self.args.max_steps
             )
