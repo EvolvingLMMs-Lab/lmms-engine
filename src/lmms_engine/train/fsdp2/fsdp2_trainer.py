@@ -71,6 +71,7 @@ class FSDP2SFTTrainer:
             profiler_config=self.profiler_config,
             rank=dist.get_rank(),
         )
+        self.accumulated_grad_steps = 0
 
     def prepare_dataloader(self, dataset: DatasetType, is_training: bool = True):
         data_collator = self.data_collator

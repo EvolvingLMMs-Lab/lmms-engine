@@ -30,9 +30,9 @@ def main():
             "dataset_format": "yaml",
             "datasets": [
                 {
-                    "path": "data/lmms_engine_test/text_example/open_thoughts_5k.parquet",
+                    "path": "data/open_thoughts_debug",
                     "data_folder": "",
-                    "data_type": "parquet",
+                    "data_type": "arrow",
                 }
             ],
             "processor_config": {
