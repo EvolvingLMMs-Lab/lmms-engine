@@ -935,7 +935,7 @@ class Bagel(PreTrainedModel):
 
         timesteps = torch.linspace(1, 0, num_timesteps, device=x_t.device)
         timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
-        dts = timesteps[:-1] - timesteps[1:]
+        dts = timesteps[1:] - timesteps[:-1]  # 正确：应该是负值 (下一步时间 - 当前时间)
         timesteps = timesteps[:-1]
 
         all_latents = []
