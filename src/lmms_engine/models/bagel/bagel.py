@@ -343,6 +343,14 @@ class Bagel(PreTrainedModel):
             **extra_inputs,
         )
 
+        # Inference mode: return logits when labels are not provided
+        if packed_label_ids is None:
+            logits = self.language_model.lm_head(last_hidden_state)
+            return {
+                "logits": logits,
+                "last_hidden_state": last_hidden_state,
+            }
+
         mse = None
         if need_visual_gen:
             packed_mse_preds = self.llm2vae(last_hidden_state[mse_loss_indexes])
@@ -872,7 +880,7 @@ class Bagel(PreTrainedModel):
 
         return generation_input
 
-    # @torch.no_grad
+    @torch.no_grad
     def generate_image(
         self,
         packed_text_ids: torch.LongTensor,
