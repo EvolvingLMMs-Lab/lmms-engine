@@ -1,9 +1,8 @@
 NGPUS=2
 
-# . .venv/bin/activate
+. .venv/bin/activate
 
 # Training command
-# /mnt/umm/users/pufanyi/workspace/lmms-engine/.venv/bin/torchrun --nproc_per_node=${NGPUS} \
 torchrun --nproc_per_node=${NGPUS} \
   --nnodes=1 \
   --node_rank=0 \

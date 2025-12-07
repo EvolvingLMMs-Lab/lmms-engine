@@ -2,13 +2,15 @@ import time
 from collections import defaultdict
 
 import numpy as np
+import torch
 from datasets import load_dataset
 from loguru import logger
+from tqdm import tqdm
 
 from lmms_engine.datasets.config import DatasetConfig
 from lmms_engine.mapping_func import register_dataset
 
-from ..processor.nit_processor import NitProcessor
+from .base_dataset import BaseDataset
 
 #############################################
 #                   LPFHP                   #
@@ -51,13 +53,9 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
         while n_sequences_to_bin > 0:
             if (length_to_bin + offset) in tmp_strategies_per_length:
                 # extract worst pack that will get modified
-                n_sequences_to_pack, pack = tmp_strategies_per_length[
-                    length_to_bin + offset
-                ].pop()
+                n_sequences_to_pack, pack = tmp_strategies_per_length[length_to_bin + offset].pop()
                 # calculate how often the current sequence maximally fits in
-                repeat = min(
-                    1 + offset // length_to_bin, max_sequences_per_pack - len(pack)
-                )
+                repeat = min(1 + offset // length_to_bin, max_sequences_per_pack - len(pack))
                 # correct dependent on count
                 while n_sequences_to_bin // repeat == 0:
                     repeat -= 1
@@ -68,9 +66,7 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
                 if n_sequences_to_pack > count:
                     # old pack gets reduced
                     n_sequences_to_pack -= count
-                    tmp_strategies_per_length[length_to_bin + offset].append(
-                        (n_sequences_to_pack, pack)
-                    )
+                    tmp_strategies_per_length[length_to_bin + offset].append((n_sequences_to_pack, pack))
                     n_sequences_to_bin -= count * repeat
                 else:
                     n_sequences_to_bin -= n_sequences_to_pack * repeat
@@ -93,9 +89,7 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
             # Does not fit anywhere. Create new pack.
             if offset >= max_sequence_length - length_to_bin + 1:
                 # similar repetition but no dependence on pack.
-                repeat = min(
-                    max_sequence_length // length_to_bin, max_sequences_per_pack
-                )
+                repeat = min(max_sequence_length // length_to_bin, max_sequences_per_pack)
                 while n_sequences_to_bin // repeat == 0:
                     repeat -= 1
                 if not distribute:
@@ -132,16 +126,11 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
     # sequences = sum([count * len(pack) for count, pack in zip(strategy_repeat_count, strategy_set)])
     total_tokens = max_sequence_length * new_number_of_samples
     empty_tokens = sum(
-        [
-            count * (max_sequence_length - sum(pack))
-            for count, pack in zip(strategy_repeat_count, strategy_set)
-        ]
+        [count * (max_sequence_length - sum(pack)) for count, pack in zip(strategy_repeat_count, strategy_set)]
     )
     efficiency = 100 - empty_tokens / total_tokens * 100
     speedup_upper_bound = 1.0 / (
-        1
-        - (histogram * (1 - sequence_lengths / max_sequence_length)).sum()
-        / old_number_of_samples
+        1 - (histogram * (1 - sequence_lengths / max_sequence_length)).sum() / old_number_of_samples
     )
 
     print(
@@ -160,14 +149,26 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
 
 
 @register_dataset("nit")
-class NitDataset:
+class NitDataset(BaseDataset):
     def __init__(self, config: DatasetConfig) -> None:
-        self.config: DatasetConfig = config
-        self.processor: NitProcessor = NitProcessor(config.processor_config)
+        super().__init__(config)
 
-    def _build_from_config(self):
-        logger.info(f"Building NitDataset from config: {self.config}")
+    def generate_histogram(self, dataset_seq_lens):
+        histogram = np.zeros(self.config.packing_length, dtype=np.int64)
+        # Clip sequence lengths to valid range [1, packing_length]
+        clipped_lens = np.clip(np.array(dataset_seq_lens), 1, self.config.packing_length)
+        seq_lens, counts = np.unique(clipped_lens, return_counts=True)
+        histogram[seq_lens - 1] = counts
+        return histogram
+
+    def build(self):
         # A bit ugly, but it seems that I cannot merge with multimodal dataset
+        # The main reason is that I need processor to get the token length
+        self.processor = self._build_processor()
+        self.processor.build()
+        print("=" * 1000)
+
+        logger.info(f"Building NitDataset from config: {self.config}")
         if self.config.dataset_format == "hf_dataset":
             self.dataset = load_dataset(self.config.dataset_path, split="train")
         else:
@@ -176,46 +177,47 @@ class NitDataset:
         if self.config.shuffle:
             self.dataset = self.dataset.shuffle(seed=self.config.data_seed)
 
-        self.dataset = self.dataset.map(
-            self.processor.process, num_proc=self.config.processor_workers
-        )
-        self.data_lens = self.dataset["num_tokens"]
+        processor_workers = self.config.extra_kwargs.get("processor_workers", 8)
+        self.dataset = self.dataset.map(self.processor.process, num_proc=processor_workers)
 
         if self.config.packing:
-            histogram = np.zeros(self.config.packing_length + 1, dtype=int)
-            for length in self.data_lens:
-                if length <= self.config.packing_length:
-                    histogram[length] += 1
-            
+            self.data_lens = self.dataset["num_tokens"]
+
             assert self.config.packing_strategy == "lpfhp", "Only lpfhp is supported for now"
 
-            max_sequences_per_pack = getattr(
-                self.config, "max_sequences_per_pack", "max"
-            )
-            strategy_set, strategy_repeat_count = LPFHP(
+            histogram = self.generate_histogram(self.data_lens)
+
+            max_sequences_per_pack = getattr(self.config, "max_sequences_per_pack", "max")
+            logger.info(f"Using packing strategy: {self.config.packing_strategy}")
+            self.strategy_set, self.strategy_repeat_count = LPFHP(
                 histogram,
                 self.config.packing_length,
                 max_sequences_per_pack=max_sequences_per_pack,
                 distribute=True,
             )
 
-            indices_by_length = defaultdict(list)
-            for idx, length in enumerate(self.data_lens):
-                if length <= self.config.packing_length:
-                    indices_by_length[length].append(idx)
+            logger.info(f"Packing strategy: {self.strategy_set} {self.strategy_repeat_count}")
+
+            data_lens_array = np.clip(np.array(self.data_lens), 1, self.config.packing_length)
+            indices_array = np.arange(len(self.data_lens))
+            dataset_seqs = torch.tensor(np.stack([data_lens_array, indices_array]), dtype=torch.long)
 
             self.packed_indices = []
-            for count, pack in zip(strategy_repeat_count, strategy_set):
-                for _ in range(count):
-                    current_pack_indices = []
-                    for length in pack:
-                        if indices_by_length[length]:
-                            current_pack_indices.append(indices_by_length[length].pop())
-                        else:
-                            raise ValueError(
-                                f"Not enough sequences of length {length} for packing."
-                            )
-                    self.packed_indices.append(current_pack_indices)
+            run_iters = sum(self.strategy_repeat_count)
+            progress_bar = tqdm(range(run_iters))
+            for i in tqdm(range(len(self.strategy_repeat_count)), desc="Packing dataset..."):
+                strategy = self.strategy_set[i]
+                for _ in range(self.strategy_repeat_count[i]):
+                    progress_bar.update(1)
+                    ref_inds = []
+                    for x in strategy:
+                        ref_ind = torch.argwhere(dataset_seqs[0] == x)[-1]
+                        dataset_seqs[0, ref_ind] = -1
+                        ref_inds.append(ref_ind)
+                    inds = dataset_seqs[1, ref_inds].ravel()
+                    self.packed_indices.append(inds.tolist())
+
+        print("=" * 1000)
 
     def __getitem__(self, index):
         if self.config.packing:

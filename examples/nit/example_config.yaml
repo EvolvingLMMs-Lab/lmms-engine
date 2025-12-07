@@ -1,16 +1,17 @@
 trainer_type: fsdp2_trainer
 dataset_config:
-  extra_kwargs: {}
+  extra_kwargs:
+    processor_workers: 8
   dataset_type: nit
   dataset_format: hf_dataset
-  # processor_config:
-  #   processor_name: Qwen/Qwen3-VL-8B-Instruct
-  #   processor_type: nit
+  processor_config:
+    processor_name: ""
+    processor_type: nit
   dataset_path: pufanyi/imagenet-1k-sample-100
   shuffle: true
   object_storage: none
   bucket_name: null
-  packing: false
+  packing: true
   packing_strategy: lpfhp
   packing_length: 51200
 trainer_args:
