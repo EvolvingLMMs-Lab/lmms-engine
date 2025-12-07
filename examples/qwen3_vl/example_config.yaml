@@ -4,8 +4,8 @@ dataset_config:
   dataset_type: qwen3_vl_iterable
   dataset_format: yaml
   processor_config:
-    processor_name: Qwen/Qwen3-VL-8B-Instruct
-    processor_type: qwen3_vl
+    processor_name: ""
+    processor_type: nit
   dataset_path: data/video/debug.yaml
   datasets: null
   shuffle: true
