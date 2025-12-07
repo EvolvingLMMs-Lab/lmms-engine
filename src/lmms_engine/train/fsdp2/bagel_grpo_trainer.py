@@ -20,7 +20,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torchvision.transforms.functional as TF
 from accelerate.utils import send_to_device
 from loguru import logger
 from PIL import Image
@@ -487,6 +486,17 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         num_batches_per_epoch = self.grpo_config.sample.num_batches_per_epoch
         train_batch_size = self.grpo_config.sample.train_batch_size
 
+        # DEBUG: Log sampling configuration
+        if dist.get_rank() == 0:
+            logger.info(
+                f"[DEBUG] _sampling_phase: epoch={epoch}, num_batches_per_epoch={num_batches_per_epoch}, train_batch_size={train_batch_size}"
+            )
+
+        if num_batches_per_epoch <= 0:
+            logger.error(
+                f"[DEBUG] CRITICAL: num_batches_per_epoch={num_batches_per_epoch} is invalid! Sampling will be skipped!"
+            )
+
         for i in tqdm(
             range(num_batches_per_epoch),
             desc=f"Epoch {epoch}: sampling",
@@ -519,6 +529,11 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 return_tensors="pt",
             ).input_ids.to(self.fsdp2_model.device)
 
+            # Calculate and accumulate tokens for this batch
+            # In sampling phase, we generate 1 image per prompt
+            batch_tokens = self._calculate_tokens_for_batch(prompt_ids, num_images=1)
+            self.total_tokens += batch_tokens
+
             # Create generators for reproducible sampling
             generators = create_generators(prompts, base_seed=42)
 
@@ -549,10 +564,8 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                             **self._get_inference_hyperparams(),
                         )
 
-                    # Convert PIL Image to Tensor (C, H, W) in [0, 1]
-                    # This matches the format expected by train_bagel.py logic and log_sample_images
-                    img_tensor = TF.to_tensor(output_dict["image"])
-                    images.append(img_tensor)
+                    # Image is already tensor (C, H, W) in [0, 1], same as flow_grpo
+                    images.append(output_dict["image"])
                     latents.append(output_dict["all_latents"])
                     log_probs.append(output_dict["all_log_probs"])
                     timesteps.append(output_dict["timesteps"])
@@ -671,6 +684,20 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             for k in samples[0].keys()
         }
 
+        # DEBUG: Check if samples were collected
+        if dist.get_rank() == 0:
+            logger.info(f"[DEBUG] Sampling phase completed: collected {len(samples)} batches")
+            if len(samples) == 0:
+                logger.error("[DEBUG] CRITICAL: No samples collected! Check num_batches_per_epoch and dataloader.")
+            else:
+                for key in samples_collated:
+                    if isinstance(samples_collated[key], torch.Tensor):
+                        logger.info(f"[DEBUG] samples_collated['{key}'] shape: {samples_collated[key].shape}")
+                    elif isinstance(samples_collated[key], dict):
+                        for sub_key, sub_val in samples_collated[key].items():
+                            if isinstance(sub_val, torch.Tensor):
+                                logger.info(f"[DEBUG] samples_collated['{key}']['{sub_key}'] shape: {sub_val.shape}")
+
         # Get collated rewards for logging (before adding ori_avg)
         collated_rewards = samples_collated["rewards"]
 
@@ -702,7 +729,9 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             reward_metrics = {
                 "epoch": self.global_step // self.steps_per_epoch if hasattr(self, "steps_per_epoch") else 0,
                 **{
-                    f"reward_{key}": value.mean()
+                    f"reward_{key}": float(
+                        value.mean().item() if isinstance(value.mean(), torch.Tensor) else value.mean()
+                    )
                     for key, value in gathered_rewards.items()
                     if "_strict_accuracy" not in key and "_accuracy" not in key
                 },
@@ -730,12 +759,21 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 group_size, trained_prompt_num = self.stat_tracker.get_stats()
                 zero_std_ratio, reward_std_mean = calculate_zero_std_ratio(prompts_decoded, gathered_rewards)
                 if hasattr(self, "tracking"):
+                    # Convert numpy scalars to Python scalars for wandb
                     self.tracking.log(
                         {
-                            "group_size": group_size,
-                            "trained_prompt_num": trained_prompt_num,
-                            "zero_std_ratio": zero_std_ratio,
-                            "reward_std_mean": reward_std_mean,
+                            "group_size": float(group_size)
+                            if isinstance(group_size, (np.integer, np.floating))
+                            else group_size,
+                            "trained_prompt_num": int(trained_prompt_num)
+                            if isinstance(trained_prompt_num, (np.integer, np.floating))
+                            else trained_prompt_num,
+                            "zero_std_ratio": float(zero_std_ratio)
+                            if isinstance(zero_std_ratio, (np.integer, np.floating))
+                            else zero_std_ratio,
+                            "reward_std_mean": float(reward_std_mean)
+                            if isinstance(reward_std_mean, (np.integer, np.floating))
+                            else reward_std_mean,
                         },
                         step=self.global_step,
                     )
@@ -861,6 +899,25 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         num_inner_epochs = self.grpo_config.train.num_inner_epochs
         num_batches_per_epoch = self.grpo_config.sample.num_batches_per_epoch
 
+        # DEBUG: Log training phase configuration
+        if dist.get_rank() == 0:
+            logger.info(
+                f"[DEBUG] _training_phase: epoch={epoch}, total_batch_size={total_batch_size}, "
+                f"num_timesteps={num_timesteps}, num_inner_epochs={num_inner_epochs}, "
+                f"num_batches_per_epoch={num_batches_per_epoch}, "
+                f"current_global_step={self.global_step}"
+            )
+
+            # Check if reshape will work
+            if num_batches_per_epoch > 0:
+                rebatch_size = total_batch_size // num_batches_per_epoch
+                logger.info(f"[DEBUG] Rebatch size will be: {rebatch_size}")
+                if rebatch_size == 0:
+                    logger.error(
+                        f"[DEBUG] CRITICAL: rebatch_size is 0! total_batch_size={total_batch_size}, "
+                        f"num_batches_per_epoch={num_batches_per_epoch}"
+                    )
+
         for inner_epoch in range(num_inner_epochs):
             # Rebatch for training
             samples_batched = {
@@ -886,6 +943,11 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
                 bs = sample["timesteps"].shape[0]
                 prompts = tokenizer.batch_decode(sample["prompt_ids"], skip_special_tokens=True)
+
+                # Calculate and accumulate tokens for this training batch
+                # In training phase, we process 1 image per prompt (already generated in sampling)
+                batch_tokens = self._calculate_tokens_for_batch(sample["prompt_ids"], num_images=1)
+                self.total_tokens += batch_tokens
 
                 for j in tqdm(
                     range(bs),
@@ -940,10 +1002,67 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
                     info_aggregated.update({"epoch": epoch, "inner_epoch": inner_epoch})
 
-                    if dist.get_rank() == 0 and hasattr(self, "tracking"):
-                        self.tracking.log(info_aggregated, step=self.global_step)
+                    # Add total_tokens to metrics
+                    # In distributed training, each process accumulates its own tokens
+                    # We sum across all processes to get the global total
+                    total_tokens_tensor = torch.tensor(
+                        self.total_tokens, device=self.fsdp2_model.device, dtype=torch.long
+                    )
+                    dist.all_reduce(total_tokens_tensor, op=dist.ReduceOp.SUM)
+                    # After all_reduce, each process has the sum of all processes' tokens
+                    # Update self.total_tokens to the global sum for checkpoint saving
+                    self.total_tokens = total_tokens_tensor.item()
+
+                    # Log total_tokens (only from rank 0 to avoid duplicate)
+                    if dist.get_rank() == 0:
+                        from lmms_engine.utils import TrainUtilities
+
+                        info_aggregated["train/total_tokens"] = TrainUtilities.format_tokens(self.total_tokens)
+
+                        # Convert all torch.Tensor values to Python scalars for wandb
+                        # wandb requires scalar values (int, float) not tensors
+                        info_aggregated_for_logging = {}
+                        for key, value in info_aggregated.items():
+                            if isinstance(value, torch.Tensor):
+                                # Convert tensor to scalar
+                                if value.numel() == 1:
+                                    info_aggregated_for_logging[key] = value.item()
+                                else:
+                                    # Skip multi-element tensors
+                                    logger.warning(f"Skipping multi-element tensor for key {key}: shape {value.shape}")
+                            elif isinstance(value, (int, float, np.integer, np.floating)):
+                                # Already a scalar
+                                info_aggregated_for_logging[key] = (
+                                    float(value) if isinstance(value, (np.integer, np.floating)) else value
+                                )
+                            elif isinstance(value, str):
+                                # Skip strings (wandb doesn't log them as metrics)
+                                continue
+                            else:
+                                # Try to convert to float if possible
+                                try:
+                                    info_aggregated_for_logging[key] = float(value)
+                                except (ValueError, TypeError):
+                                    logger.warning(f"Skipping non-scalar value for key {key}: type {type(value)}")
+
+                        # DEBUG: Log what we're about to send to wandb
+                        logger.info(
+                            f"[DEBUG] Logging to wandb at step={self.global_step}: "
+                            f"policy_loss={info_aggregated_for_logging.get('policy_loss', 'N/A'):.6f}, "
+                            f"kl_loss={info_aggregated_for_logging.get('kl_loss', 'N/A')}, "
+                            f"loss={info_aggregated_for_logging.get('loss', 'N/A')}"
+                        )
+
+                        if hasattr(self, "tracking"):
+                            self.tracking.log(info_aggregated_for_logging, step=self.global_step)
+                        else:
+                            logger.warning(f"[DEBUG] self.tracking does not exist!")
 
                     self.global_step += 1
+
+                    # DEBUG: Log global_step update (on all ranks to verify synchronization)
+                    logger.debug(f"[DEBUG] Rank {dist.get_rank()}: global_step updated to {self.global_step}")
+
                     info = defaultdict(list)
 
     def _get_inference_hyperparams(self) -> Dict:
@@ -956,6 +1075,76 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             "cfg_renorm_type": "global",
             "image_shapes": (self.grpo_config.resolution, self.grpo_config.resolution),
         }
+
+    def _calculate_tokens_for_batch(self, prompt_ids: torch.Tensor, num_images: int = 1) -> int:
+        """
+        Calculate total tokens for a batch of samples.
+
+        For Bagel GRPO, tokens include:
+        1. Text tokens: prompt_ids length (excluding padding)
+        2. Image tokens: num_image_tokens per image = (resolution / latent_downsample)^2
+        3. Special tokens: start_of_image, end_of_image (2 per image)
+
+        Args:
+            prompt_ids: Tensor of shape [batch_size, seq_len] with tokenized prompts
+            num_images: Number of images per prompt (default 1)
+
+        Returns:
+            Total number of tokens for this batch
+        """
+        # Calculate text tokens (excluding padding)
+        # prompt_ids shape: [batch_size, seq_len]
+        batch_size = prompt_ids.shape[0]
+        seq_len = prompt_ids.shape[1]
+
+        # Count non-padding tokens
+        # Get pad_token_id from tokenizer if available
+        pad_token_id = None
+        if hasattr(self.processing_class, "processor"):
+            tokenizer = self.processing_class.processor
+        else:
+            tokenizer = self.processing_class
+
+        if hasattr(tokenizer, "pad_token_id") and tokenizer.pad_token_id is not None:
+            pad_token_id = tokenizer.pad_token_id
+        elif hasattr(tokenizer, "eos_token_id") and tokenizer.eos_token_id is not None:
+            # Some tokenizers use eos_token_id for padding
+            pad_token_id = tokenizer.eos_token_id
+
+        if pad_token_id is not None:
+            # Count non-padding tokens
+            non_padding_mask = prompt_ids != pad_token_id
+            text_tokens = non_padding_mask.sum().item()
+        else:
+            # If no pad_token_id, count all tokens
+            text_tokens = batch_size * seq_len
+
+        # Calculate image tokens
+        # For Bagel, image tokens = (resolution / latent_downsample)^2
+        # Get latent_downsample from model config
+        if hasattr(self.model, "latent_downsample"):
+            latent_downsample = self.model.latent_downsample
+        else:
+            # Default: resolution 512, latent_downsample typically 8
+            # So h = w = 512 / 8 = 64, num_image_tokens = 64 * 64 = 4096
+            latent_downsample = self.grpo_config.resolution // 64  # Estimate: 512 / 64 = 8
+
+        h = w = self.grpo_config.resolution // latent_downsample
+        num_image_tokens_per_image = h * w
+
+        # Special tokens: start_of_image and end_of_image (2 per image)
+        special_tokens_per_image = 2
+
+        # Total tokens per sample: text + (image_tokens + special_tokens) * num_images
+        # Note: text_tokens is already the total for the batch, so we divide by batch_size
+        tokens_per_sample = (text_tokens // batch_size) + (
+            num_image_tokens_per_image + special_tokens_per_image
+        ) * num_images
+
+        # Total tokens for batch
+        total_tokens = batch_size * tokens_per_sample
+
+        return total_tokens
 
     def _gather_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
         """Gather tensor across all processes."""
@@ -977,6 +1166,61 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         # In practice, this should check gradient accumulation counter
         return True
 
+    def _auto_calculate_num_batches_per_epoch(self):
+        """
+        Automatically calculate num_batches_per_epoch based on dataset size.
+
+        If num_batches_per_epoch is set to -1 in config, it will be auto-calculated
+        to cover the entire dataset (or a reasonable subset).
+
+        Returns:
+            int or None: Number of batches per epoch if auto-calculation is needed, None otherwise
+        """
+        # Check if auto-calculation is requested (value is -1 or None)
+        current_value = getattr(self.grpo_config.sample, "num_batches_per_epoch", None)
+
+        # If explicitly set and not -1, don't auto-calculate
+        if current_value is not None and current_value != -1:
+            return None
+
+        # Get dataset size
+        if isinstance(self.train_dataset, IterableDataset):
+            # For IterableDataset, we can't get length easily
+            # Use a default value or warn
+            logger.warning(
+                "Cannot auto-calculate num_batches_per_epoch for IterableDataset. "
+                "Using default value of 10. Please set num_batches_per_epoch manually."
+            )
+            return 10
+
+        # Get dataset length
+        dataset_size = len(self.train_dataset)
+
+        # Get training parameters
+        train_batch_size = getattr(self.grpo_config.sample, "train_batch_size", 6)
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+
+        # Calculate total effective batch size (across all GPUs)
+        effective_batch_size = train_batch_size * world_size
+
+        # Calculate number of batches needed to cover the entire dataset
+        # We use ceiling to ensure we cover all data
+        num_batches = (dataset_size + effective_batch_size - 1) // effective_batch_size
+
+        # Ensure at least 1 batch
+        num_batches = max(1, num_batches)
+
+        # Log the calculation
+        if dist.get_rank() == 0:
+            logger.info(
+                f"Auto-calculating num_batches_per_epoch: "
+                f"dataset_size={dataset_size}, train_batch_size={train_batch_size}, "
+                f"world_size={world_size}, effective_batch_size={effective_batch_size}, "
+                f"calculated num_batches_per_epoch={num_batches}"
+            )
+
+        return num_batches
+
     def train(self, resume_from_checkpoint: bool = False):
         """
         Main training loop for GRPO.
@@ -990,6 +1234,35 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         self.prepare_model()
         train_dataloader = self.prepare_dataloader(self.train_dataset, is_training=True)
         self.train_dataloader = train_dataloader
+
+        # Auto-calculate num_batches_per_epoch if needed
+        # IMPORTANT: Must happen BEFORE prepare_and_validate_config
+        current_value = getattr(self.grpo_config.sample, "num_batches_per_epoch", None)
+        logger.info(f"[DEBUG] Initial num_batches_per_epoch from config: {current_value}")
+
+        if current_value is None or current_value == -1:
+            auto_calculated = self._auto_calculate_num_batches_per_epoch()
+            if auto_calculated is not None:
+                self.grpo_config.sample.num_batches_per_epoch = auto_calculated
+                logger.info(
+                    f"[DEBUG] Auto-calculated num_batches_per_epoch: {auto_calculated} "
+                    f"(dataset will be fully covered each epoch)"
+                )
+            else:
+                # Fallback to a reasonable default if auto-calculation fails
+                self.grpo_config.sample.num_batches_per_epoch = 10
+                logger.warning(f"[DEBUG] Auto-calculation returned None, using default: 10")
+
+        # Verify the final value
+        final_value = self.grpo_config.sample.num_batches_per_epoch
+        logger.info(f"[DEBUG] Final num_batches_per_epoch: {final_value}")
+
+        if final_value <= 0:
+            logger.error(f"[DEBUG] CRITICAL: num_batches_per_epoch is {final_value}, this will cause empty sampling!")
+            # Force a reasonable default
+            self.grpo_config.sample.num_batches_per_epoch = 10
+            logger.warning(f"[DEBUG] Forced num_batches_per_epoch to 10")
+
         self.prepare_optimizer()
 
         # Validate config
@@ -1020,6 +1293,11 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         else:
             tokenizer = self.processing_class
 
+        # Initialize total_tokens (required by save_checkpoints)
+        # This tracks total tokens processed during training (text + image tokens)
+        # Will be accumulated during sampling and training phases
+        self.total_tokens = 0
+
         # Resume from checkpoint
         if resume_from_checkpoint:
             checkpoints = [f for f in os.listdir(self.args.output_dir) if f.startswith("checkpoint")]
@@ -1029,6 +1307,9 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 os.path.join(self.args.output_dir, latest_checkpoint),
                 int(latest_checkpoint.split("-")[1]),
             )
+            # total_tokens will be loaded by load_checkpoints if present in checkpoint
+            if not hasattr(self, "total_tokens"):
+                self.total_tokens = 0
             start_epoch = int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
             start_epoch = int(start_epoch)
             self.global_step = int(latest_checkpoint.split("-")[1])
@@ -1042,6 +1323,13 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
         # Main training loop
         for epoch in range(start_epoch, self.args.num_train_epochs):
+            # DEBUG: Log epoch start
+            if dist.get_rank() == 0:
+                logger.info(
+                    f"[DEBUG] ===== Starting epoch {epoch}/{self.args.num_train_epochs} ===== "
+                    f"global_step={self.global_step}"
+                )
+
             # Evaluation (if needed)
             if (
                 hasattr(self.grpo_config, "eval_freq")
@@ -1080,8 +1368,22 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             samples["advantages"] = advantages
             del samples["rewards"]  # Free memory (matching train_bagel.py line 789)
 
+            # DEBUG: Check advantages before training
+            if dist.get_rank() == 0:
+                logger.info(
+                    f"[DEBUG] Before training: advantages shape={advantages.shape}, "
+                    f"min={advantages.min().item():.6f}, max={advantages.max().item():.6f}, "
+                    f"mean={advantages.mean().item():.6f}, std={advantages.std().item():.6f}"
+                )
+                if advantages.std().item() < 1e-6:
+                    logger.warning("[DEBUG] WARNING: advantages have near-zero std! Training may not be effective.")
+
             # Training phase
             self._training_phase(samples, advantages, tokenizer, epoch)
+
+            # DEBUG: Log epoch completion
+            if dist.get_rank() == 0:
+                logger.info(f"[DEBUG] ===== Completed epoch {epoch} ===== global_step={self.global_step}")
 
             # Cleanup
             if (
@@ -1096,9 +1398,223 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
 
     def _eval_phase(self, epoch: int):
-        """Evaluation phase (placeholder, can be implemented similarly to sampling)."""
-        logger.info(f"Evaluation at epoch {epoch} (not implemented)")
-        # TODO: Implement evaluation similar to train_bagel.py eval function
+        """
+        Evaluation phase: Generate images on eval dataset and compute rewards.
+
+        This follows the eval logic from train_bagel.py:
+        1. Set model to eval mode
+        2. Iterate through eval dataloader
+        3. Generate images for each prompt
+        4. Compute rewards asynchronously
+        5. Gather results across processes
+        6. Log images and rewards to wandb
+        """
+        import wandb
+
+        if self.eval_dataset is None:
+            logger.warning(f"Evaluation skipped at epoch {epoch}: no eval_dataset provided")
+            return
+
+        logger.info(f"[DEBUG] Starting evaluation at epoch {epoch}, global_step={self.global_step}")
+
+        # Set model to eval mode
+        self.fsdp2_model.eval()
+
+        # Force inference mode for Qwen2 modules
+        if hasattr(self.model, "language_model"):
+            self._force_inference_mode(self.model.language_model)
+
+        # Prepare eval dataloader if not already prepared
+        if not hasattr(self, "eval_dataloader") or self.eval_dataloader is None:
+            self.eval_dataloader = self.prepare_dataloader(self.eval_dataset, is_training=False)
+
+        # Get tokenizer
+        if hasattr(self.processing_class, "processor"):
+            tokenizer = self.processing_class.processor
+        else:
+            tokenizer = self.processing_class
+
+        # Collect all rewards across batches
+        all_rewards = defaultdict(list)
+
+        # Use autocast
+        autocast_dtype = torch.bfloat16 if self.args.bf16 else torch.float16
+
+        eval_num_steps = getattr(self.grpo_config.sample, "eval_num_steps", 50)
+        eval_guidance_scale = getattr(self.grpo_config.sample, "eval_guidance_scale", 4.0)
+
+        logger.info(f"[DEBUG] Eval config: eval_num_steps={eval_num_steps}, eval_guidance_scale={eval_guidance_scale}")
+
+        # Store last batch for logging
+        last_batch_images = None
+        last_batch_prompts = None
+        last_batch_rewards = None
+
+        for batch_idx, batch in enumerate(
+            tqdm(
+                self.eval_dataloader,
+                desc=f"Epoch {epoch}: evaluation",
+                disable=dist.get_rank() != 0,
+                position=0,
+            )
+        ):
+            # Handle different batch formats
+            if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                prompts, prompt_metadata = batch
+            elif isinstance(batch, dict):
+                prompts = batch.get("prompt", batch.get("text", []))
+                prompt_metadata = batch.get("metadata", [{}] * len(prompts))
+            else:
+                logger.warning(f"Unexpected batch format: {type(batch)}")
+                continue
+
+            # Generate images for this batch
+            images = []
+            with torch.autocast(device_type="cuda", dtype=autocast_dtype):
+                for idx, prompt in enumerate(prompts):
+                    with torch.no_grad():
+                        output_dict = self.inferencer(
+                            text=prompt,
+                            noise_level=0,  # No noise for evaluation (same as flow_grpo)
+                            grpo_config=self.grpo_config,
+                            accelerator=None,
+                            num_timesteps=eval_num_steps,
+                            cfg_text_scale=eval_guidance_scale,
+                            **self._get_inference_hyperparams(),
+                        )
+                    # Image is already tensor (C, H, W) in [0, 1], same as flow_grpo
+                    images.append(output_dict["image"])
+
+            # Stack images: (batch_size, 3, H, W)
+            images = torch.stack(images, dim=0)
+
+            # Compute rewards asynchronously
+            rewards_future = self.executor.submit(
+                self.eval_reward_fn, images, prompts, prompt_metadata, only_strict=False
+            )
+            time.sleep(0)  # Yield to start reward computation
+
+            # Wait for rewards
+            try:
+                rewards, reward_metadata = rewards_future.result()
+            except Exception as e:
+                logger.error(f"Error computing eval rewards for batch {batch_idx}: {e}")
+                rewards = {"avg": [0.0] * len(prompts)}
+
+            # Gather rewards across processes
+            for key, value in rewards.items():
+                if isinstance(value, torch.Tensor):
+                    value_tensor = value.to(self.fsdp2_model.device)
+                else:
+                    value_tensor = torch.as_tensor(value, device=self.fsdp2_model.device)
+                rewards_gathered = self._gather_tensor(value_tensor).cpu().numpy()
+                all_rewards[key].append(rewards_gathered)
+
+            # Store last batch for logging
+            last_batch_images = images
+            last_batch_prompts = prompts
+            last_batch_rewards = rewards
+
+        # Concatenate all rewards
+        all_rewards_concat = {key: np.concatenate(value) for key, value in all_rewards.items()}
+
+        # Gather last batch images and prompts for logging
+        if last_batch_images is not None and len(last_batch_images) > 0:
+            # Gather images across processes
+            images_gathered = self._gather_tensor(last_batch_images.to(self.fsdp2_model.device)).cpu().numpy()
+
+            # Tokenize and gather prompts
+            prompt_ids = tokenizer(
+                last_batch_prompts,
+                padding="max_length",
+                max_length=256,
+                truncation=True,
+                return_tensors="pt",
+            ).input_ids.to(self.fsdp2_model.device)
+            prompt_ids_gathered = self._gather_tensor(prompt_ids).cpu().numpy()
+            prompts_gathered = tokenizer.batch_decode(prompt_ids_gathered, skip_special_tokens=True)
+
+            # Gather last batch rewards
+            last_batch_rewards_gathered = {}
+            for key, value in last_batch_rewards.items():
+                if isinstance(value, torch.Tensor):
+                    value_tensor = value.to(self.fsdp2_model.device)
+                else:
+                    value_tensor = torch.as_tensor(value, device=self.fsdp2_model.device)
+                last_batch_rewards_gathered[key] = self._gather_tensor(value_tensor).cpu().numpy()
+        else:
+            images_gathered = np.array([])
+            prompts_gathered = []
+            last_batch_rewards_gathered = {}
+
+        # Log to wandb (only on main process)
+        if dist.get_rank() == 0:
+            # Log mean rewards
+            eval_metrics = {
+                "eval/epoch": epoch,
+                **{
+                    f"eval/reward_{key}": float(np.mean(value[value != -10]))
+                    for key, value in all_rewards_concat.items()
+                    if len(value) > 0
+                },
+            }
+
+            if hasattr(self, "tracking"):
+                self.tracking.log(eval_metrics, step=self.global_step)
+            logger.info(f"[DEBUG] Eval metrics: {eval_metrics}")
+
+            # Log sample images (following flow_grpo's approach)
+            if len(images_gathered) > 0:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    num_samples = min(25, len(images_gathered))
+                    sample_indices = list(range(num_samples))
+
+                    # Save images to temp directory
+                    for idx, index in enumerate(sample_indices):
+                        image = images_gathered[index]
+                        # image shape: (C, H, W) -> (H, W, C), values in [0, 1]
+                        pil = Image.fromarray((image.transpose(1, 2, 0) * 255).astype(np.uint8))
+                        pil = pil.resize((self.grpo_config.resolution, self.grpo_config.resolution))
+                        pil.save(os.path.join(tmpdir, f"{idx}.jpg"))
+
+                    # Prepare prompts and rewards for caption
+                    sampled_prompts = [prompts_gathered[i] for i in sample_indices if i < len(prompts_gathered)]
+                    sampled_rewards = [
+                        {k: last_batch_rewards_gathered[k][i] for k in last_batch_rewards_gathered}
+                        for i in sample_indices
+                        if i < len(prompts_gathered)
+                    ]
+
+                    # Create wandb.Image list (same format as flow_grpo)
+                    eval_images = [
+                        wandb.Image(
+                            os.path.join(tmpdir, f"{idx}.jpg"),
+                            caption=f"{prompt[:1000]} | "
+                            + " | ".join(
+                                f"{k}: {v:.2f}"
+                                for k, v in reward_dict.items()
+                                if isinstance(v, (int, float)) and v != -10
+                            ),
+                        )
+                        for idx, (prompt, reward_dict) in enumerate(zip(sampled_prompts, sampled_rewards))
+                    ]
+
+                    # Log using wandb directly (same as flow_grpo)
+                    # Use "eval_images" key so it shows separately from "images" in wandb Media panel
+                    wandb.log(
+                        {
+                            "eval_images": eval_images,
+                            **{
+                                f"eval/reward_{key}": float(np.mean(value[value != -10]))
+                                for key, value in all_rewards_concat.items()
+                                if len(value) > 0
+                            },
+                        },
+                        step=self.global_step,
+                    )
+                    logger.info(f"[DEBUG] Logged {len(eval_images)} eval_images to wandb")
+
+        logger.info(f"[DEBUG] Evaluation completed at epoch {epoch}")
 
     def _log_sample_images(self, images: torch.Tensor, prompts: List[str], rewards: Dict, epoch: int):
         """Log sample images to wandb."""
@@ -1164,3 +1680,40 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 },
                 step=self.global_step,
             )
+
+    def load_checkpoints(self, output_path: str, step: int):
+        """
+        Load checkpoint with safe handling of total_tokens.
+
+        For GRPO training, total_tokens may not be tracked the same way as standard training,
+        so we provide a default value if it's missing from the checkpoint.
+        """
+        # Ensure total_tokens is initialized before loading
+        if not hasattr(self, "total_tokens"):
+            self.total_tokens = 0
+
+        # Call parent's load_checkpoints, but handle missing total_tokens gracefully
+        try:
+            super().load_checkpoints(output_path, step)
+        except (KeyError, AttributeError) as e:
+            if "total_tokens" in str(e):
+                # If total_tokens is missing, set it to 0 and continue loading other state
+                logger.warning(f"total_tokens not found in checkpoint, setting to 0")
+                self.total_tokens = 0
+                # Try to load the rest of the checkpoint manually
+                rank = dist.get_rank()
+                world_size = dist.get_world_size()
+                extra_state_path = os.path.join(
+                    output_path,
+                    "extra_state",
+                    f"extra_state_world_size_{world_size}_rank_{rank}.pt",
+                )
+                if os.path.exists(extra_state_path):
+                    extra_state = torch.load(extra_state_path, weights_only=False)
+                    # Load other state except total_tokens
+                    if "rng" in extra_state:
+                        self.load_rng_state(extra_state["rng"])
+                    if "lr_scheduler_state" in extra_state:
+                        self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
+            else:
+                raise
