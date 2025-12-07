@@ -1,7 +1,13 @@
+import time
+from collections import defaultdict
+
+import numpy as np
 from datasets import load_dataset
 
 from lmms_engine.datasets.config import DatasetConfig
 from lmms_engine.mapping_func import register_dataset
+
+from ..processor.nit_processor import NitProcessor
 
 #############################################
 #                   LPFHP                   #
@@ -10,10 +16,6 @@ from lmms_engine.mapping_func import register_dataset
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 # modified from https://github.com/graphcore/examples/blob/v3.2.0/tutorials/blogs_code/packedBERT/lpfhp.py
 """Longest-pack-first histogram-packing."""
-import time
-from collections import defaultdict
-
-import numpy as np
 
 
 def add_pack(pack, count, tmp, final, limit, offset, max_sequence_length=512):
@@ -131,7 +133,7 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
     print(
         f"Packing efficiency (fraction of real tokens): {efficiency:3.4f}\n",
         f"Speed-up theoretical limit: {speedup_upper_bound:3.4f}\n",
-        f"Achieved speed-up over un-packed dataset: {old_number_of_samples/new_number_of_samples:3.5f}",
+        f"Achieved speed-up over un-packed dataset: {old_number_of_samples / new_number_of_samples:3.5f}",
         f"Runtime: Packed {old_number_of_samples} sequences in {duration:3.3f} seconds.",
     )
 
@@ -147,7 +149,7 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
 class NitDataset:
     def __init__(self, config: DatasetConfig) -> None:
         self.config = config
-        self.processor = NitDataProcessor(config)
+        self.processor = NitProcessor(config)
 
     def _build_from_config(self):
         # A bit ugly, but it seems that I cannot merge with multimodal dataset
