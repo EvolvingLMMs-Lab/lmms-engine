@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.distributed as dist
 from accelerate import init_empty_weights
-from diffusers.utils.torch_utils import randn_tensor
 from huggingface_hub import snapshot_download
 from pydantic import BaseModel, Field
 from safetensors.torch import load_file
@@ -1087,12 +1086,6 @@ class Bagel(PreTrainedModel):
         # Debug: Check advantages shape and values
         from loguru import logger
 
-        logger.info(f"generate_image_learn: advantages shape: {advantages.shape}, dtype: {advantages.dtype}")
-        logger.info(
-            f"generate_image_learn: advantages stats: min={advantages.min()}, max={advantages.max()}, mean={advantages.mean()}, has_nan={torch.isnan(advantages).any()}, has_inf={torch.isinf(advantages).any()}"
-        )
-        logger.info(f"generate_image_learn: latents[0] shape: {latents[0].shape}, batch_size: {latents[0].shape[0]}")
-
         # Check if advantages needs reshaping for broadcasting
         # advantages should be [batch_size] or [1] to broadcast with log_prob (which is scalar after mean)
         if advantages.dim() == 1:
@@ -1223,49 +1216,6 @@ class Bagel(PreTrainedModel):
             log_prob_diff = log_prob - sample["log_probs"][i]
             ratio = torch.exp(log_prob_diff)
 
-            # Debug logging (only on first iteration to avoid spam)
-            if i == 0:
-                from loguru import logger
-
-                logger.info(f"Loss computation debug - step {i}:")
-                logger.info(
-                    f"  log_prob: shape={log_prob.shape}, dtype={log_prob.dtype}, min={log_prob.min()}, max={log_prob.max()}, has_nan={torch.isnan(log_prob).any()}"
-                )
-                logger.info(
-                    f"  sample['log_probs'][{i}]: shape={sample['log_probs'][i].shape}, dtype={sample['log_probs'][i].dtype}, min={sample['log_probs'][i].min()}, max={sample['log_probs'][i].max()}, has_nan={torch.isnan(sample['log_probs'][i]).any()}"
-                )
-                logger.info(
-                    f"  log_prob_diff: min={log_prob_diff.min()}, max={log_prob_diff.max()}, has_nan={torch.isnan(log_prob_diff).any()}"
-                )
-                logger.info(
-                    f"  ratio: shape={ratio.shape}, min={ratio.min()}, max={ratio.max()}, has_nan={torch.isnan(ratio).any()}, has_inf={torch.isinf(ratio).any()}"
-                )
-                logger.info(
-                    f"  advantages: shape={advantages.shape}, dtype={advantages.dtype}, min={advantages.min()}, max={advantages.max()}, mean={advantages.mean()}, has_nan={torch.isnan(advantages).any()}, has_inf={torch.isinf(advantages).any()}"
-                )
-                # Check shape compatibility - ratio is scalar, advantages is [1], they can broadcast
-                if ratio.shape != advantages.shape:
-                    logger.debug(
-                        f"Shape difference (will broadcast): ratio: {ratio.shape}, advantages: {advantages.shape}"
-                    )
-                if grpo_config.train.beta > 0:
-                    logger.info(
-                        f"  std_dev_t: shape={std_dev_t.shape}, min={std_dev_t.min()}, max={std_dev_t.max()}, has_zero={(std_dev_t == 0).any()}"
-                    )
-                    logger.info(
-                        f"  prev_sample_mean: shape={prev_sample_mean.shape}, prev_sample_mean_ref: shape={prev_sample_mean_ref.shape}"
-                    )
-
-            # Check for NaN/Inf in ratio before using it
-            if torch.isnan(ratio).any() or torch.isinf(ratio).any():
-                from loguru import logger
-
-                logger.error(
-                    f"NaN/Inf detected in ratio at step {i}! log_prob: {log_prob}, sample_log_probs: {sample['log_probs'][i]}"
-                )
-                # Clamp ratio to prevent NaN
-                ratio = torch.clamp(ratio, min=1e-8, max=1e8)
-
             # Convert config values to float to handle string values from YAML
             clip_range_lt = float(grpo_config.train.clip_range_lt)
             clip_range_gt = float(grpo_config.train.clip_range_gt)
@@ -1285,41 +1235,15 @@ class Bagel(PreTrainedModel):
                 1.0 + clip_range_gt,
             )
 
-            # Check for NaN/Inf in losses
-            # Handle both scalar and tensor cases
-            unclipped_is_nan = (
-                torch.isnan(unclipped_loss) if unclipped_loss.dim() == 0 else torch.isnan(unclipped_loss).any()
-            )
-            clipped_is_nan = torch.isnan(clipped_loss) if clipped_loss.dim() == 0 else torch.isnan(clipped_loss).any()
-            if unclipped_is_nan or clipped_is_nan:
-                from loguru import logger
-
-                logger.error(
-                    f"NaN detected in losses at step {i}! unclipped_loss: {unclipped_loss}, clipped_loss: {clipped_loss}"
-                )
-
             policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
 
             if grpo_config.train.beta > 0:
-                # Check for zero std_dev_t to prevent division by zero
                 std_dev_t_sq = std_dev_t**2
-                if (std_dev_t_sq == 0).any():
-                    from loguru import logger
-
-                    logger.warning(f"Zero std_dev_t detected at step {i}, adding epsilon")
-                    std_dev_t_sq = std_dev_t_sq + 1e-8
                 kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t_sq)
                 loss = policy_loss + grpo_config.train.beta * kl_loss
             else:
                 loss = policy_loss
 
-            # Final check for NaN/Inf in loss
-            if torch.isnan(loss) or torch.isinf(loss):
-                from loguru import logger
-
-                logger.error(f"NaN/Inf in final loss at step {i}! policy_loss: {policy_loss}, loss: {loss}")
-                if grpo_config.train.beta > 0:
-                    logger.error(f"  kl_loss: {kl_loss}")
             clipfrac.append(torch.mean((ratio - 1.0 > clip_range_gt or 1.0 - ratio > clip_range_lt).float()))
             clipfrac_gt_one.append(torch.mean((ratio - 1.0 > clip_range_gt).float()))
             clipfrac_lt_one.append(torch.mean((1.0 - ratio > clip_range_lt).float()))
@@ -1329,21 +1253,27 @@ class Bagel(PreTrainedModel):
             loss_list.append(loss)
             if accelerator is not None:
                 accelerator.backward(loss)
-            else:
+            elif optimizer is not None:
                 loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-        policy_loss = torch.cat([t.unsqueeze(0) for t in policy_loss_list]).mean().detach()
-        loss = torch.cat([t.unsqueeze(0) for t in loss_list]).mean().detach()
-        clipfrac = torch.cat([t.unsqueeze(0) for t in clipfrac]).mean().detach()
-        clipfrac_gt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_gt_one]).mean().detach()
-        clipfrac_lt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_lt_one]).mean().detach()
+            if optimizer is not None:
+                optimizer.step()
+                optimizer.zero_grad()
+        policy_loss = torch.cat([t.unsqueeze(0) for t in policy_loss_list]).mean()
+        loss = torch.cat([t.unsqueeze(0) for t in loss_list]).mean()
+        clipfrac = torch.cat([t.unsqueeze(0) for t in clipfrac]).mean()
+        clipfrac_gt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_gt_one]).mean()
+        clipfrac_lt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_lt_one]).mean()
 
         if grpo_config.train.beta > 0:
-            kl_loss = torch.cat([t.unsqueeze(0) for t in kl_loss_list]).mean().detach()
+            kl_loss = torch.cat([t.unsqueeze(0) for t in kl_loss_list]).mean()
         else:
             kl_loss = policy_loss * 0 - 1
-        return clipfrac, clipfrac_gt_one, clipfrac_lt_one, policy_loss, kl_loss, loss
+        # If optimizer is not None, don't apply detach to the data
+        return_data = [clipfrac, clipfrac_gt_one, clipfrac_lt_one, policy_loss, kl_loss, loss]
+        if optimizer is not None:
+            return_data = (data.detach() for data in return_data)
+        return_data = tuple(return_data)
+        return return_data
 
     def _sde_step_with_logprob(
         self,
@@ -1359,6 +1289,8 @@ class Bagel(PreTrainedModel):
         sde_type: str = "sde",
     ):
         # bf16 can overflow here when compute prev_sample_mean, we must convert all variable to fp32
+        from diffusers.utils.torch_utils import randn_tensor
+
         model_output = model_output.float()
         sample = sample.float()
         if prev_sample is not None:
