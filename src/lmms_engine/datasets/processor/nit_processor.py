@@ -1,13 +1,7 @@
-import functools
-from typing import List, Optional
-
-import diffusers
 import numpy as np
 import torch
-from diffusers import AutoencoderDC, AutoencoderKL
 from PIL import Image
 from torchvision import transforms
-from torchvision.transforms.functional import hflip
 
 from lmms_engine.mapping_func import register_processor
 
@@ -42,41 +36,42 @@ def get_train_sampler(global_batch_size, max_steps, resume_step):
 
 
 class NitProcessorConfig:
-    def __init__(self, config: ProcessorConfig) -> None:
-        extra_kwargs = getattr(config, "extra_kwargs", {})
-        self.min_image_size = extra_kwargs.get("min_image_size", 256)  # TODO: check default
-        self.max_image_size = extra_kwargs.get("max_image_size", 1024)  # TODO: check default
+    def __init__(self, config: dict | ProcessorConfig) -> None:
+        if isinstance(config, ProcessorConfig):
+            extra_kwargs = getattr(config, "extra_kwargs", {})
+        else:
+            extra_kwargs = config.get("extra_kwargs", {})
+        self.min_image_size = extra_kwargs.get("min_image_size", 32)
+        self.max_image_size = extra_kwargs.get("max_image_size", 2048)
         self.vae_downsample_factor = extra_kwargs.get("vae_downsample_factor", 32)
         self.vae_num_channels = extra_kwargs.get("vae_num_channels", 32)
 
 
 @register_processor("nit")
-class NitDataProcessor:
-    def __init__(self, config: ProcessorConfig) -> None:
+class NitProcessor:
+    def __init__(self, config: dict | ProcessorConfig) -> None:
         self.config = NitProcessorConfig(config)
-        self.tokenizer = config.tokenizer
-        self.processor = config.processor
-        self.image_token_id = config.image_token_id
-        self.video_token_id = config.video_token_id
-        self.audio_token_id = config.audio_token_id
 
     def build(self):
         self.transform = transforms.Compose(
             [
                 transforms.Lambda(
                     lambda pil_image: native_resolution_resize(
-                        pil_image, self.config.min_image_size, self.config.max_image_size
+                        pil_image,
+                        self.config.min_image_size,
+                        self.config.max_image_size,
                     )
                 ),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
+                transforms.Normalize(
+                    mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True
+                ),
             ]
         )
 
     def process(
         self,
         row: dict,
-        **kwargs,
     ):
         image = row["image"]
         label = row["label"]
@@ -89,6 +84,10 @@ class NitDataProcessor:
         w_tokens = w // self.config.vae_downsample_factor
         num_tokens = h_tokens * w_tokens * self.config.vae_num_channels
 
-        inputs = {"processed_image": processed_image, "num_tokens": num_tokens, "label": label}
+        inputs = {
+            "processed_image": processed_image,
+            "num_tokens": num_tokens,
+            "label": label,
+        }
 
         return inputs

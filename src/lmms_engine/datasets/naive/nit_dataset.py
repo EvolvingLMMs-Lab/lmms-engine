@@ -50,9 +50,13 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
         while n_sequences_to_bin > 0:
             if (length_to_bin + offset) in tmp_strategies_per_length:
                 # extract worst pack that will get modified
-                n_sequences_to_pack, pack = tmp_strategies_per_length[length_to_bin + offset].pop()
+                n_sequences_to_pack, pack = tmp_strategies_per_length[
+                    length_to_bin + offset
+                ].pop()
                 # calculate how often the current sequence maximally fits in
-                repeat = min(1 + offset // length_to_bin, max_sequences_per_pack - len(pack))
+                repeat = min(
+                    1 + offset // length_to_bin, max_sequences_per_pack - len(pack)
+                )
                 # correct dependent on count
                 while n_sequences_to_bin // repeat == 0:
                     repeat -= 1
@@ -63,7 +67,9 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
                 if n_sequences_to_pack > count:
                     # old pack gets reduced
                     n_sequences_to_pack -= count
-                    tmp_strategies_per_length[length_to_bin + offset].append((n_sequences_to_pack, pack))
+                    tmp_strategies_per_length[length_to_bin + offset].append(
+                        (n_sequences_to_pack, pack)
+                    )
                     n_sequences_to_bin -= count * repeat
                 else:
                     n_sequences_to_bin -= n_sequences_to_pack * repeat
@@ -86,7 +92,9 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
             # Does not fit anywhere. Create new pack.
             if offset >= max_sequence_length - length_to_bin + 1:
                 # similar repetition but no dependence on pack.
-                repeat = min(max_sequence_length // length_to_bin, max_sequences_per_pack)
+                repeat = min(
+                    max_sequence_length // length_to_bin, max_sequences_per_pack
+                )
                 while n_sequences_to_bin // repeat == 0:
                     repeat -= 1
                 if not distribute:
@@ -117,17 +125,22 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
     duration = time.time() - start
     sequence_lengths = np.arange(1, max_sequence_length + 1)
     strategy_repeat_count = np.array(strategy_repeat_count)
-    n_strategies = len(strategy_set)
+    # n_strategies = len(strategy_set)
     old_number_of_samples = histogram.sum()
     new_number_of_samples = strategy_repeat_count.sum()
-    sequences = sum([count * len(pack) for count, pack in zip(strategy_repeat_count, strategy_set)])
+    # sequences = sum([count * len(pack) for count, pack in zip(strategy_repeat_count, strategy_set)])
     total_tokens = max_sequence_length * new_number_of_samples
     empty_tokens = sum(
-        [count * (max_sequence_length - sum(pack)) for count, pack in zip(strategy_repeat_count, strategy_set)]
+        [
+            count * (max_sequence_length - sum(pack))
+            for count, pack in zip(strategy_repeat_count, strategy_set)
+        ]
     )
     efficiency = 100 - empty_tokens / total_tokens * 100
     speedup_upper_bound = 1.0 / (
-        1 - (histogram * (1 - sequence_lengths / max_sequence_length)).sum() / old_number_of_samples
+        1
+        - (histogram * (1 - sequence_lengths / max_sequence_length)).sum()
+        / old_number_of_samples
     )
 
     print(
@@ -148,8 +161,8 @@ def LPFHP(histogram, max_sequence_length, max_sequences_per_pack, distribute=Tru
 @register_dataset("nit")
 class NitDataset:
     def __init__(self, config: DatasetConfig) -> None:
-        self.config = config
-        self.processor = NitProcessor(config)
+        self.config: DatasetConfig = config
+        self.processor: NitProcessor = NitProcessor(config.processor_config)
 
     def _build_from_config(self):
         # A bit ugly, but it seems that I cannot merge with multimodal dataset
@@ -158,7 +171,9 @@ class NitDataset:
         else:
             raise NotImplementedError("Only hf_dataset is supported for now")
 
-        self.dataset = self.dataset.map(self.processor.process, num_proc=self.config.processor_workers)
+        self.dataset = self.dataset.map(
+            self.processor.process, num_proc=self.config.processor_workers
+        )
         self.data_lens = self.dataset["num_tokens"]
 
         if self.config.packing:
@@ -167,7 +182,9 @@ class NitDataset:
                 if length <= self.config.packing_length:
                     histogram[length] += 1
 
-            max_sequences_per_pack = getattr(self.config, "max_sequences_per_pack", "max")
+            max_sequences_per_pack = getattr(
+                self.config, "max_sequences_per_pack", "max"
+            )
             strategy_set, strategy_repeat_count = LPFHP(
                 histogram,
                 self.config.packing_length,
@@ -188,7 +205,9 @@ class NitDataset:
                         if indices_by_length[length]:
                             current_pack_indices.append(indices_by_length[length].pop())
                         else:
-                            raise ValueError(f"Not enough sequences of length {length} for packing.")
+                            raise ValueError(
+                                f"Not enough sequences of length {length} for packing."
+                            )
                     self.packed_indices.append(current_pack_indices)
 
     def __getitem__(self, index):
