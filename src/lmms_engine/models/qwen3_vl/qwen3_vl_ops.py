@@ -157,9 +157,13 @@ def patch_embed_forward(
     target_dtype = self.proj.weight.dtype
     proj_weight = self.proj.weight
     proj_bias = self.proj.bias
-    hidden_states = F.linear(
-        hidden_states.to(dtype=target_dtype), proj_weight.view(-1, self.embed_dim).transpose(0, 1), proj_bias
-    )
+    # compute in fp32 for numerical stability (even under outer autocast), then cast back
+    with torch.amp.autocast(device_type="cuda", enabled=False):
+        hidden_states_fp32 = hidden_states.float()
+        weight_fp32 = proj_weight.view(self.embed_dim, -1).float()
+        bias_fp32 = proj_bias.float() if proj_bias is not None else None
+        hidden_states = F.linear(hidden_states_fp32, weight_fp32, bias_fp32)
+    hidden_states = hidden_states.to(dtype=target_dtype)
     return hidden_states
 
 
