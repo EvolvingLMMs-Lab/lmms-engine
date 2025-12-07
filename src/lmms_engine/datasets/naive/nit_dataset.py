@@ -3,6 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 from datasets import load_dataset
+from loguru import logger
 
 from lmms_engine.datasets.config import DatasetConfig
 from lmms_engine.mapping_func import register_dataset
@@ -165,11 +166,15 @@ class NitDataset:
         self.processor: NitProcessor = NitProcessor(config.processor_config)
 
     def _build_from_config(self):
+        logger.info(f"Building NitDataset from config: {self.config}")
         # A bit ugly, but it seems that I cannot merge with multimodal dataset
         if self.config.dataset_format == "hf_dataset":
             self.dataset = load_dataset(self.config.dataset_path, split="train")
         else:
             raise NotImplementedError("Only hf_dataset is supported for now")
+
+        if self.config.shuffle:
+            self.dataset = self.dataset.shuffle(seed=self.config.data_seed)
 
         self.dataset = self.dataset.map(
             self.processor.process, num_proc=self.config.processor_workers
@@ -181,6 +186,8 @@ class NitDataset:
             for length in self.data_lens:
                 if length <= self.config.packing_length:
                     histogram[length] += 1
+            
+            assert self.config.packing_strategy == "lpfhp", "Only lpfhp is supported for now"
 
             max_sequences_per_pack = getattr(
                 self.config, "max_sequences_per_pack", "max"

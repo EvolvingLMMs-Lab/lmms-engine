@@ -27,7 +27,6 @@ dependencies = [
     "pydantic",
     "jsonlines",
     "librosa",
-    "pynvml",
     "decord",
     "torch",
     "torchvision",
@@ -46,6 +45,7 @@ dependencies = [
     "tqdm",
     "opencv-python>=4.12.0.88",
     "diffusers>=0.35.2",
+    "nvidia-ml-py>=13.580.82",
 ]
 
 [project.optional-dependencies]
