@@ -13,6 +13,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
 try:
     from liger_kernel.transformers.cross_entropy import LigerCrossEntropyLoss
     from liger_kernel.transformers.monkey_patch import (
+        _patch_layer_norm_module,
         _patch_rms_norm_module,
         _patch_swiglu_module,
     )
@@ -118,19 +119,24 @@ def apply_liger_kernel_to_qwen3_vl(
             text_model: Qwen3VLTextModel = model
             vision_model = None
 
-        if vision_model is not None:
-            # Patch Qwen2_5_VisionTransformerPretrainedModel
-            for vision_block in model.visual.blocks:
-                if rms_norm:
-                    _patch_rms_norm_module(vision_block.norm1)
-                    _patch_rms_norm_module(vision_block.norm2)
+        _patch_qwen3_vl_rms_norm = partial(_patch_rms_norm_module, offset=0.0, casting_mode="llama")
 
         if text_model is not None:
-            if rms_norm:
-                _patch_rms_norm_module(text_model.norm)
+            _patch_qwen3_vl_rms_norm(text_model.norm)
             for decoder_layer in text_model.layers:
+                if rms_norm:
+                    _patch_qwen3_vl_rms_norm(decoder_layer.input_layernorm)
+                    _patch_qwen3_vl_rms_norm(decoder_layer.post_attention_layernorm)
+                    self_attn = getattr(decoder_layer, "self_attn", None)
+                    if self_attn is not None:
+                        if hasattr(self_attn, "q_norm") and self_attn.q_norm is not None:
+                            _patch_qwen3_vl_rms_norm(self_attn.q_norm)
+                        if hasattr(self_attn, "k_norm") and self_attn.k_norm is not None:
+                            _patch_qwen3_vl_rms_norm(self_attn.k_norm)
                 if swiglu:
                     _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
-                if rms_norm:
-                    _patch_rms_norm_module(decoder_layer.input_layernorm)
-                    _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
+
+        if vision_model is not None:
+            for vision_block in vision_model.blocks:
+                _patch_layer_norm_module(vision_block.norm1)
+                _patch_layer_norm_module(vision_block.norm2)

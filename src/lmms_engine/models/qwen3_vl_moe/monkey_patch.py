@@ -1,7 +1,5 @@
-from functools import wraps
-from typing import Optional
+from functools import partial, wraps
 
-import torch
 from packaging import version
 
 try:
@@ -121,25 +119,25 @@ def apply_liger_kernel_to_qwen3_vl_moe(
                 f"Got: {type(model)}."
             )
 
-        if vision_model is not None and layer_norm:
-            for vision_block in vision_model.blocks:
-                _patch_layer_norm_module(vision_block.norm1)
-                _patch_layer_norm_module(vision_block.norm2)
+        _patch_qwen3_vl_moe_rms_norm = partial(_patch_rms_norm_module, offset=0.0, casting_mode="llama")
 
         if text_model is not None:
             if rms_norm:
-                _patch_rms_norm_module(text_model.norm)
+                _patch_qwen3_vl_moe_rms_norm(text_model.norm)
             for decoder_layer in text_model.layers:
-                if swiglu:
-                    if hasattr(decoder_layer.mlp, "experts"):
-                        experts_module = decoder_layer.mlp.experts
-                        if not hasattr(experts_module, "gate_up_proj"):
-                            for expert in experts_module:
-                                _patch_swiglu_module(expert, LigerSwiGLUMLP)
-                    else:
-                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
                 if rms_norm:
-                    _patch_rms_norm_module(decoder_layer.input_layernorm)
-                    _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
+                    _patch_qwen3_vl_moe_rms_norm(decoder_layer.input_layernorm)
+                    _patch_qwen3_vl_moe_rms_norm(decoder_layer.post_attention_layernorm)
+                    self_attn = getattr(decoder_layer, "self_attn", None)
+                    if self_attn is not None:
+                        if hasattr(self_attn, "q_norm") and self_attn.q_norm is not None:
+                            _patch_qwen3_vl_moe_rms_norm(self_attn.q_norm)
+                        if hasattr(self_attn, "k_norm") and self_attn.k_norm is not None:
+                            _patch_qwen3_vl_moe_rms_norm(self_attn.k_norm)
+
+        if vision_model is not None:
+            for vision_block in vision_model.blocks:
+                _patch_layer_norm_module(vision_block.norm1)
+                _patch_layer_norm_module(vision_block.norm2)
 
     modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock.forward = qwen3_vl_moe_moe_sparse_layer_forward
