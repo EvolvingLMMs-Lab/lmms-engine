@@ -342,8 +342,10 @@ class Bagel(PreTrainedModel):
             **extra_inputs,
         )
 
-        # Inference mode: return logits when labels are not provided
-        if packed_label_ids is None:
+        # Inference mode: return logits when no training signals are available
+        # For image generation/editing tasks, we may have MSE loss even without text labels
+        is_training_mode = packed_label_ids is not None or need_visual_gen
+        if not is_training_mode:
             logits = self.language_model.lm_head(last_hidden_state)
             return {
                 "logits": logits,
