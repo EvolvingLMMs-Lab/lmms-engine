@@ -113,7 +113,7 @@ class FSDP2SFTTrainer:
 
     def prepare_model(self):
         model_type = getattr(self.model.config, "model_type", None)
-        if model_type in MODEL_TO_PARALLEL_METHOD:
+        if model_type in MODEL_TO_PARALLEL_METHOD and pgm.process_group_manager.enable_parallel:
             apply_parallelize(self.model, model_type, self.args)
             self.fsdp2_model = self.model
             return
