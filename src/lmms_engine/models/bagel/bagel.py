@@ -948,8 +948,9 @@ class Bagel(PreTrainedModel):
         all_latents = []
         all_log_probs = []
         all_timesteps = []
+        rank = dist.get_rank() if dist.is_initialized() else 0
 
-        for i, t in tqdm(enumerate(timesteps), total=len(timesteps)):
+        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=rank != 0, desc="Generating Images"):
             if i < sde_timestep_begin:
                 cur_noise_level = 0
             elif i == sde_timestep_begin:
@@ -1108,12 +1109,14 @@ class Bagel(PreTrainedModel):
         policy_loss_list = []
         kl_loss_list = []
         loss_list = []
+        rank = dist.get_rank() if dist.is_initialized() else 0
 
-        is_main_process = True if accelerator is None else accelerator.is_local_main_process
+        is_main_process = True if rank == 0 else False
         for i, t in tqdm(
             enumerate(timesteps),
             total=len(timesteps),
             disable=not is_main_process,
+            desc="Generating images learn",
         ):
             timestep = torch.tensor([t] * latents[0].shape[0], device=latents[0].device)
             if t > cfg_interval[0] and t <= cfg_interval[1]:
