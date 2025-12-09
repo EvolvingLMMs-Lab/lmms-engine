@@ -1,4 +1,4 @@
-trainer_type: fsdp2_trainer
+trainer_type: nit_trainer
 dataset_config:
   extra_kwargs:
     processor_workers: 8
