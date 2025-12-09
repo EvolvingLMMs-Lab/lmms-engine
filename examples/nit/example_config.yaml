@@ -15,7 +15,7 @@ dataset_config:
   packing_strategy: lpfhp
   packing_length: 51200
 trainer_args:
-  output_dir: ./output/nit_test
+  output_dir: ./output/nit_debug
   overwrite_output_dir: false
   do_train: false
   do_eval: false
@@ -45,7 +45,7 @@ trainer_args:
   log_level: passive
   log_level_replica: warning
   log_on_each_node: true
-  logging_dir: ./output/nit_test/runs
+  logging_dir: ./output/nit_debug/runs
   logging_strategy: steps
   logging_first_step: false
   logging_steps: 1
@@ -80,7 +80,7 @@ trainer_args:
   dataloader_num_workers: 0
   dataloader_prefetch_factor: null
   past_index: -1
-  run_name: video_debug
+  run_name: nit_test
   disable_tqdm: false
   remove_unused_columns: true
   label_names: null
@@ -92,7 +92,7 @@ trainer_args:
   fsdp_min_num_params: 0
   fsdp_config:
     transformer_layer_cls_to_wrap:
-    - Qwen3VLTextDecoderLayer
+    - NitTextDecoderLayer
     reshard_after_forward: false
     min_num_params: 0
     xla: false
@@ -173,7 +173,7 @@ trainer_args:
     end_step: 3
 model_config:
   extra_kwargs: {}
-  load_from_pretrained_path: Qwen/Qwen3-VL-8B-Instruct
+  load_from_pretrained_path: GoodEnough/NiT-XL-Models
   load_from_config: null
   attn_implementation: flash_attention_2
   overwrite_config: null

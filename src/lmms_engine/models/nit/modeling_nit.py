@@ -72,6 +72,7 @@ class NitModel(NitPreTrainedModel):
         hw_list: torch.Tensor,
         return_zs: bool = False,
         return_logvar: bool = False,
+        **kwargs,
     ):
         outputs = self.nit(x, t, y, hw_list, return_zs=return_zs, return_logvar=return_logvar)
 

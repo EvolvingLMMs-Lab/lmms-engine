@@ -166,7 +166,7 @@ class NitDataset(BaseDataset):
         # The main reason is that I need processor to get the token length
         self.processor = self._build_processor()
         self.processor.build()
-        print("=" * 1000)
+        # print("=" * 1000)
 
         logger.info(f"Building NitDataset from config: {self.config}")
         if self.config.dataset_format == "hf_dataset":
@@ -204,11 +204,9 @@ class NitDataset(BaseDataset):
 
             self.packed_indices = []
             run_iters = sum(self.strategy_repeat_count)
-            progress_bar = tqdm(range(run_iters))
             for i in tqdm(range(len(self.strategy_repeat_count)), desc="Packing dataset..."):
                 strategy = self.strategy_set[i]
                 for _ in range(self.strategy_repeat_count[i]):
-                    progress_bar.update(1)
                     ref_inds = []
                     for x in strategy:
                         ref_ind = torch.argwhere(dataset_seqs[0] == x)[-1]
@@ -217,7 +215,7 @@ class NitDataset(BaseDataset):
                     inds = dataset_seqs[1, ref_inds].ravel()
                     self.packed_indices.append(inds.tolist())
 
-        print("=" * 1000)
+        # print("=" * 1000)
 
     def __getitem__(self, index):
         if self.config.packing:
@@ -229,3 +227,7 @@ class NitDataset(BaseDataset):
         if self.config.packing:
             return len(self.packed_indices)
         return len(self.dataset)
+
+    def get_collator(self):
+        # Semms that no need for collator
+        return lambda x: x
