@@ -431,7 +431,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 
 ## 🎉 Awesome work using LMMs-Engine
 
-- [LongVT](https://github.com/EvolvingLMMs-Lab/LongVT): LongVT: Incentivizing "Thinking with Long Videos" via Native Tool Calling [GitHub Repo stars](https://img.shields.io/github/stars/EvolvingLMMs-Lab/LongVT)
+- [LongVT](https://github.com/EvolvingLMMs-Lab/LongVT): LongVT: Incentivizing "Thinking with Long Videos" via Native Tool Calling ![GitHub Repo stars](https://img.shields.io/github/stars/EvolvingLMMs-Lab/LongVT)
 
 - [OpenMMReasoner](https://github.com/EvolvingLMMs-Lab/OpenMMReasoner): OpenMMReasoner: Pushing the Frontiers for Multimodal Reasoning with an Open and General Recipe![GitHub Repo stars](https://img.shields.io/github/stars/EvolvingLMMs-Lab/OpenMMReasoner)
 
