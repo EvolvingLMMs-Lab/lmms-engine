@@ -10,6 +10,7 @@ from .llava_onevision1_5 import (
     apply_liger_kernel_to_llava_onevision1_5,
 )
 from .monkey_patch import MONKEY_PATCHER
+from .nit import NitConfig, NitModel
 from .qwen2 import apply_liger_kernel_to_qwen2
 from .qwen2_5_omni import (
     Qwen2_5OmniThinkerConfig,
@@ -35,7 +36,6 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
-from .nit import NitConfig, NitModel
 
 __all__ = [
     "AeroForConditionalGeneration",
