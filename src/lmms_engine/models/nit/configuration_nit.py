@@ -50,5 +50,5 @@ class NitConfig(PretrainedConfig):
         self.decouple = decouple
         self.ori_max_pe_len = ori_max_pe_len
         self.qk_norm = qk_norm
-        
+
         super().__init__(**kwargs)
