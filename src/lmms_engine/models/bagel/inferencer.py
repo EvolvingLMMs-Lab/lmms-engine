@@ -212,8 +212,8 @@ class InterleaveInferencer:
                 cfg_img_packed_key_value_indexes=generation_input_cfg_img["cfg_packed_key_value_indexes"],
                 enable_taylorseer=enable_taylorseer,
                 noise_level=noise_level,
-                sample_sde_window_size=grpo_config.sample.sde_window_size,
-                sample_sde_window_range=grpo_config.sample.sde_window_range,
+                sample_sde_window_size=grpo_config.sample.sde_window_size if grpo_config is not None else 1,
+                sample_sde_window_range=grpo_config.sample.sde_window_range if grpo_config is not None else (0, 5),
                 process_index=getattr(accelerator, "process_index", 0),
                 device=getattr(accelerator, "device", "cuda"),
             )
