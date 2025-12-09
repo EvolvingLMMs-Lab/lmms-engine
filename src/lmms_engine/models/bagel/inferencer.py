@@ -93,11 +93,7 @@ class InterleaveInferencer:
 
         return gen_context
 
-<<<<<<< HEAD
     # @torch.no_grad()
-=======
-    @torch.no_grad()
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)
     def gen_image(
         self,
         image_shape,
@@ -216,18 +212,12 @@ class InterleaveInferencer:
                 cfg_img_packed_key_value_indexes=generation_input_cfg_img["cfg_packed_key_value_indexes"],
                 enable_taylorseer=enable_taylorseer,
                 noise_level=noise_level,
-<<<<<<< HEAD
                 sample_sde_window_size=grpo_config.sample.sde_window_size if grpo_config is not None else 1,
                 sample_sde_window_range=grpo_config.sample.sde_window_range if grpo_config is not None else (0, 5),
-=======
-                sample_sde_window_size=grpo_config.sample.sde_window_size,
-                sample_sde_window_range=grpo_config.sample.sde_window_range,
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)
                 process_index=getattr(accelerator, "process_index", 0),
                 device=getattr(accelerator, "device", "cuda"),
             )
 
-<<<<<<< HEAD
             # image = self.decode_image(unpacked_latent[0], image_shape)
             # IMPORTANT: Convert to float() before decode, same as flow_grpo
             image = self.decode_image(unpacked_latent[0].float(), image_shape)
@@ -243,12 +233,6 @@ class InterleaveInferencer:
             return_tensor: If True, return tensor (C, H, W) in [0, 1] (same as flow_grpo).
                           If False, return PIL Image.
         """
-=======
-            image = self.decode_image(unpacked_latent[0], image_shape)
-            return {"image": image, "all_latents": all_latents, "all_log_probs": all_log_probs, "timesteps": timesteps}
-
-    def decode_image(self, latent, image_shape):
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)
         H, W = image_shape
         h, w = H // self.model.latent_downsample, W // self.model.latent_downsample
 
@@ -260,7 +244,6 @@ class InterleaveInferencer:
             1, self.model.latent_channel, h * self.model.latent_patch_size, w * self.model.latent_patch_size
         )
         image = self.vae_model.decode(latent)
-<<<<<<< HEAD
         image = (image * 0.5 + 0.5).clamp(0, 1)[0].float()  # (C, H, W), [0, 1]
 
         if return_tensor:
@@ -271,12 +254,6 @@ class InterleaveInferencer:
             image_pil = image.permute(1, 2, 0) * 255  # (H, W, C)
             image_pil = Image.fromarray(image_pil.to(torch.uint8).cpu().numpy())
             return image_pil
-=======
-        image = (image * 0.5 + 0.5).clamp(0, 1)[0].permute(1, 2, 0) * 255
-        image = Image.fromarray((image).to(torch.uint8).cpu().numpy())
-
-        return image
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)
 
     @torch.no_grad()
     def gen_text(self, gen_context, max_length: int = 500, do_sample: bool = True, temperature: float = 1.0):
@@ -298,11 +275,7 @@ class InterleaveInferencer:
         output = output.split("<|im_end|>")[0].split("<|im_start|>")[1]
         return output
 
-<<<<<<< HEAD
     # @torch.no_grad()
-=======
-    @torch.no_grad()
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)
     def interleave_inference(
         self,
         input_lists: List[Union[str, Image.Image]],
@@ -415,7 +388,6 @@ class InterleaveInferencer:
             input_list.append(text)
 
         output_list = self.interleave_inference(input_list, **kargs)
-<<<<<<< HEAD
         return output_list[0]
 
     # def __call__(self, image: Optional[Image.Image] = None, text: Optional[str] = None, **kargs) -> Dict[str, Any]:
@@ -441,12 +413,3 @@ class InterleaveInferencer:
     #         elif isinstance(i, dict):
     #             output_dict.update(i)
     #     return output_dict
-=======
-
-        for i in output_list:
-            if isinstance(i, Image.Image):
-                output_dict["image"] = i
-            elif isinstance(i, str):
-                output_dict["text"] = i
-        return output_dict
->>>>>>> 20904e9 (Checkout patch clean files from origin flow_grpo)

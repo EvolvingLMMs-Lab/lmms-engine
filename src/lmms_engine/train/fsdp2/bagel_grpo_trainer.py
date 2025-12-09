@@ -20,6 +20,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torchvision.transforms.functional as TF
 from accelerate.utils import send_to_device
 from loguru import logger
 from PIL import Image
@@ -92,23 +93,44 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
     def __init__(
         self,
+        *,
         model: nn.Module,
         args: TrainingArguments,
         train_dataset: DatasetType,
         eval_dataset: DatasetType = None,
         processing_class=None,
         data_collator=None,
-        inferencer=None,
-        reward_fn=None,
-        eval_reward_fn=None,
-        grpo_config=None,
         **kwargs,
     ) -> None:
+        """
+        Initialize BagelGRPOTrainer.
+
+        Required arguments (passed by TrainRunner):
+            model: The model to train
+            args: TrainingArguments
+            train_dataset: Training dataset
+            eval_dataset: Optional evaluation dataset
+            processing_class: Processor/tokenizer
+            data_collator: Data collator
+
+        Optional arguments (passed via extra_kwargs in config):
+            grpo_config: GRPO configuration dict or object
+            inferencer: Optional inferencer instance
+            reward_fn: Optional reward function
+            eval_reward_fn: Optional evaluation reward function
+        """
         super().__init__(model, args, train_dataset, eval_dataset, processing_class, data_collator)
 
-        # Get grpo_config from kwargs if not provided directly
-        if grpo_config is None and "grpo_config" in kwargs:
-            grpo_config = kwargs["grpo_config"]
+        # Get grpo_config from multiple possible sources:
+        # 1. Directly from kwargs (if runner passes extra_kwargs)
+        # 2. From train_dataset.config.extra_kwargs (workaround if runner doesn't pass extra_kwargs)
+        grpo_config = kwargs.pop("grpo_config", None)
+
+        # Fallback: try to get from train_dataset.config.extra_kwargs
+        if grpo_config is None and hasattr(train_dataset, "config"):
+            dataset_extra_kwargs = getattr(train_dataset.config, "extra_kwargs", None)
+            if dataset_extra_kwargs and isinstance(dataset_extra_kwargs, dict):
+                grpo_config = dataset_extra_kwargs.get("grpo_config", None)
 
         # Convert dict config to object if needed
         if grpo_config is not None and isinstance(grpo_config, dict):
@@ -119,13 +141,14 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         # Validate grpo_config
         if self.grpo_config is None:
             raise ValueError(
-                "grpo_config must be provided for BagelGRPOTrainer (via grpo_config parameter or extra_kwargs)"
+                "grpo_config must be provided for BagelGRPOTrainer. "
+                "Add it to dataset_config.extra_kwargs.grpo_config in your YAML config."
             )
 
         # GRPO-specific components - can be passed directly or initialized from config
-        self.inferencer = inferencer
-        self.reward_fn = reward_fn
-        self.eval_reward_fn = eval_reward_fn
+        self.inferencer = kwargs.pop("inferencer", None)
+        self.reward_fn = kwargs.pop("reward_fn", None)
+        self.eval_reward_fn = kwargs.pop("eval_reward_fn", None)
 
         # If not provided, try to initialize from kwargs or model attributes
         if self.inferencer is None or self.reward_fn is None:
@@ -135,16 +158,20 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         self.executor = futures.ThreadPoolExecutor(max_workers=8)
 
         # Stat tracker for per-prompt normalization
-        if hasattr(grpo_config, "per_prompt_stat_tracking") and grpo_config.per_prompt_stat_tracking:
+        if hasattr(self.grpo_config, "per_prompt_stat_tracking") and self.grpo_config.per_prompt_stat_tracking:
             from lmms_engine.utils.tracking import PerPromptStatTracker
 
-            self.stat_tracker = PerPromptStatTracker(grpo_config.sample.global_std)
+            self.stat_tracker = PerPromptStatTracker(self.grpo_config.sample.global_std)
         else:
             self.stat_tracker = None
 
         # Reference model for KL penalty (if beta > 0)
         self.language_model_ref = None
-        if hasattr(grpo_config, "train") and hasattr(grpo_config.train, "beta") and grpo_config.train.beta > 0:
+        if (
+            hasattr(self.grpo_config, "train")
+            and hasattr(self.grpo_config.train, "beta")
+            and self.grpo_config.train.beta > 0
+        ):
             # Reference model will be set up in prepare_model
             pass
 
@@ -216,15 +243,14 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             from lmms_engine.models.bagel.inferencer import InterleaveInferencer
             from lmms_engine.models.bagel.transforms import ImageTransform
         except ImportError:
-            # Fallback to flow_grpo paths
-            from lmms_engine.models.bagel.data_utils import add_special_tokens
-            from lmms_engine.models.bagel.inferencer import InterleaveInferencer
-            from lmms_engine.models.bagel.transforms import ImageTransform
+            raise ImportError("Could not import Bagel modules. Please check your installation.")
 
-        # Get tokenizer
-        tokenizer = self.processing_class
-        if hasattr(tokenizer, "tokenizer"):
-            tokenizer = tokenizer.tokenizer
+        # Get tokenizer from processing_class
+        # BagelDataProcessor stores tokenizer in self.processor (not self.tokenizer which has a bug)
+        if hasattr(self.processing_class, "processor"):
+            tokenizer = self.processing_class.processor
+        else:
+            tokenizer = self.processing_class
 
         # Add special tokens
         tokenizer, new_token_ids, _ = add_special_tokens(tokenizer)
@@ -271,30 +297,156 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         return dict_to_namespace(config_dict)
 
     def prepare_model(self):
-        """Prepare model and optionally reference model for KL penalty."""
-        super().prepare_model()
+        """
+        Prepare model for GRPO training.
 
-        # Setup reference model if beta > 0
+        Unlike standard FSDP2 training which wraps the entire model,
+        for GRPO we only wrap the language_model (transformer) to allow
+        the inferencer to work correctly during sampling.
+
+        This matches the approach in train_bagel.py where only the transformer
+        is wrapped with FSDP, not the entire Bagel model.
+        """
+        import gc
+
+        from torch.distributed.fsdp import MixedPrecisionPolicy
+
+        from lmms_engine.utils.fsdp2_utils import (
+            apply_fsdp2,
+            fsdp2_load_full_state_dict,
+        )
+
+        # Setup reference model BEFORE FSDP wrapping if beta > 0
         if (
             hasattr(self.grpo_config, "train")
             and hasattr(self.grpo_config.train, "beta")
             and self.grpo_config.train.beta > 0
         ):
             logger.info("Setting up reference model for KL penalty")
-            # Create reference model from current model
-            # Note: This should be done before FSDP wrapping
             if hasattr(self.model, "language_model"):
+                # Clone the language model for reference
                 ref_model = type(self.model.language_model)(self.model.language_model.config)
                 ref_model.load_state_dict(self.model.language_model.state_dict())
                 ref_model.eval()
                 ref_model.requires_grad_(False)
-                # Move to same device as main model
-                device = next(self.fsdp2_model.parameters()).device
-                ref_model = ref_model.to(device)
                 self.language_model_ref = ref_model
-                # Store in model for access during training
-                if hasattr(self.model, "language_model_ref"):
-                    self.model.language_model_ref = ref_model
+                self.model.language_model_ref = ref_model
+
+        # Only wrap language_model with FSDP2, not the entire model
+        # This allows the inferencer to use the model correctly during sampling
+        if hasattr(self.model, "language_model"):
+            transformer = self.model.language_model
+            transformer.config.use_cache = False
+
+            # Get target device
+            local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            device = torch.device(f"cuda:{local_rank}")
+
+            # IMPORTANT: Move transformer to GPU BEFORE FSDP2 wrapping
+            # This ensures all buffers (like rotary_emb.inv_freq) are on the correct device
+            logger.info(f"Moving language_model to {device} before FSDP2 wrapping")
+            transformer = transformer.to(device)
+
+            # Enable gradient checkpointing if configured
+            if self.args.gradient_checkpointing:
+                if hasattr(transformer, "gradient_checkpointing_enable"):
+                    transformer.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+            # Setup mixed precision policy
+            if self.args.bf16:
+                param_dtype = torch.bfloat16
+            else:
+                param_dtype = torch.float16
+
+            reduce_dtype = getattr(torch, self.args.reduce_dtype)
+            output_dtype = getattr(torch, self.args.output_dtype)
+            mp_policy = MixedPrecisionPolicy(
+                param_dtype=param_dtype,
+                reduce_dtype=reduce_dtype,
+                output_dtype=output_dtype,
+            )
+
+            fsdp_kwargs = {
+                "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
+                "mp_policy": mp_policy,
+            }
+
+            # Get transformer layer class to wrap
+            transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)
+
+            # Save state dict before FSDP wrapping
+            full_state = transformer.state_dict()
+
+            logger.info(f"Applying FSDP2 to language_model (transformer only)")
+            apply_fsdp2(transformer, fsdp_kwargs, transformer_cls_names_to_wrap)
+
+            logger.info(f"Loading full state dict to language_model")
+            fsdp2_load_full_state_dict(transformer, full_state)
+
+            # CRITICAL: After FSDP2 wrapping and state loading, some buffers may be on CPU
+            # We need to explicitly move them to the correct device
+            # This is especially important for rotary_emb.inv_freq which is registered with persistent=False
+            def move_buffers_to_device(module, target_device):
+                for name, buf in module.named_buffers(recurse=False):
+                    if buf is not None and buf.device != target_device:
+                        logger.info(f"Moving buffer {name} from {buf.device} to {target_device}")
+                        # Use register_buffer to properly update the buffer
+                        module.register_buffer(name, buf.to(target_device), persistent=False)
+                for child_name, child in module.named_children():
+                    move_buffers_to_device(child, target_device)
+
+            logger.info(f"Moving all buffers to {device}")
+            move_buffers_to_device(transformer, device)
+
+            # Put the wrapped transformer back into the model
+            self.model.language_model = transformer
+
+            logger.info(f"FSDP2 applied to language_model")
+
+            del full_state
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # Move all other components of Bagel to device (vae2llm, time_embedder, etc.)
+            # language_model is already handled by FSDP
+            for name, module in self.model.named_children():
+                if name != "language_model":
+                    module.to(device)
+
+            # Move reference model to device if exists
+            if self.language_model_ref is not None:
+                self.language_model_ref = self.language_model_ref.to(device)
+                self.model.language_model_ref = self.language_model_ref
+        else:
+            # Fallback to standard FSDP2 wrapping
+            logger.warning("Model does not have language_model attribute, using standard FSDP2 wrapping")
+            super().prepare_model()
+
+        # Set fsdp2_model to the model for compatibility
+        self.fsdp2_model = self.model
+
+    def prepare_optimizer(self):
+        """
+        Prepare optimizer for GRPO training.
+
+        Only optimize parameters from language_model that require gradients.
+        This matches train_bagel.py which only optimizes transformer parameters.
+        """
+        if hasattr(self.model, "language_model"):
+            # Only optimize trainable parameters from language_model
+            trainable_params = [p for p in self.model.language_model.parameters() if p.requires_grad]
+            logger.info(f"Number of trainable parameters: {sum(p.numel() for p in trainable_params)}")
+        else:
+            # Fallback to all model parameters
+            trainable_params = [p for p in self.fsdp2_model.parameters() if p.requires_grad]
+
+        self.optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=self.args.learning_rate,
+            weight_decay=self.args.weight_decay,
+            betas=(self.args.adam_beta1, self.args.adam_beta2),
+            eps=self.args.adam_epsilon,
+        )
 
     def compute_loss(self, batch):
         """Not used in GRPO training, but kept for compatibility."""
@@ -345,8 +497,9 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 prompts, prompt_metadata = next(train_iter)
 
             # Tokenize prompts
-            if hasattr(self.processing_class, "tokenizer"):
-                tokenizer = self.processing_class.tokenizer
+            # BagelDataProcessor stores tokenizer in self.processor (not self.tokenizer which has a bug)
+            if hasattr(self.processing_class, "processor"):
+                tokenizer = self.processing_class.processor
             else:
                 # Fallback: assume processing_class is tokenizer
                 tokenizer = self.processing_class
@@ -389,7 +542,10 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                             **self._get_inference_hyperparams(),
                         )
 
-                    images.append(output_dict["image"])
+                    # Convert PIL Image to Tensor (C, H, W) in [0, 1]
+                    # This matches the format expected by train_bagel.py logic and log_sample_images
+                    img_tensor = TF.to_tensor(output_dict["image"])
+                    images.append(img_tensor)
                     latents.append(output_dict["all_latents"])
                     log_probs.append(output_dict["all_log_probs"])
                     timesteps.append(output_dict["timesteps"])
@@ -425,6 +581,22 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             position=0,
         ):
             rewards, reward_metadata = sample["rewards"].result()
+
+            # Debug reward shape
+            batch_size = sample["prompt_ids"].shape[0]
+            if "avg" in rewards:
+                avg_val = rewards["avg"]
+                avg_len = len(avg_val) if not hasattr(avg_val, "shape") else avg_val.shape[0]
+                if avg_len != batch_size:
+                    logger.error(f"Reward length mismatch! rewards['avg'] len: {avg_len}, batch_size: {batch_size}")
+                    # Attempt to fix if it's 0 vs N (maybe empty list?)
+                    if avg_len == 0:
+                        logger.warning("Empty rewards received. Filling with zeros.")
+                        rewards["avg"] = [0.0] * batch_size
+            else:
+                logger.warning(f"No 'avg' in rewards. Keys: {rewards.keys()}")
+                rewards["avg"] = [0.0] * batch_size
+
             sample["rewards"] = {
                 key: torch.as_tensor(value, device=self.fsdp2_model.device).float() for key, value in rewards.items()
             }
@@ -437,7 +609,14 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             for k in samples[0].keys()
         }
 
-        return samples_collated, images, prompts, rewards
+        # Get collated rewards for logging (before adding ori_avg)
+        collated_rewards = samples_collated["rewards"]
+
+        # Get rewards for the last batch for logging
+        # Note: samples is a list of dicts, each dict contains rewards for that batch
+        last_batch_rewards = samples[-1]["rewards"]
+
+        return samples_collated, images, prompts, last_batch_rewards
 
     def _compute_advantages(self, samples: Dict, prompts: List[str], tokenizer):
         """
@@ -446,18 +625,25 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         Returns:
             advantages: Tensor of advantages
         """
-        # Gather rewards across processes
+        # Gather rewards across processes (matching train_bagel.py line 745-746)
         gathered_rewards = {}
         for key, value in samples["rewards"].items():
             gathered_value = self._gather_tensor(value)
             gathered_rewards[key] = gathered_value.cpu().numpy()
 
-        # Log rewards
+        # Debug gathered rewards shape
+        if "avg" in gathered_rewards:
+            logger.info(f"Gathered rewards['avg'] shape: {gathered_rewards['avg'].shape}")
+
+        # Log rewards (matching train_bagel.py line 747-755)
         if dist.get_rank() == 0:
             reward_metrics = {
-                f"reward_{key}": value.mean()
-                for key, value in gathered_rewards.items()
-                if "_strict_accuracy" not in key and "_accuracy" not in key
+                "epoch": self.global_step // self.steps_per_epoch if hasattr(self, "steps_per_epoch") else 0,
+                **{
+                    f"reward_{key}": value.mean()
+                    for key, value in gathered_rewards.items()
+                    if "_strict_accuracy" not in key and "_accuracy" not in key
+                },
             }
             if hasattr(self, "tracking"):
                 self.tracking.log(reward_metrics, step=self.global_step)
@@ -500,6 +686,29 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
         return advantages
 
+    def _force_inference_mode(self, module):
+        """Recursively force ALL modules to be in inference mode (training=False).
+
+        This is necessary because many classes in qwen2_navit.py use `if self.training:`
+        to dispatch between forward_train and forward_inference. We need forward_inference
+        for the inferencer to work correctly, even during training phase.
+
+        Classes affected include:
+        - Qwen2Attention, PackedAttentionMoT
+        - Qwen2DecoderLayer, Qwen2MoTDecoderLayer, Qwen2DecoderLayerNaVIT
+        - Qwen2Model, Qwen2ForCausalLM
+        """
+        # Force ALL modules to eval mode to ensure forward_inference is used
+        # This is safe because:
+        # 1. Dropout behavior is controlled by training flag, but we want inference path
+        # 2. FSDP gradient sync works based on requires_grad, not training flag
+        if module.training:
+            module.training = False
+
+        # Recurse into all children
+        for child in module.children():
+            self._force_inference_mode(child)
+
     def _training_phase(self, samples: Dict, advantages: torch.Tensor, tokenizer, epoch: int):
         """
         Training phase: Update policy using GRPO loss.
@@ -512,11 +721,55 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         """
         self.fsdp2_model.train()
 
-        # Set training mode but disable dropout in some layers
-        if hasattr(self.fsdp2_model, "module"):
-            self.fsdp2_model.module.training = False
-            if hasattr(self.fsdp2_model.module, "model"):
-                self.fsdp2_model.module.model.training = False
+        # Force inference mode for Qwen2 modules to ensure correct forward path
+        # This is critical because Qwen2Model.forward checks self.training
+        if hasattr(self.model, "language_model"):
+            self._force_inference_mode(self.model.language_model)
+
+        # Set training mode but disable dropout in some layers and force inference path for Qwen2Model
+        # This matches train_bagel.py logic and handles FSDP/LoRA wrapping
+        # (Legacy manual logic kept for safety but _force_inference_mode should cover it)
+        if hasattr(self.model, "language_model"):
+            # Start with the potentially FSDP-wrapped language model
+            lm = self.model.language_model
+
+            # Unwrap FSDP wrapper to get to the actual model (Qwen2ForCausalLM or PeftModel)
+            # Note: We keep the FSDP wrapper in training=True for gradient sync
+            if hasattr(lm, "module"):
+                lm = lm.module
+                lm.training = False  # Set the inner module to eval
+
+            # Unwrap PeftModel if present
+            # PeftModel usually puts the base model in .base_model or .model
+            if hasattr(lm, "base_model"):
+                lm = lm.base_model
+            elif (
+                hasattr(lm, "model")
+                and not isinstance(lm.model, torch.nn.ModuleList)
+                and not isinstance(lm.model, torch.nn.Sequential)
+            ):
+                # This handles cases where .model is the base model (like in some Peft implementations or Qwen2ForCausalLM)
+                # But we need to be careful not to confuse with Qwen2Model inside Qwen2ForCausalLM which is also named .model
+                # Qwen2ForCausalLM.model is Qwen2Model.
+                pass
+
+            # Now we expect lm to be Qwen2ForCausalLM (or similar) which has .model as Qwen2Model
+            if hasattr(lm, "model"):
+                qwen2_model = lm.model
+                qwen2_model.training = False  # Force Qwen2Model to use forward_inference
+
+                # Recursively set layers to eval
+                if hasattr(qwen2_model, "layers"):
+                    for layer in qwen2_model.layers:
+                        # Layer might be FSDP wrapped
+                        if hasattr(layer, "module"):
+                            layer.module.training = False
+                            if hasattr(layer.module, "self_attn"):
+                                layer.module.self_attn.training = False
+                        else:
+                            layer.training = False
+                            if hasattr(layer, "self_attn"):
+                                layer.self_attn.training = False
 
         total_batch_size, num_timesteps = samples["timesteps"].shape
         num_inner_epochs = self.grpo_config.train.num_inner_epochs
@@ -568,7 +821,7 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                             grpo_config=self.grpo_config,
                             accelerator=None,
                             optimizer=self.optimizer,
-                            transformer=self.fsdp2_model,
+                            transformer=self.model.language_model,
                             num_timesteps=self.grpo_config.sample.num_steps,
                             cfg_text_scale=self.grpo_config.sample.guidance_scale,
                             **self._get_inference_hyperparams(),
@@ -664,8 +917,9 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             )
 
         # Initialize tokenizer
-        if hasattr(self.processing_class, "tokenizer"):
-            tokenizer = self.processing_class.tokenizer
+        # BagelDataProcessor stores tokenizer in self.processor (not self.tokenizer which has a bug)
+        if hasattr(self.processing_class, "processor"):
+            tokenizer = self.processing_class.processor
         else:
             tokenizer = self.processing_class
 
@@ -710,16 +964,24 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 )
 
             # Sampling phase
-            samples, images, prompts, rewards = self._sampling_phase(epoch, train_iter)
+            samples, images, prompts, last_batch_rewards = self._sampling_phase(epoch, train_iter)
 
-            # Log sample images periodically
+            # Add ori_avg for advantage computation (matching train_bagel.py line 742-743)
+            samples["rewards"]["ori_avg"] = samples["rewards"]["avg"]
+            samples["rewards"]["avg"] = samples["rewards"]["avg"].unsqueeze(-1)
+
+            # Log sample images periodically (matching train_bagel.py line 713-741)
             if epoch % 5 == 0 and rank == 0:
-                self._log_sample_images(images, prompts, rewards, epoch)
+                # Use last_batch_rewards for logging
+                # Note: last_batch_rewards["avg"] is already correct for the last batch
+                # We use last_batch_rewards which corresponds to images and prompts from the last batch
+                rewards_for_logging = {"avg": last_batch_rewards["avg"]}
+                self._log_sample_images(images, prompts, rewards_for_logging, epoch)
 
-            # Compute advantages
+            # Compute advantages (matching train_bagel.py line 744-787)
             advantages = self._compute_advantages(samples, prompts, tokenizer)
             samples["advantages"] = advantages
-            del samples["rewards"]  # Free memory
+            del samples["rewards"]  # Free memory (matching train_bagel.py line 789)
 
             # Training phase
             self._training_phase(samples, advantages, tokenizer, epoch)
@@ -747,7 +1009,23 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             return
 
         num_samples = min(15, len(images))
+        if num_samples == 0:
+            return
+
         sample_indices = random.sample(range(len(images)), num_samples)
+
+        # Debug info for shape mismatch
+        if "avg" in rewards:
+            avg_rewards = rewards["avg"]
+            rewards_len = (
+                avg_rewards.shape[0]
+                if isinstance(avg_rewards, torch.Tensor) and avg_rewards.dim() > 0
+                else (1 if isinstance(avg_rewards, torch.Tensor) else len(avg_rewards))
+            )
+            if rewards_len < len(images):
+                logger.warning(
+                    f"Mismatch in logging: {len(images)} images but {rewards_len} rewards. Using 0.0 for missing rewards."
+                )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for idx, i in enumerate(sample_indices):
@@ -757,7 +1035,25 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 pil.save(os.path.join(tmpdir, f"{idx}.jpg"))
 
             sampled_prompts = [prompts[i] for i in sample_indices]
-            sampled_rewards = [rewards["avg"][i] for i in sample_indices]
+
+            # Safe reward retrieval
+            sampled_rewards = []
+            if "avg" in rewards:
+                avg_rewards = rewards["avg"]
+                # Handle scalar tensor
+                if isinstance(avg_rewards, torch.Tensor) and avg_rewards.dim() == 0:
+                    avg_rewards = avg_rewards.unsqueeze(0)
+
+                for i in sample_indices:
+                    if i < len(avg_rewards):
+                        val = avg_rewards[i]
+                        if isinstance(val, torch.Tensor):
+                            val = val.item()
+                        sampled_rewards.append(val)
+                    else:
+                        sampled_rewards.append(0.0)
+            else:
+                sampled_rewards = [0.0] * len(sample_indices)
 
             self.tracking.log(
                 {

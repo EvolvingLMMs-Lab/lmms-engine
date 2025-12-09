@@ -1,3 +1,10 @@
+from .bagel_grpo_dataset import (
+    RLPromptCollator,
+    RLPromptImageCollator,
+    RLPromptImageJSONLDataset,
+    RLPromptJSONLDataset,
+    RLPromptTextDataset,
+)
 from .base_dataset import BaseDataset
 from .llava_video_dataset import LLaVAVideoDataset
 from .multimodal_dataset import MultiModalDataset
@@ -16,4 +23,9 @@ __all__ = [
     "RaeDataset",
     "SitDataset",
     "LLaVAVideoDataset",
+    "RLPromptTextDataset",
+    "RLPromptJSONLDataset",
+    "RLPromptImageJSONLDataset",
+    "RLPromptCollator",
+    "RLPromptImageCollator",
 ]
