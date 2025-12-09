@@ -893,7 +893,7 @@ class LLaVAOneVision1_5_DecoderLayer(nn.Module):
         return outputs
 
 
-@auto_docstring
+
 class Qwen2VLPreTrainedModel(PreTrainedModel):
     config_class = Llavaonevision1_5Config
     base_model_prefix = "model"
@@ -922,7 +922,6 @@ class Qwen2VLPreTrainedModel(PreTrainedModel):
             module.weight.data.fill_(1.0)
 
 
-@auto_docstring
 class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
     config_class = RiceConfig
     _no_split_modules = ["RiceBlock"]
@@ -1033,7 +1032,7 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
 
         return window_index, cu_window_seqlens
 
-    @auto_docstring
+    
     def forward(self, hidden_states: torch.Tensor, grid_thw: torch.Tensor) -> torch.Tensor:
         r"""
         grid_thw (`torch.LongTensor` of shape `(num_images, 3)`):
@@ -1103,7 +1102,7 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         return self.merger(hidden_states)
 
 
-@auto_docstring
+
 class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
     config_class = LLaVAOneVision1_5_TextConfig
 
@@ -1130,7 +1129,7 @@ class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
     def set_input_embeddings(self, value):
         self.embed_tokens = value
 
-    @auto_docstring
+    
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1404,7 +1403,7 @@ class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
         return causal_mask
 
 
-@auto_docstring
+
 class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
     base_model_prefix = ""
     _checkpoint_conversion_mapping = {"^model": "language_model"}
@@ -1603,7 +1602,6 @@ class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
         image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
         return image_embeds
 
-    @auto_docstring
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -1813,7 +1811,6 @@ class LLaVAOneVision1_5_ForConditionalGeneration(Qwen2VLPreTrainedModel, Generat
         return self.model.visual
 
     @can_return_tuple
-    @auto_docstring
     def forward(
         self,
         input_ids: torch.LongTensor = None,
