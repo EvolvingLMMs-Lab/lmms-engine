@@ -10,9 +10,10 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from flash_attn import flash_attn_varlen_func
+from timm.models.vision_transformer import Mlp, PatchEmbed
+
 from ..utils.funcs import get_parameter_dtype
 from ..utils.pos_embeds.rope import VisionRotaryEmbedding, rotate_half
-from timm.models.vision_transformer import Mlp, PatchEmbed
 
 
 def modulate(x, shift, scale):
