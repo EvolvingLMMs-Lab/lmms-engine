@@ -8,8 +8,6 @@ class NitConfig(PretrainedConfig):
 
     def __init__(
         self,
-        vae_name_or_path: str = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers",
-        vae_dtype: str = "float32",
         input_size=32,
         patch_size=2,
         in_channels=4,
@@ -32,8 +30,6 @@ class NitConfig(PretrainedConfig):
         compile: bool = False,
         **kwargs,
     ):
-        self.vae_name_or_path = vae_name_or_path
-        self.vae_dtype = vae_dtype
         self.input_size = input_size
         self.patch_size = patch_size
         self.in_channels = in_channels

@@ -1,6 +1,19 @@
 import os
 
 import torch
+import torch.distributed as dist
+import torch.nn.functional as F
+from loguru import logger
+
+from lmms_engine.train.registry import TRAINER_REGISTER
+from .fsdp2_trainer import FSDP2SFTTrainer
+
+from diffusers import AutoencoderDC, AutoencoderKL
+import functools
+
+import os
+
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel
 
 
@@ -96,3 +109,29 @@ def prepare_null_cap_feat_mask(text_encoder_type, device, weight_dtype, use_last
         tokenizer, text_encoder, device, weight_dtype, "", use_last_hidden_state, max_seq_length=max_seq_length
     )
     return null_cap_features, null_cap_mask
+
+
+@TRAINER_REGISTER.register("nit_trainer")
+class NitTrainer(FSDP2SFTTrainer):
+    def __init__(self, *args,
+        vae_name_or_path: str = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers",
+        vae_dtype: str = "float32",
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.vae_name_or_path = vae_name_or_path
+        self.encode_func = self.load_vae(self.vae_name_or_path)
+    
+    def load_vae(self, vae_name_or_path: str):
+        if "sd-vae" in vae_name_or_path:
+            sd_vae = AutoencoderKL.from_pretrained(vae_name_or_path)
+            sd_vae.eval()
+            sd_vae.requires_grad_(False)
+            return functools.partial(sd_vae_encode, sd_vae)
+        elif "dc-ae" in vae_name_or_path:
+            dc_ae = AutoencoderDC.from_pretrained(vae_name_or_path)
+            dc_ae.eval()
+            dc_ae.requires_grad_(False)
+            return functools.partial(dc_ae_encode, dc_ae)
+        else:
+            raise ValueError(f"Unsupported VAE type: {vae_name_or_path}")

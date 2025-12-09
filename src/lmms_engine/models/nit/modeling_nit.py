@@ -1,15 +1,12 @@
-import functools
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
-from diffusers import AutoencoderDC, AutoencoderKL
 from transformers import PreTrainedModel
 from transformers.utils import ModelOutput
 
 from .c2i.nit_model import NiT
 from .configuration_nit import NitConfig
-from .modeling_utils import dc_ae_encode, sd_vae_encode
 
 
 class NitPreTrainedModel(PreTrainedModel):
@@ -51,18 +48,6 @@ class NitModel(NitPreTrainedModel):
         self.vae = self.load_vae(config.vae_name_or_path)
         if config.compile:
             self.nit = torch.compile(self.nit)
-
-    def load_vae(self, vae_name_or_path: str):
-        if "sd-vae" in vae_name_or_path:
-            sd_vae = AutoencoderKL.from_pretrained(vae_name_or_path)
-            sd_vae.eval()
-            sd_vae.requires_grad_(False)
-            self.encode_func = functools.partial(sd_vae_encode, sd_vae)
-        elif "dc-ae" in vae_name_or_path:
-            dc_ae = AutoencoderDC.from_pretrained(vae_name_or_path)
-            dc_ae.eval()
-            dc_ae.requires_grad_(False)
-            self.encode_func = functools.partial(dc_ae_encode, dc_ae)
 
     def forward(
         self,
