@@ -8,6 +8,7 @@ from diffusers import AutoencoderDC, AutoencoderKL
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel
 
+from lmms_engine.models.nit.utils.loss import FlowMatchingLoss
 from lmms_engine.train.registry import TRAINER_REGISTER
 
 from .fsdp2_trainer import FSDP2SFTTrainer
@@ -114,11 +115,13 @@ class NitTrainer(FSDP2SFTTrainer):
         *args,
         vae_name_or_path: str = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers",
         vae_dtype: str = "float32",
+        transport_config: dict | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.vae_name_or_path = vae_name_or_path
         self.encode_func = self.load_vae(self.vae_name_or_path)
+        self.loss_fn = FlowMatchingLoss(**transport_config if transport_config is not None else {})
 
     def load_vae(self, vae_name_or_path: str):
         if "sd-vae" in vae_name_or_path:
@@ -133,3 +136,6 @@ class NitTrainer(FSDP2SFTTrainer):
             return functools.partial(dc_ae_encode, dc_ae)
         else:
             raise ValueError(f"Unsupported VAE type: {vae_name_or_path}")
+
+    def compute_loss(self, batch):
+        print(batch)

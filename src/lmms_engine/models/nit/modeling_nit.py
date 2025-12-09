@@ -17,7 +17,7 @@ class NitPreTrainedModel(PreTrainedModel):
 
 @dataclass
 class NitOutput(ModelOutput):
-    x: torch.FloatTensor = None
+    x: Optional[torch.FloatTensor] = None
     zs: Optional[torch.FloatTensor] = None
 
 
@@ -44,10 +44,8 @@ class NitModel(NitPreTrainedModel):
             max_pe_len_w=config.max_pe_len_w,
             decouple=config.decouple,
             ori_max_pe_len=config.ori_max_pe_len,
+            qk_norm=config.qk_norm,
         )
-        self.vae = self.load_vae(config.vae_name_or_path)
-        if config.compile:
-            self.nit = torch.compile(self.nit)
 
     def forward(
         self,

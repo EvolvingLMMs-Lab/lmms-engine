@@ -9,17 +9,17 @@ class NitConfig(PretrainedConfig):
     def __init__(
         self,
         input_size=32,
-        patch_size=2,
-        in_channels=4,
+        patch_size=1,
+        in_channels=32,
         hidden_size=1152,
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
         class_dropout_prob=0.1,
         num_classes=1000,
-        encoder_depth=4,
+        encoder_depth=8,
         projector_dim=2048,
-        z_dim=768,
+        z_dim=1280,
         use_checkpoint: bool = False,
         custom_freqs: str = "normal",
         theta: int = 10000,
@@ -27,7 +27,7 @@ class NitConfig(PretrainedConfig):
         max_pe_len_w: Optional[int] = None,
         decouple: bool = False,
         ori_max_pe_len: Optional[int] = None,
-        compile: bool = False,
+        qk_norm: bool = False,
         **kwargs,
     ):
         self.input_size = input_size
@@ -49,6 +49,6 @@ class NitConfig(PretrainedConfig):
         self.max_pe_len_w = max_pe_len_w
         self.decouple = decouple
         self.ori_max_pe_len = ori_max_pe_len
-        self.compile = compile
-
+        self.qk_norm = qk_norm
+        
         super().__init__(**kwargs)
