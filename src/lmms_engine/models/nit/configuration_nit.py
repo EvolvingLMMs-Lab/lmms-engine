@@ -27,7 +27,7 @@ class NitConfig(PretrainedConfig):
         max_pe_len_w: Optional[int] = None,
         decouple: bool = False,
         ori_max_pe_len: Optional[int] = None,
-        qk_norm: bool = False,
+        qk_norm: bool = True,
         **kwargs,
     ):
         self.input_size = input_size

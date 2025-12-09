@@ -35,6 +35,7 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
+from .nit import NitConfig, NitModel
 
 __all__ = [
     "AeroForConditionalGeneration",
@@ -75,4 +76,6 @@ __all__ = [
     "Llavaonevision1_5Config",
     "LLaVAOneVision1_5_ForConditionalGeneration",
     "apply_liger_kernel_to_llava_onevision1_5",
+    "NitConfig",
+    "NitModel",
 ]

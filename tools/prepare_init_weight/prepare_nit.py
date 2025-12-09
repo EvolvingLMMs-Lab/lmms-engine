@@ -20,6 +20,8 @@ def prepare_nit(config: NitConfig, model_safetensors_path, pytorch_dump_folder_p
             new_state_dict[k] = v
     state_dict = new_state_dict
     missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
+    # config.register_for_auto_class()
+    # model.register_for_auto_class()
     print(f"Missing keys: {missing}")
     print(f"Unexpected keys: {unexpected}")
     model.push_to_hub(pytorch_dump_folder_path)

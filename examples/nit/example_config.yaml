@@ -132,7 +132,7 @@ trainer_args:
   hub_private_repo: null
   hub_always_push: false
   hub_revision: null
-  gradient_checkpointing: true
+  gradient_checkpointing: false
   gradient_checkpointing_kwargs: null
   include_inputs_for_metrics: false
   include_for_metrics: []
@@ -173,9 +173,9 @@ trainer_args:
     end_step: 3
 model_config:
   extra_kwargs: {}
-  load_from_pretrained_path: GoodEnough/NiT-XL-Models
+  load_from_pretrained_path: pufanyi/NiT-XL-1000K
   load_from_config: null
-  attn_implementation: flash_attention_2
+  attn_implementation: eager
   overwrite_config: null
   monkey_patch_kwargs: null
 extra_kwargs: null
