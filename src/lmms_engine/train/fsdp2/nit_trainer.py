@@ -1,20 +1,16 @@
+import functools
 import os
 
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from diffusers import AutoencoderDC, AutoencoderKL
 from loguru import logger
+from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel
 
 from lmms_engine.train.registry import TRAINER_REGISTER
+
 from .fsdp2_trainer import FSDP2SFTTrainer
-
-from diffusers import AutoencoderDC, AutoencoderKL
-import functools
-
-import os
-
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel
 
 
 # dc-ae
@@ -113,7 +109,9 @@ def prepare_null_cap_feat_mask(text_encoder_type, device, weight_dtype, use_last
 
 @TRAINER_REGISTER.register("nit_trainer")
 class NitTrainer(FSDP2SFTTrainer):
-    def __init__(self, *args,
+    def __init__(
+        self,
+        *args,
         vae_name_or_path: str = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers",
         vae_dtype: str = "float32",
         **kwargs,
@@ -121,7 +119,7 @@ class NitTrainer(FSDP2SFTTrainer):
         super().__init__(*args, **kwargs)
         self.vae_name_or_path = vae_name_or_path
         self.encode_func = self.load_vae(self.vae_name_or_path)
-    
+
     def load_vae(self, vae_name_or_path: str):
         if "sd-vae" in vae_name_or_path:
             sd_vae = AutoencoderKL.from_pretrained(vae_name_or_path)
