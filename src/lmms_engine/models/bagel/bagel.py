@@ -2,7 +2,10 @@
 # Copyright 2025 Bytedance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 
+import math
 import os
+import random
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -338,6 +341,16 @@ class Bagel(PreTrainedModel):
             packed_position_ids=packed_position_ids,
             **extra_inputs,
         )
+
+        # Inference mode: return logits when no training signals are available
+        # For image generation/editing tasks, we may have MSE loss even without text labels
+        is_training_mode = packed_label_ids is not None or mse_loss_indexes is not None
+        if not is_training_mode:
+            logits = self.language_model.lm_head(last_hidden_state)
+            return {
+                "logits": logits,
+                "last_hidden_state": last_hidden_state,
+            }
 
         mse = None
         if need_visual_gen:
@@ -757,7 +770,7 @@ class Bagel(PreTrainedModel):
 
         return past_key_values
 
-    def prepare_vae_latent(self, curr_kvlens, curr_rope, image_sizes, new_token_ids):
+    def prepare_vae_latent(self, curr_kvlens, curr_rope, image_sizes, new_token_ids, generators=None):
         packed_text_ids, packed_text_indexes = list(), list()
         packed_vae_position_ids, packed_vae_token_indexes, packed_init_noises = (
             list(),
@@ -768,6 +781,7 @@ class Bagel(PreTrainedModel):
         packed_key_value_indexes = list()
 
         query_curr = curr = 0
+        index = 0
         for (H, W), curr_kvlen, curr_position_id in zip(image_sizes, curr_kvlens, curr_rope):
             packed_key_value_indexes.extend(range(curr, curr + curr_kvlen))
             curr += curr_kvlen
@@ -788,7 +802,18 @@ class Bagel(PreTrainedModel):
 
             h, w = H // self.latent_downsample, W // self.latent_downsample
             num_image_tokens = h * w
-            packed_init_noises.append(torch.randn(num_image_tokens, self.latent_channel * self.latent_patch_size**2))
+            if generators:
+                packed_init_noises.append(
+                    torch.randn(
+                        (num_image_tokens, self.latent_channel * self.latent_patch_size**2),
+                        generator=generators[index],
+                    )
+                )
+            else:
+                packed_init_noises.append(
+                    torch.randn(num_image_tokens, self.latent_channel * self.latent_patch_size**2)
+                )
+
             packed_vae_token_indexes.extend(range(query_curr, query_curr + num_image_tokens))
             packed_indexes.extend(range(curr, curr + num_image_tokens))
             curr += num_image_tokens
@@ -799,6 +824,7 @@ class Bagel(PreTrainedModel):
             packed_indexes.append(curr)
             curr += 1
             query_curr += 1
+            index += 1
 
             packed_position_ids.extend([curr_position_id] * (num_image_tokens + 2))
             packed_seqlens.append(num_image_tokens + 2)
@@ -891,6 +917,12 @@ class Bagel(PreTrainedModel):
         cfg_type: str = "parallel",
         # cache_args
         enable_taylorseer=False,
+        # for grpo learn
+        noise_level: float = 0.7,
+        sample_sde_window_size: int = 1,
+        sample_sde_window_range: Tuple[int, int] = (0, 5),
+        process_index: int = 0,
+        device="cuda",
     ):
         if enable_taylorseer:
             self.language_model.model.enable_taylorseer = True
@@ -903,14 +935,33 @@ class Bagel(PreTrainedModel):
             model_pred_text_cache_dic, model_pred_text_current = None, None
             model_pred_img_cache_dic, model_pred_img_current = None, None
 
-        x_t = packed_init_noises
+        x_t = packed_init_noises.to(device)
+        random.seed(process_index)
+        # sde_timestep_begin = random.randint(0, num_timesteps//3)
+        sde_timestep_begin = random.randint(
+            sample_sde_window_range[0], sample_sde_window_range[1] - sample_sde_window_size
+        )
 
         timesteps = torch.linspace(1, 0, num_timesteps, device=x_t.device)
         timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
-        dts = timesteps[:-1] - timesteps[1:]
+        dts = timesteps[1:] - timesteps[:-1]  # 正确：应该是负值 (下一步时间 - 当前时间)
         timesteps = timesteps[:-1]
 
-        for i, t in tqdm(enumerate(timesteps), total=len(timesteps)):
+        all_latents = []
+        all_log_probs = []
+        all_timesteps = []
+        rank = dist.get_rank() if dist.is_initialized() else 0
+
+        for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=rank != 0, desc="Generating Images"):
+            if i < sde_timestep_begin:
+                cur_noise_level = 0
+            elif i == sde_timestep_begin:
+                cur_noise_level = noise_level
+                all_latents.append(x_t)
+            elif i > sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
+                cur_noise_level = noise_level
+            else:
+                cur_noise_level = 0
             timestep = torch.tensor([t] * x_t.shape[0], device=x_t.device)
             if t > cfg_interval[0] and t <= cfg_interval[1]:
                 cfg_text_scale_ = cfg_text_scale
@@ -957,17 +1008,365 @@ class Bagel(PreTrainedModel):
                 model_pred_img_current=model_pred_img_current,
             )
 
-            x_t = x_t - v_t.to(x_t.device) * dts[i]  # velocity pointing from data to noise
+            # x_t = x_t - v_t.to(x_t.device) * dts[i]  # velocity pointing from data to noise
+            x_t, log_prob, _, _ = self._sde_step_with_logprob(
+                v_t,
+                timesteps[i],
+                timesteps[i + 1] if i + 1 < len(timesteps) else timesteps[i] * 0,  # 最后一个step, timestep是0
+                dts[i],
+                x_t,
+                sigma_max=timesteps[1],
+                noise_level=cur_noise_level,
+            )
+            if i >= sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
+                all_latents.append(x_t)
+                all_log_probs.append(log_prob)
+                all_timesteps.append(t)
 
         if enable_taylorseer:
             del model_pred_cache_dic, model_pred_current
             del model_pred_text_cache_dic, model_pred_text_current
             del model_pred_img_cache_dic, model_pred_img_current
 
+        all_timesteps = torch.tensor(all_timesteps, device=log_prob.device)
         unpacked_latent = x_t.split((packed_seqlens - 2).tolist())
-        return unpacked_latent
+        return unpacked_latent, all_latents, all_log_probs, all_timesteps.to(log_prob.device)
 
-    @torch.no_grad
+    def generate_image_learn(
+        self,
+        sample,
+        grpo_config,
+        accelerator,
+        optimizer,
+        transformer,
+        packed_text_ids: torch.LongTensor,
+        packed_text_indexes: torch.LongTensor,
+        packed_init_noises: torch.Tensor,
+        packed_vae_position_ids: torch.LongTensor,
+        packed_vae_token_indexes: torch.LongTensor,
+        packed_seqlens: torch.IntTensor,
+        packed_position_ids: torch.LongTensor,
+        packed_indexes: torch.LongTensor,
+        past_key_values: NaiveCache,
+        key_values_lens: torch.IntTensor,
+        packed_key_value_indexes: torch.LongTensor,
+        num_timesteps: int = 24,
+        timestep_shift: float = 1.0,
+        cfg_renorm_min: float = 0.0,
+        cfg_renorm_type: str = "global",
+        cfg_interval: Optional[Tuple[float, float]] = [0, 1],
+        # cfg_text
+        cfg_text_scale: float = 1.0,
+        cfg_text_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_text_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_text_past_key_values: Optional[NaiveCache] = None,
+        cfg_text_key_values_lens: Optional[torch.IntTensor] = None,
+        cfg_text_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        # cfg_img
+        cfg_img_scale: float = 1.0,
+        cfg_img_packed_query_indexes: Optional[torch.LongTensor] = None,
+        cfg_img_packed_position_ids: Optional[torch.LongTensor] = None,
+        cfg_img_past_key_values: Optional[NaiveCache] = None,
+        cfg_img_key_values_lens: Optional[torch.IntTensor] = None,
+        cfg_img_packed_key_value_indexes: Optional[torch.LongTensor] = None,
+        cfg_type: str = "parallel",
+        noise_level: float = 0.7,
+    ):
+        latents = sample["latents"]
+        prev_latents = sample["prev_latents"]
+        timesteps = sample["timesteps"]
+
+        original_timesteps = torch.linspace(1, 0, num_timesteps, device=latents.device)
+        original_timesteps = timestep_shift * original_timesteps / (1 + (timestep_shift - 1) * original_timesteps)
+        dtimesteps = original_timesteps[1:] - original_timesteps[:-1]
+
+        advantages = torch.clamp(
+            sample["advantages"],
+            -grpo_config.train.adv_clip_max,
+            grpo_config.train.adv_clip_max,
+        )
+
+        # Debug: Check advantages shape and values
+        from loguru import logger
+
+        # Check if advantages needs reshaping for broadcasting
+        # advantages should be [batch_size] or [1] to broadcast with log_prob (which is scalar after mean)
+        if advantages.dim() == 1:
+            if len(advantages) == 1:
+                # Single advantage value, will broadcast to all timesteps
+                logger.info(f"Single advantage value: {advantages[0]}, will broadcast to all timesteps")
+            elif len(advantages) != latents[0].shape[0]:
+                logger.error(
+                    f"Advantages batch size mismatch! advantages: {len(advantages)}, latents batch: {latents[0].shape[0]}"
+                )
+                # Try to fix: if advantages is [batch_size] but we have multiple timesteps, we need to handle it
+                # For now, just use the first advantage for all timesteps
+                if len(advantages) > 0:
+                    logger.warning(f"Using first advantage value {advantages[0]} for all timesteps")
+                    advantages = advantages[0:1]  # Keep as [1] tensor
+            # Keep as 1D for broadcasting with scalar log_prob
+        clipfrac = []
+        clipfrac_gt_one = []
+        clipfrac_lt_one = []
+        policy_loss_list = []
+        kl_loss_list = []
+        loss_list = []
+        rank = dist.get_rank() if dist.is_initialized() else 0
+
+        is_main_process = True if rank == 0 else False
+        for i, t in tqdm(
+            enumerate(timesteps),
+            total=len(timesteps),
+            disable=not is_main_process,
+            desc="Generating images learn",
+        ):
+            timestep = torch.tensor([t] * latents[0].shape[0], device=latents[0].device)
+            if t > cfg_interval[0] and t <= cfg_interval[1]:
+                cfg_text_scale_ = cfg_text_scale
+                cfg_img_scale_ = cfg_img_scale
+            else:
+                cfg_text_scale_ = 1.0
+                cfg_img_scale_ = 1.0
+            accumulate_ctx = accelerator.accumulate(transformer) if accelerator is not None else nullcontext()
+            with accumulate_ctx:
+                v_t = self._forward_flow(
+                    x_t=latents[i],
+                    timestep=timestep,
+                    packed_vae_token_indexes=packed_vae_token_indexes,
+                    packed_vae_position_ids=packed_vae_position_ids,
+                    packed_text_ids=packed_text_ids,
+                    packed_text_indexes=packed_text_indexes,
+                    packed_position_ids=packed_position_ids,
+                    packed_indexes=packed_indexes,
+                    packed_seqlens=packed_seqlens,
+                    key_values_lens=key_values_lens,
+                    past_key_values=past_key_values,
+                    packed_key_value_indexes=packed_key_value_indexes,
+                    cfg_renorm_min=cfg_renorm_min,
+                    cfg_renorm_type=cfg_renorm_type,
+                    # cfg_text
+                    cfg_text_scale=cfg_text_scale_,
+                    cfg_text_packed_position_ids=cfg_text_packed_position_ids,
+                    cfg_text_packed_query_indexes=cfg_text_packed_query_indexes,
+                    cfg_text_key_values_lens=cfg_text_key_values_lens,
+                    cfg_text_past_key_values=cfg_text_past_key_values,
+                    cfg_text_packed_key_value_indexes=cfg_text_packed_key_value_indexes,
+                    # cfg_img
+                    cfg_img_scale=cfg_img_scale_,
+                    cfg_img_packed_position_ids=cfg_img_packed_position_ids,
+                    cfg_img_packed_query_indexes=cfg_img_packed_query_indexes,
+                    cfg_img_key_values_lens=cfg_img_key_values_lens,
+                    cfg_img_past_key_values=cfg_img_past_key_values,
+                    cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
+                    cfg_type=cfg_type,
+                )
+            t_index = (original_timesteps == timesteps[i]).nonzero(as_tuple=True)[0]
+            _, log_prob, prev_sample_mean, std_dev_t = self._sde_step_with_logprob(
+                v_t,
+                timesteps[i],
+                timesteps[i + 1] if i + 1 < len(timesteps) else timesteps[i] * 0,  # 最后一个step, timestep是0
+                dtimesteps[t_index],
+                latents[i],
+                prev_sample=prev_latents[i],
+                sigma_max=original_timesteps[1],
+                noise_level=noise_level,
+            )
+            if grpo_config.train.beta > 0:
+                with torch.no_grad():
+                    v_t = self._forward_flow(
+                        x_t=latents[i],
+                        timestep=timestep,
+                        packed_vae_token_indexes=packed_vae_token_indexes,
+                        packed_vae_position_ids=packed_vae_position_ids,
+                        packed_text_ids=packed_text_ids,
+                        packed_text_indexes=packed_text_indexes,
+                        packed_position_ids=packed_position_ids,
+                        packed_indexes=packed_indexes,
+                        packed_seqlens=packed_seqlens,
+                        key_values_lens=key_values_lens,
+                        past_key_values=past_key_values,
+                        packed_key_value_indexes=packed_key_value_indexes,
+                        cfg_renorm_min=cfg_renorm_min,
+                        cfg_renorm_type=cfg_renorm_type,
+                        # cfg_text
+                        cfg_text_scale=cfg_text_scale_,
+                        cfg_text_packed_position_ids=cfg_text_packed_position_ids,
+                        cfg_text_packed_query_indexes=cfg_text_packed_query_indexes,
+                        cfg_text_key_values_lens=cfg_text_key_values_lens,
+                        cfg_text_past_key_values=cfg_text_past_key_values,
+                        cfg_text_packed_key_value_indexes=cfg_text_packed_key_value_indexes,
+                        # cfg_img
+                        cfg_img_scale=cfg_img_scale_,
+                        cfg_img_packed_position_ids=cfg_img_packed_position_ids,
+                        cfg_img_packed_query_indexes=cfg_img_packed_query_indexes,
+                        cfg_img_key_values_lens=cfg_img_key_values_lens,
+                        cfg_img_past_key_values=cfg_img_past_key_values,
+                        cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
+                        cfg_type=cfg_type,
+                        ref_model=True,
+                    )
+                    _, _, prev_sample_mean_ref, _ = self._sde_step_with_logprob(
+                        v_t,
+                        timesteps[i],
+                        timesteps[i + 1] if i + 1 < len(timesteps) else timesteps[i] * 0,  # 最后一个step, timestep是0
+                        dtimesteps[t_index],
+                        latents[i],
+                        prev_sample=prev_latents[i],
+                        sigma_max=original_timesteps[1],
+                        noise_level=noise_level,
+                    )
+
+            # grpo logic
+            # Debug: Check inputs before loss computation
+            log_prob_diff = log_prob - sample["log_probs"][i]
+            ratio = torch.exp(log_prob_diff)
+
+            # Convert config values to float to handle string values from YAML
+            clip_range_lt = float(grpo_config.train.clip_range_lt)
+            clip_range_gt = float(grpo_config.train.clip_range_gt)
+
+            # Ensure ratio and advantages can broadcast properly
+            # ratio is scalar, advantages is [1], so we can use them directly
+            # But to be safe, ensure advantages is squeezed if it's [1]
+            if advantages.dim() == 1 and advantages.shape[0] == 1:
+                advantages_for_loss = advantages.squeeze(0)  # [1] -> scalar
+            else:
+                advantages_for_loss = advantages
+
+            unclipped_loss = -advantages_for_loss * ratio
+            clipped_loss = -advantages_for_loss * torch.clamp(
+                ratio,
+                1.0 - clip_range_lt,
+                1.0 + clip_range_gt,
+            )
+
+            policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+
+            if grpo_config.train.beta > 0:
+                std_dev_t_sq = std_dev_t**2
+                kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t_sq)
+                loss = policy_loss + grpo_config.train.beta * kl_loss
+            else:
+                loss = policy_loss
+
+            clipfrac.append(torch.mean((ratio - 1.0 > clip_range_gt or 1.0 - ratio > clip_range_lt).float()))
+            clipfrac_gt_one.append(torch.mean((ratio - 1.0 > clip_range_gt).float()))
+            clipfrac_lt_one.append(torch.mean((1.0 - ratio > clip_range_lt).float()))
+            policy_loss_list.append(policy_loss)
+            if grpo_config.train.beta > 0:
+                kl_loss_list.append(kl_loss)
+            loss_list.append(loss)
+            if accelerator is not None:
+                accelerator.backward(loss)
+            elif optimizer is not None:
+                loss.backward()
+            if optimizer is not None:
+                optimizer.step()
+                optimizer.zero_grad()
+        policy_loss = torch.cat([t.unsqueeze(0) for t in policy_loss_list]).mean()
+        loss = torch.cat([t.unsqueeze(0) for t in loss_list]).mean()
+        clipfrac = torch.cat([t.unsqueeze(0) for t in clipfrac]).mean()
+        clipfrac_gt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_gt_one]).mean()
+        clipfrac_lt_one = torch.cat([t.unsqueeze(0) for t in clipfrac_lt_one]).mean()
+
+        if grpo_config.train.beta > 0:
+            kl_loss = torch.cat([t.unsqueeze(0) for t in kl_loss_list]).mean()
+        else:
+            kl_loss = policy_loss * 0 - 1
+        # If optimizer is not None, don't apply detach to the data
+        return_data = [clipfrac, clipfrac_gt_one, clipfrac_lt_one, policy_loss, kl_loss, loss]
+        if optimizer is not None:
+            return_data = (data.detach() for data in return_data)
+        return_data = tuple(return_data)
+        return return_data
+
+    def _sde_step_with_logprob(
+        self,
+        model_output,
+        timestep,
+        prev_timestep,
+        d_timestep,
+        sample,
+        prev_sample=None,
+        generator=None,
+        sigma_max=None,
+        noise_level: float = 0.8,
+        sde_type: str = "sde",
+    ):
+        # bf16 can overflow here when compute prev_sample_mean, we must convert all variable to fp32
+        from diffusers.utils.torch_utils import randn_tensor
+
+        model_output = model_output.float()
+        sample = sample.float()
+        if prev_sample is not None:
+            prev_sample = prev_sample.float()
+
+        if sde_type == "sde":
+            std_dev_t = torch.sqrt(timestep / (1 - torch.where(timestep == 1, sigma_max, timestep))) * noise_level
+            prev_sample_mean = (
+                sample * (1 + std_dev_t**2 / (2 * timestep) * d_timestep)
+                + model_output * (1 + std_dev_t**2 * (1 - timestep) / (2 * timestep)) * d_timestep
+            )
+
+            if prev_sample is not None and generator is not None:
+                raise ValueError(
+                    "Cannot pass both generator and prev_sample. Please make sure that either `generator` or"
+                    " `prev_sample` stays `None`."
+                )
+
+            if prev_sample is None:
+                variance_noise = randn_tensor(
+                    model_output.shape,
+                    generator=generator,
+                    device=model_output.device,
+                    dtype=model_output.dtype,
+                )
+                # Check for negative d_timestep
+                sqrt_term = -d_timestep  # d_timestep should be negative
+                if (sqrt_term < 0).any():
+                    sqrt_term = torch.abs(sqrt_term) + 1e-8
+                prev_sample = prev_sample_mean + std_dev_t * torch.sqrt(sqrt_term) * variance_noise
+
+            # Check for negative d_timestep to avoid NaN in sqrt
+            sqrt_term = -d_timestep  # d_timestep should be negative (going from high to low timestep)
+            if (sqrt_term < 0).any():
+                from loguru import logger
+
+                logger.warning(
+                    f"Negative sqrt_term detected in log_prob calculation! d_timestep: {d_timestep}, sqrt_term: {sqrt_term}"
+                )
+                # Use absolute value and add small epsilon
+                sqrt_term = torch.abs(sqrt_term) + 1e-8
+
+            log_prob = -((prev_sample.detach() - prev_sample_mean) ** 2) / (
+                2 * ((std_dev_t * torch.sqrt(sqrt_term)) ** 2 + 1e-8)
+            )
+
+        elif sde_type == "cps":
+            std_dev_t = prev_timestep * math.sin(noise_level * math.pi / 2)  # sigma_t in paper
+            prev_original_sample = sample - timestep * model_output  # predicted x_0 in paper
+            noise_estimate = sample + model_output * (1 - timestep)  # predicted x_1 in paper
+            prev_sample_mean = prev_original_sample * (1 - prev_timestep) + noise_estimate * torch.sqrt(
+                prev_timestep**2 - std_dev_t**2
+            )
+
+            if prev_sample is None:
+                variance_noise = randn_tensor(
+                    model_output.shape,
+                    generator=generator,
+                    device=model_output.device,
+                    dtype=model_output.dtype,
+                )
+                prev_sample = prev_sample_mean + std_dev_t * variance_noise
+
+            log_prob = -((prev_sample.detach() - prev_sample_mean) ** 2)
+
+        # mean along all but batch dimension
+        log_prob = log_prob.mean()
+
+        return prev_sample, log_prob, prev_sample_mean, std_dev_t
+
+    # @torch.no_grad
     def _forward_flow(
         self,
         x_t: torch.Tensor,
@@ -1006,7 +1405,12 @@ class Bagel(PreTrainedModel):
         model_pred_text_current: Optional[int] = None,
         model_pred_img_cache_dic: Optional[Dict[str, Any]] = None,
         model_pred_img_current: Optional[int] = None,
+        ref_model: bool = False,
     ):
+        if ref_model:
+            self.language_model = self.language_model_ref
+        else:
+            self.language_model = self.language_model
         packed_text_embedding = self.language_model.model.embed_tokens(packed_text_ids)
         packed_sequence = packed_text_embedding.new_zeros((sum(packed_seqlens), self.hidden_size))
         packed_sequence[packed_text_indexes] = packed_text_embedding
@@ -1014,6 +1418,14 @@ class Bagel(PreTrainedModel):
         assert timestep.unique().shape[0] == 1
         packed_pos_embed = self.latent_pos_embed(packed_vae_position_ids)
         packed_timestep_embeds = self.time_embedder(timestep)
+
+        # Ensure x_t has the same dtype and device as vae2llm weights
+        if hasattr(self.vae2llm, "weight"):
+            target_dtype = self.vae2llm.weight.dtype
+            target_device = self.vae2llm.weight.device
+            if x_t.dtype != target_dtype or x_t.device != target_device:
+                x_t = x_t.to(dtype=target_dtype, device=target_device)
+
         x_t = self.vae2llm(x_t) + packed_timestep_embeds + packed_pos_embed
         if x_t.dtype != packed_sequence.dtype:
             x_t = x_t.to(packed_sequence.dtype)
