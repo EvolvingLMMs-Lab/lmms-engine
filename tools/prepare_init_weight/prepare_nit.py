@@ -1,11 +1,15 @@
 from lmms_engine.models.nit import NitModel
 import torch
+from safetensors.torch import load_file
 from lmms_engine.models.nit.configuration_nit import NitConfig
 from lmms_engine.models.nit.modeling_nit import NitModel
 
 def prepare_nit(config: NitConfig, model_safetensors_path, pytorch_dump_folder_path):
     model = NitModel(config)
-    state_dict = torch.load(model_safetensors_path, map_location="cpu")
+    if model_safetensors_path.endswith(".safetensors"):
+        state_dict = load_file(model_safetensors_path, device="cpu")
+    else:
+        state_dict = torch.load(model_safetensors_path, map_location="cpu", weights_only=False)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     print(f"Missing keys: {missing}")
     print(f"Unexpected keys: {unexpected}")
