@@ -40,7 +40,16 @@ class BagelCollator:
         sequence_length = inputs.pop("sequence_length")
         sample_lens = inputs.pop("sample_lens")
         for keys, values in inputs.items():
-            if isinstance(values[0], torch.Tensor):
+            if keys == "padded_images":
+                image_width = [item.shape[2] for item in values]
+                image_height = [item.shape[3] for item in values]
+                max_image_width = max(image_width)
+                max_image_height = max(image_height)
+                padded_images = torch.zeros((len(values), 3, max_image_width, max_image_height), dtype=values[0].dtype)
+                for i, image in enumerate(values):
+                    padded_images[i, :, : image.shape[2], : image.shape[3]] = image
+                batched_inputs[keys] = padded_images
+            elif isinstance(values[0], torch.Tensor):
                 batched_inputs[keys] = torch.concatenate(values, dim=0)
             elif isinstance(values[0], list):
                 for value in values:
