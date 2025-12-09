@@ -364,6 +364,207 @@ def geneval_score(device):
     return _fn
 
 
+def editreward_score_remote(device, url: str = "http://127.0.0.1:18087"):
+    """
+    Submits images to EditReward server and computes a reward.
+
+    This function requires source images (original images before editing) to be
+    provided in the metadata dict under 'source_images' or 'input_images' key.
+
+    Args:
+        device: Device (not used for remote scoring, kept for API consistency)
+        url: URL of the EditReward server
+
+    Returns:
+        Scoring function that takes (images, prompts, metadata)
+    """
+    import os
+    import pickle
+    from io import BytesIO
+
+    import requests
+    from requests.adapters import HTTPAdapter, Retry
+
+    batch_size = 16  # Smaller batch size due to larger input (2 images per sample)
+    sess = requests.Session()
+
+    # Disable proxy for local server
+    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,0.0.0.0")
+    os.environ.setdefault("no_proxy", "127.0.0.1,localhost,0.0.0.0")
+    sess.proxies = {"http": None, "https": None}
+
+    retries = Retry(total=1000, backoff_factor=1, status_forcelist=[500], allowed_methods=False)
+    sess.mount("http://", HTTPAdapter(max_retries=retries))
+
+    def _fn(images, prompts, metadata):
+        """
+        Score edited images against source images.
+
+        Args:
+            images: Edited images (tensor [B, C, H, W] or list of PIL Images)
+            prompts: List of editing instruction strings
+            metadata: Dict containing 'source_images' or 'input_images' (list of PIL Images or paths)
+
+        Returns:
+            scores: List of reward scores
+            info: Empty dict (for API consistency)
+        """
+        # Get source images from metadata
+        source_images = metadata.get("source_images", metadata.get("input_images", []))
+        if len(source_images) == 0:
+            raise ValueError("source_images must be provided in metadata for EditReward")
+
+        # Convert tensor images to numpy
+        if isinstance(images, torch.Tensor):
+            images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+
+        # Batch processing
+        images_batched = np.array_split(images, max(1, int(np.ceil(len(images) / batch_size))))
+        source_batched = np.array_split(source_images, max(1, int(np.ceil(len(source_images) / batch_size))))
+        prompts_batched = np.array_split(prompts, max(1, int(np.ceil(len(prompts) / batch_size))))
+
+        all_scores = []
+        for image_batch, source_batch, prompt_batch in zip(images_batched, source_batched, prompts_batched):
+            jpeg_edited = []
+            jpeg_source = []
+
+            # Compress edited images
+            for image in image_batch:
+                if isinstance(image, np.ndarray):
+                    img = Image.fromarray(image)
+                else:
+                    img = image
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=95)
+                jpeg_edited.append(buffer.getvalue())
+
+            # Compress source images
+            for image in source_batch:
+                if isinstance(image, np.ndarray):
+                    img = Image.fromarray(image)
+                elif isinstance(image, str):
+                    img = Image.open(image).convert("RGB")
+                else:
+                    img = image
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=95)
+                jpeg_source.append(buffer.getvalue())
+
+            # Prepare request data
+            data = {
+                "prompts": list(prompt_batch),
+                "source_images": jpeg_source,
+                "edited_images": jpeg_edited,
+            }
+            data_bytes = pickle.dumps(data)
+
+            # Send request
+            try:
+                response = sess.post(url, data=data_bytes, timeout=120)
+                if response.status_code != 200:
+                    raise Exception(f"Server returned status code {response.status_code}: {response.content[:500]}")
+                response_data = pickle.loads(response.content)
+            except Exception as e:
+                print(f"Error in editreward_score_remote request: {e}")
+                print(f"URL: {url}")
+                raise
+
+            # Extract scores (handle output_dim=2 for uncertainty)
+            batch_scores = response_data["scores"]
+            # If scores are 2D (mean + uncertainty), take only the mean
+            if isinstance(batch_scores, list) and len(batch_scores) > 0:
+                if isinstance(batch_scores[0], list) and len(batch_scores[0]) == 2:
+                    batch_scores = [s[0] for s in batch_scores]  # Take mean score
+            all_scores.extend(batch_scores)
+
+        return all_scores, {}
+
+    return _fn
+
+
+def editreward_score(device, checkpoint_path: str = None, model_name_or_path: str = None):
+    """
+    Local EditReward scoring (loads model on GPU).
+
+    This function requires source images (original images before editing) to be
+    provided in the metadata dict under 'source_images' or 'input_images' key.
+
+    Args:
+        device: Device to use for inference
+        checkpoint_path: Path to EditReward checkpoint
+        model_name_or_path: Path to base model
+
+    Returns:
+        Scoring function that takes (images, prompts, metadata)
+    """
+    from .editreward_scorer import EditRewardScorer
+
+    # Default paths
+    if checkpoint_path is None:
+        checkpoint_path = "/pfs/training-data/kemingwu/hf_cache/models/EditReward-MiMo-VL-7B-SFT-2508"
+    if model_name_or_path is None:
+        model_name_or_path = "/pfs/training-data/kemingwu/hf_cache/models/MiMo-VL-7B-SFT-2508"
+
+    scorer = EditRewardScorer(
+        checkpoint_path=checkpoint_path,
+        model_name_or_path=model_name_or_path,
+        device=device,
+        reward_dim="overall_detail",
+        rm_head_type="ranknet_multi_head",
+        pooling_strategy="mean",
+        use_special_tokens=True,
+        output_dim=2,
+        rm_head_kwargs=None,
+    )
+
+    def _fn(images, prompts, metadata):
+        """
+        Score edited images against source images.
+
+        Args:
+            images: Edited images (tensor [B, C, H, W] or list of PIL Images)
+            prompts: List of editing instruction strings
+            metadata: Dict containing 'source_images' or 'input_images'
+
+        Returns:
+            scores: List of reward scores
+            info: Empty dict
+        """
+        # Get source images from metadata
+        source_images = metadata.get("source_images", metadata.get("input_images", []))
+        if len(source_images) == 0:
+            raise ValueError("source_images must be provided in metadata for EditReward")
+
+        # Convert tensor images to PIL
+        edited_pil = []
+        if isinstance(images, torch.Tensor):
+            images_np = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            images_np = images_np.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+            for img in images_np:
+                edited_pil.append(Image.fromarray(img))
+        else:
+            for img in images:
+                if isinstance(img, np.ndarray):
+                    edited_pil.append(Image.fromarray(img))
+                else:
+                    edited_pil.append(img)
+
+        # Score
+        scores = scorer.score(prompts, source_images, edited_pil)
+
+        # Convert to list and extract mean if output_dim=2
+        if isinstance(scores, torch.Tensor):
+            scores = scores.cpu()
+            if scores.ndim > 1 and scores.shape[-1] == 2:
+                scores = scores[:, 0]  # Take mean score
+            scores = scores.tolist()
+
+        return scores, {}
+
+    return _fn
+
+
 def unifiedreward_score_remote(device):
     """Submits images to DeQA and computes a reward."""
     import pickle
@@ -523,6 +724,8 @@ def multi_score(device, score_dict):
         "geneval": geneval_score,
         "clipscore": clip_score,
         "image_similarity": image_similarity_score,
+        "editreward": editreward_score,  # Local EditReward scoring
+        "editreward_remote": editreward_score_remote,  # Remote EditReward scoring
     }
     score_fns = {}
     for score_name, weight in score_dict.items():
