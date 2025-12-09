@@ -1086,25 +1086,6 @@ class Bagel(PreTrainedModel):
             grpo_config.train.adv_clip_max,
         )
 
-        # Debug: Check advantages shape and values
-        from loguru import logger
-
-        # Check if advantages needs reshaping for broadcasting
-        # advantages should be [batch_size] or [1] to broadcast with log_prob (which is scalar after mean)
-        if advantages.dim() == 1:
-            if len(advantages) == 1:
-                # Single advantage value, will broadcast to all timesteps
-                logger.info(f"Single advantage value: {advantages[0]}, will broadcast to all timesteps")
-            elif len(advantages) != latents[0].shape[0]:
-                logger.error(
-                    f"Advantages batch size mismatch! advantages: {len(advantages)}, latents batch: {latents[0].shape[0]}"
-                )
-                # Try to fix: if advantages is [batch_size] but we have multiple timesteps, we need to handle it
-                # For now, just use the first advantage for all timesteps
-                if len(advantages) > 0:
-                    logger.warning(f"Using first advantage value {advantages[0]} for all timesteps")
-                    advantages = advantages[0:1]  # Keep as [1] tensor
-            # Keep as 1D for broadcasting with scalar log_prob
         clipfrac = []
         clipfrac_gt_one = []
         clipfrac_lt_one = []
