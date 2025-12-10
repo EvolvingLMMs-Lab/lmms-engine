@@ -70,6 +70,7 @@ if is_torch_flex_attn_available():
     from torch.nn.attention.flex_attention import BlockMask
     from transformers.integrations.flex_attention import make_flex_block_causal_mask
 
+from transformers.models.qwen3.modeling_qwen3 import Qwen3Model
 
 logger = logging.get_logger(__name__)
 
@@ -893,7 +894,6 @@ class LLaVAOneVision1_5_DecoderLayer(nn.Module):
         return outputs
 
 
-
 class Qwen2VLPreTrainedModel(PreTrainedModel):
     config_class = Llavaonevision1_5Config
     base_model_prefix = "model"
@@ -1032,7 +1032,6 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
 
         return window_index, cu_window_seqlens
 
-    
     def forward(self, hidden_states: torch.Tensor, grid_thw: torch.Tensor) -> torch.Tensor:
         r"""
         grid_thw (`torch.LongTensor` of shape `(num_images, 3)`):
@@ -1102,7 +1101,6 @@ class RiceTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         return self.merger(hidden_states)
 
 
-
 class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
     config_class = LLaVAOneVision1_5_TextConfig
 
@@ -1129,7 +1127,6 @@ class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
     def set_input_embeddings(self, value):
         self.embed_tokens = value
 
-    
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -1403,7 +1400,6 @@ class LLaVAOneVision1_5_TextModel(Qwen2VLPreTrainedModel):
         return causal_mask
 
 
-
 class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
     base_model_prefix = ""
     _checkpoint_conversion_mapping = {"^model": "language_model"}
@@ -1411,7 +1407,8 @@ class LLaVAOneVision1_5_Model(Qwen2VLPreTrainedModel):
     def __init__(self, config: Llavaonevision1_5Config):
         super().__init__(config)
         self.visual = RiceTransformerPretrainedModel._from_config(config.vision_config)
-        self.language_model = LLaVAOneVision1_5_TextModel._from_config(config.text_config)
+        self.language_model = Qwen3Model(config.text_config)
+        # self.language_model = LLaVAOneVision1_5_TextModel._from_config(config.text_config)
         self.rope_deltas = None  # cache rope_deltas here
 
         # Initialize weights and apply final processing
