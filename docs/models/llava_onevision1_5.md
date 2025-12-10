@@ -35,14 +35,14 @@ dataset_config:
       data_folder: ''
       data_type: arrow
   processor_config:
-    processor_name: Jinghao-Guo/llavaov1.5-4B-instruct-converted
+    processor_name: Jinghao-Guo/llavaov1.5-4B-instruct-converted-qwen
     processor_type: llava
   packing: true
   shuffle: true
   video_backend: qwen_vl_utils
 
 model_config:
-  load_from_pretrained_path: Jinghao-Guo/llavaov1.5-4B-instruct-converted
+  load_from_pretrained_path: Jinghao-Guo/llavaov1.5-4B-instruct-converted-qwen
   attn_implementation: flash_attention_2
 
 trainer_args:
