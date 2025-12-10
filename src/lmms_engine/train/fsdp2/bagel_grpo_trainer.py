@@ -315,6 +315,9 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         """
         import gc
 
+        # Patch Qwen2RMSNorm at runtime to handle DTensor weights without touching model source code
+        self._patch_qwen2_rmsnorm_for_dtensor()
+
         from torch.distributed.fsdp import MixedPrecisionPolicy
 
         from lmms_engine.utils.fsdp2_utils import (
@@ -430,6 +433,46 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
 
         # Set fsdp2_model to the model for compatibility
         self.fsdp2_model = self.model
+
+    def _patch_qwen2_rmsnorm_for_dtensor(self):
+        """
+        Runtime patch Qwen2RMSNorm.forward to handle DTensor weights (FSDP2) mixing with local tensors.
+        This avoids editing model source files while preventing runtime errors.
+        """
+        try:
+            from lmms_engine.models.bagel.qwen2.modeling_qwen2 import Qwen2RMSNorm
+        except Exception as e:
+            logger.warning(f"Could not import Qwen2RMSNorm for patching: {e}")
+            return
+
+        if getattr(Qwen2RMSNorm, "_patched_for_dtensor", False):
+            return
+
+        def _patched_forward(self, hidden_states):
+            input_dtype = hidden_states.dtype
+            hidden_states_fp32 = hidden_states.to(torch.float32)
+            variance = hidden_states_fp32.pow(2).mean(-1, keepdim=True)
+            hidden_states_fp32 = hidden_states_fp32 * torch.rsqrt(variance + self.variance_epsilon)
+
+            weight = self.weight
+            try:
+                return weight * hidden_states_fp32.to(input_dtype)
+            except RuntimeError as e:
+                # Handle DTensor/local tensor mix by gathering full weight if needed
+                if "mixed torch.Tensor and DTensor" in str(e) or "must match the size of tensor" in str(e):
+                    try:
+                        from torch.distributed.tensor import DTensor
+
+                        if isinstance(weight, DTensor):
+                            weight_full = weight.full_tensor()
+                            return weight_full * hidden_states_fp32.to(input_dtype)
+                    except Exception:
+                        pass
+                raise e
+
+        Qwen2RMSNorm.forward = _patched_forward
+        Qwen2RMSNorm._patched_for_dtensor = True
+        logger.info("Patched Qwen2RMSNorm.forward at runtime to handle DTensor weights.")
 
     def prepare_optimizer(self):
         """
