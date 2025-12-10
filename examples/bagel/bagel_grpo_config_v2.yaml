@@ -1,0 +1,246 @@
+trainer_type: bagel_grpo_trainer
+
+dataset_config:
+  # Dataset type options:
+  # - rl_prompt_text: For text files (one prompt per line, e.g., train.txt)
+  # - rl_prompt_jsonl: For JSONL files with metadata (e.g., train_metadata.jsonl)
+  # - rl_prompt_image_jsonl: For image editing tasks with images and prompts
+  dataset_type: rl_prompt_text
+  dataset_format: jsonl  # Will auto-detect .txt files based on extension
+  dataset_path: /pfs/training-data/kemingwu/workspace/unify_model/lmms-engine/examples/bagel/dataset/pickscore/train.txt  # Update this to your dataset path
+  shuffle: true
+  data_seed: 42
+  test_max_samples: 512  # Limit test set size for faster evaluation
+  processor_config:
+    processor_name: /pfs/training-data/kemingwu/hf_cache/models/BAGEL-7B-MoT-ver.LE
+    processor_type: bagel
+  eval_dataset_path: /pfs/training-data/kemingwu/workspace/unify_model/lmms-engine/examples/bagel/dataset/pickscore/test.txt  # Optional, for evaluation
+  object_storage: none
+  bucket_name: null
+  # GRPO-specific configuration (passed to BagelGRPOTrainer via dataset_config.extra_kwargs)
+  extra_kwargs:
+    grpo_config:
+      # General settings
+      resolution: 512  # Image resolution
+      use_lora: false  # Set to true for LoRA training
+      per_prompt_stat_tracking: true  # Enable per-prompt reward normalization
+      
+      # Sampling configuration
+      sample:
+        num_steps: 15  # Number of diffusion steps for sampling
+        eval_num_steps: 50  # Number of steps for evaluation
+        guidance_scale: 4.0  # CFG scale for sampling
+        eval_guidance_scale: 4.0  # CFG scale for evaluation
+        train_batch_size: 6  # Batch size per GPU for sampling
+        num_image_per_prompt: 16  # Number of images to generate per prompt (k in GRPO)
+        num_batches_per_epoch: 530  # Number of batches to sample per epoch. 
+        # Set to -1 to auto-calculate based on dataset size (covers entire dataset each epoch)
+        # Set to a positive integer to manually specify (e.g., 10 for 10 batches per epoch)
+        test_batch_size: 1  # Batch size for evaluation
+        global_std: false  # Use global std for advantage normalization (false = per-prompt)
+        same_latent: false  # Whether to use same noise for same prompt
+        noise_level: 1.3  # Noise level for sampling
+        sde_window_size: 3  # SDE window size for training
+        sde_window_range: [0, 7]  # SDE window range (should be [0, num_steps//2])
+      
+      # Training configuration
+      train:
+        batch_size: 6  # Should match sample.train_batch_size
+        gradient_accumulation_steps: 1  # Usually num_batches_per_epoch // 2
+        num_inner_epochs: 1  # Number of inner training epochs per outer epoch
+        learning_rate: 1.0e-04
+        adam_beta1: 0.9
+        adam_beta2: 0.999
+        adam_weight_decay: 0.0
+        adam_epsilon: 1.0e-08
+        max_grad_norm: 1.0
+        beta: 0.0  # KL penalty weight (0 = no KL penalty)
+        timestep_shift: 3.0  # Timestep shift for training
+        adv_clip_max: 5  # Clip advantages to [-adv_clip_max, adv_clip_max]
+        clip_range: 1e-4  # PPO clip range
+        clip_range_lt: 1e-5  # Clip range for negative advantages
+        clip_range_gt: 1e-5  # Clip range for positive advantages
+        ema: false  # Whether to use EMA
+        cfg: true  # Whether to use classifier-free guidance during training
+      
+      # Reward function configuration
+      # Can be a dict with multiple rewards: {"pickscore": 1.0, "aesthetic": 0.5}
+      # Or a single reward: {"pickscore": 1.0}
+      reward_fn:
+        pickscore: 1.0
+      
+      # Evaluation and saving frequency (optional)
+      eval_freq: 30  # Evaluate every N epochs
+      save_freq: 30  # Save checkpoint every N epochs
+
+trainer_args:
+  output_dir: ./output/bagel_grpo_training_v2
+  overwrite_output_dir: false
+  do_train: true
+  do_eval: false
+  do_predict: false
+  eval_strategy: 'no'
+  prediction_loss_only: false
+  # Note: per_device_train_batch_size is used for dataloader, but GRPO uses grpo_config.sample.train_batch_size for sampling
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  # Gradient accumulation is handled by GRPO config
+  gradient_accumulation_steps: 1
+  eval_accumulation_steps: null
+  eval_delay: 0
+  torch_empty_cache_steps: 100  # Clear cache every 100 steps
+  # Learning rate is set in grpo_config.train.learning_rate
+  learning_rate: 1.0e-04
+  weight_decay: 0.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_epsilon: 1.0e-08
+  max_grad_norm: 1.0
+  num_train_epochs: 1000  # Number of outer epochs (sampling + training cycles)
+  # Training steps calculation: num_train_epochs * num_batches_per_epoch * num_inner_epochs
+  # Current: 500 * 10 * 1 = 5000 steps (increased from 100 * 2 * 1 = 200 steps)
+  max_steps: -1  # -1 means use num_train_epochs
+  lr_scheduler_type: constant  # GRPO typically uses constant LR
+  lr_scheduler_kwargs: {}
+  warmup_ratio: 0.0
+  warmup_steps: 0
+  log_level: passive
+  log_level_replica: warning
+  log_on_each_node: true
+  logging_dir: ./output/bagel_grpo_training_v2/runs
+  logging_strategy: steps
+  logging_first_step: false
+  logging_steps: 10
+  logging_nan_inf_filter: true
+  save_strategy: steps
+  save_steps: 500  # Save checkpoint every N steps
+  save_total_limit: 3
+  save_safetensors: true
+  save_on_each_node: false
+  save_only_model: false
+  restore_callback_states_from_checkpoint: false
+  no_cuda: false
+  use_cpu: false
+  use_mps_device: false
+  seed: 42
+  data_seed: 42
+  jit_mode_eval: false
+  bf16: true  # Use bf16 for training
+  fp16: false
+  fp16_opt_level: O1
+  half_precision_backend: auto
+  bf16_full_eval: false
+  fp16_full_eval: false
+  tf32: null
+  local_rank: 0
+  ddp_backend: null
+  tpu_num_cores: null
+  tpu_metrics_debug: false
+  debug: []
+  dataloader_drop_last: false
+  eval_steps: null
+  dataloader_num_workers: 1  # Keep low for GRPO to avoid issues
+  dataloader_prefetch_factor: null
+  past_index: -1
+  run_name: bagel_grpo_training_v2
+  disable_tqdm: false
+  remove_unused_columns: true
+  label_names: null
+  load_best_model_at_end: false
+  metric_for_best_model: null
+  greater_is_better: null
+  ignore_data_skip: false
+  fsdp: []
+  fsdp_min_num_params: 0
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+    - Qwen2MoTDecoderLayer
+    reshard_after_forward: true  # Important for memory saving (ZeRO-3 style)
+    min_num_params: 0
+    xla: false
+    xla_fsdp_v2: false
+    xla_fsdp_grad_ckpt: false
+  fsdp_transformer_layer_cls_to_wrap: null
+  accelerator_config:
+    split_batches: false
+    dispatch_batches: null
+    even_batches: true
+    use_seedable_sampler: true
+    non_blocking: false
+    gradient_accumulation_kwargs: null
+  parallelism_config: null
+  deepspeed: null
+  label_smoothing_factor: 0.0
+  optim: adamw_torch_fused
+  optim_args: null
+  adafactor: false
+  group_by_length: false  # Not used in GRPO
+  length_column_name: length
+  report_to:
+  - wandb
+  project: unify_rl
+  trackio_space_id: trackio
+  ddp_find_unused_parameters: null
+  ddp_bucket_cap_mb: null
+  ddp_broadcast_buffers: null
+  dataloader_pin_memory: true
+  dataloader_persistent_workers: false
+  skip_memory_metrics: true
+  use_legacy_prediction_loop: false
+  push_to_hub: false
+  resume_from_checkpoint: null
+  hub_model_id: null
+  hub_strategy: every_save
+  hub_token: "YOUR_TOKEN_HERE"
+  hub_private_repo: null
+  hub_always_push: false
+  hub_revision: null
+  gradient_checkpointing: true  # Enable to save memory
+  gradient_checkpointing_kwargs: null
+  include_inputs_for_metrics: false
+  include_for_metrics: []
+  eval_do_concat_batches: true
+  fp16_backend: auto
+  push_to_hub_model_id: null
+  push_to_hub_organization: null
+  mp_parameters: ''
+  auto_find_batch_size: false
+  full_determinism: false
+  torchdynamo: null
+  ray_scope: last
+  ddp_timeout: 1800
+  torch_compile: false
+  torch_compile_backend: null
+  torch_compile_mode: null
+  include_tokens_per_second: false
+  include_num_input_tokens_seen: 'no'
+  neftune_noise_alpha: null
+  optim_target_modules: null
+  batch_eval_metrics: false
+  eval_on_start: false
+  use_liger_kernel: false
+  liger_kernel_config: null
+  eval_use_gather_object: false
+  average_tokens_across_devices: true
+  use_muon: false
+  freeze_modules: null
+  use_rmpad: false
+  fsdp2: true
+  sp_ulysses_degree: 1
+  reduce_dtype: bfloat16
+  output_dtype: bfloat16
+  print_batch_input_steps: -1
+  enable_profiler: false
+  profiler_config:
+    start_step: 1
+    end_step: 3
+
+model_config:
+  extra_kwargs:
+    visual_und: false  # Enable/disable visual understanding
+  load_from_pretrained_path: /pfs/training-data/kemingwu/hf_cache/models/BAGEL-7B-MoT-ver.LE
+  load_from_config: null
+  attn_implementation: flash_attention_2
+  model_type: null
+  torch_dtype: bfloat16
+  overwrite_config: null
