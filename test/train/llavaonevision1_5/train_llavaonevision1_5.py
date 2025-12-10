@@ -27,13 +27,13 @@ def main():
             "dataset_format": "yaml",
             "datasets": [
                 {
-                    "path": "data/open_thoughts_debug",
+                    "path": "data/lmms_engine_test/text_example/open_thoughts_5k.parquet",
                     "data_folder": "",
-                    "data_type": "arrow",
+                    "data_type": "parquet",
                 }
             ],
             "processor_config": {
-                "processor_name": "Jinghao-Guo/llavaov1.5-4B-instruct-converted",
+                "processor_name": "Jinghao-Guo/llavaov1.5-4B-instruct-converted-qwen",
                 "processor_type": "llava",
             },
             "packing": False,
@@ -58,7 +58,7 @@ def main():
             "group_by_length": True,
             "fsdp_config": {
                 "transformer_layer_cls_to_wrap": [
-                    "LLaVAOneVision1_5_DecoderLayer",
+                    "Qwen3DecoderLayer",
                     "RiceBlock",
                 ],
                 "reshard_after_forward": False,
@@ -67,7 +67,7 @@ def main():
             "print_batch_input_steps": -1,
         },
         "model_config": {
-            "load_from_pretrained_path": "Jinghao-Guo/llavaov1.5-4B-instruct-converted",
+            "load_from_pretrained_path": "Jinghao-Guo/llavaov1.5-4B-instruct-converted-qwen",
             "attn_implementation": "flash_attention_2",
         },
         "extra_kwargs": {},

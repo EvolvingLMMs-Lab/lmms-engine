@@ -136,7 +136,7 @@ def apply_liger_kernel_to_llava_onevision1_5(
     language_model = getattr(model, "language_model", None) if model is not None else None
 
     # Apply liger kernel to the text model (language_model)
-    apply_liger_kernel_to_llavatext(
+    apply_liger_kernel_to_qwen3(
         rope=rope,
         cross_entropy=cross_entropy,
         fused_linear_cross_entropy=False,  # Already handled at the top level
