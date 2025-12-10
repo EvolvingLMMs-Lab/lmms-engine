@@ -319,7 +319,10 @@ class FSDP2SFTTrainer:
                 delta_time = end_time - start_time
 
                 # Calculate flops per rank
-                seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
+                if isinstance(batch, dict):
+                    seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
+                else:
+                    seq_len = [0]
                 flops, promised_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)

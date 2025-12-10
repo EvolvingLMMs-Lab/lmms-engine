@@ -1,11 +1,14 @@
 import functools
 import os
+import random
 
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from diffusers import AutoencoderDC, AutoencoderKL
+from einops import rearrange
 from loguru import logger
+from torchvision.transforms.functional import hflip
 from transformers import AutoModelForCausalLM, AutoTokenizer, T5EncoderModel
 
 from lmms_engine.models.nit.utils.loss import FlowMatchingLoss
@@ -116,26 +119,89 @@ class NitTrainer(FSDP2SFTTrainer):
         vae_name_or_path: str = "mit-han-lab/dc-ae-f32c32-sana-1.1-diffusers",
         vae_dtype: str = "float32",
         transport_config: dict | None = None,
+        patch_size: int = 1,
+        proj_loss_weight: float = 1.0,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.vae_name_or_path = vae_name_or_path
         self.encode_func = self.load_vae(self.vae_name_or_path)
         self.loss_fn = FlowMatchingLoss(**transport_config if transport_config is not None else {})
+        self.patch_size = patch_size
+        self.proj_loss_weight = proj_loss_weight
 
     def load_vae(self, vae_name_or_path: str):
+        device = torch.cuda.current_device()
+        dtype = torch.bfloat16 if self.args.bf16 else torch.float16
+
         if "sd-vae" in vae_name_or_path:
-            sd_vae = AutoencoderKL.from_pretrained(vae_name_or_path)
+            sd_vae = AutoencoderKL.from_pretrained(vae_name_or_path, torch_dtype=dtype)
             sd_vae.eval()
             sd_vae.requires_grad_(False)
+            sd_vae = sd_vae.to(device)
             return functools.partial(sd_vae_encode, sd_vae)
         elif "dc-ae" in vae_name_or_path:
-            dc_ae = AutoencoderDC.from_pretrained(vae_name_or_path)
+            dc_ae = AutoencoderDC.from_pretrained(vae_name_or_path, torch_dtype=dtype)
             dc_ae.eval()
             dc_ae.requires_grad_(False)
+            dc_ae = dc_ae.to(device)
             return functools.partial(dc_ae_encode, dc_ae)
         else:
             raise ValueError(f"Unsupported VAE type: {vae_name_or_path}")
 
     def compute_loss(self, batch):
-        print(batch)
+        # Not sure if this part should move to the collator
+        if len(batch) == 1 and isinstance(batch[0], list):
+            batch = batch[0]
+        batch_label = []
+        batch_images = []
+        packed_latent = []
+        hw_list = []
+
+        if self.args.bf16:
+            cast_dtype = torch.bfloat16
+        else:
+            cast_dtype = torch.float16
+
+        device = torch.cuda.current_device()
+
+        # TODO: Optimize when all images have the same size
+        for item in batch:
+            batch_label.append(item["label"])
+            image = torch.tensor(item["processed_image"], dtype=cast_dtype, device=device)
+            batch_images.append(image)
+            if random.randint(0, 1) == 0:
+                latent = self.encode_func(image.unsqueeze(0))
+            else:
+                latent = self.encode_func(hflip(image).unsqueeze(0))
+            B, C, H, W = latent.shape
+            assert B == 1, "Batch size should be 1"
+            assert C * H * W == item["num_tokens"], "Number of tokens should match"
+            latent = latent.squeeze(0)
+            latent = rearrange(latent, "c (h p1) (w p2) -> (h w) c p1 p2", p1=self.patch_size, p2=self.patch_size)
+            packed_latent.append(latent)
+            hw_list.append([H // self.patch_size, W // self.patch_size])
+        packed_latent = torch.concat(packed_latent)
+        noises = torch.randn_like(packed_latent)
+        label = torch.tensor(batch_label)
+        hw_list = torch.tensor(hw_list, dtype=torch.int32)
+
+        # # Move tensors to model device for FSDP2 compatibility
+        # device = next(self.model.parameters()).device
+        # packed_latent = packed_latent.to(device)
+        # noises = noises.to(device)
+        # label = label.to(device)
+        # hw_list = hw_list.to(device)
+
+        model_kwargs = {
+            "y": label,
+            "hw_list": hw_list,
+        }
+        batch_size = label.shape[0]
+
+        with torch.autocast(device_type="cuda", dtype=cast_dtype):
+            fm_loss, proj_loss = self.loss_fn(
+                self.model, batch_size, packed_latent, noises, model_kwargs, use_dir_loss=True
+            )
+            loss = fm_loss + proj_loss * self.proj_loss_weight
+            return loss

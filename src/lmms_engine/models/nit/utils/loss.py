@@ -99,11 +99,14 @@ class FlowMatchingLoss:
             raise NotImplementedError()  # TODO: add x or eps prediction
 
         model_kwargs["return_zs"] = True
+        output = model(model_input, time_input, **model_kwargs)
         if self.unit_variance:
-            model_output, zs_tilde = self.sigma_data * model(model_input, time_input, **model_kwargs)
+            model_output = self.sigma_data * output.x
+            zs_tilde = output.zs
         else:
-            model_output, zs_tilde = model(model_input, time_input, **model_kwargs)
-
+            model_output = output.x
+            zs_tilde = output.zs
+        model_target = model_target.to(model_output.device)
         denoising_loss = mean_flat((model_output - model_target) ** 2)
         denoising_loss = torch.nan_to_num(denoising_loss, nan=0, posinf=1e5, neginf=-1e5)
         loss = denoising_loss.mean()
