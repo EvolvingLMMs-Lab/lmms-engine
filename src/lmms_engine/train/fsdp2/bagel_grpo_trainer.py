@@ -246,21 +246,13 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         This assumes the model is a Bagel model and processing_class is a tokenizer.
         """
         try:
-            from lmms_engine.models.bagel.data_utils import add_special_tokens
             from lmms_engine.models.bagel.inferencer import InterleaveInferencer
-            from lmms_engine.models.bagel.transforms import ImageTransform
         except ImportError:
             raise ImportError("Could not import Bagel modules. Please check your installation.")
 
-        # Get tokenizer from processing_class
-        # BagelDataProcessor stores tokenizer in self.processor (not self.tokenizer which has a bug)
-        if hasattr(self.processing_class, "processor"):
-            tokenizer = self.processing_class.processor
-        else:
-            tokenizer = self.processing_class
-
-        # Add special tokens
-        tokenizer, new_token_ids, _ = add_special_tokens(tokenizer)
+        # Get tokenizer from processing_class and add special tokens
+        tokenizer = self.processing_class.processor
+        new_token_ids = self.processing_class.new_token_ids
 
         # Get VAE model from Bagel model
         if hasattr(self.model, "vae_model"):
@@ -270,8 +262,8 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
             vae_model = None
 
         # Create transforms
-        vae_transform = ImageTransform(512, 256, 8)
-        vit_transform = ImageTransform(490, 112, 7)
+        vae_transform = self.processing_class.vae_image_transform
+        vit_transform = self.processing_class.vit_image_transform
 
         # Create inferencer
         inferencer = InterleaveInferencer(
@@ -307,23 +299,6 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
         """
         Prepare model for GRPO training.
         """
-        # Keep the runtime patch to avoid DTensor/Tensor RMSNorm issues without touching model code
-        self._patch_qwen2_rmsnorm_for_dtensor()
-
-        # Ensure the layer class list includes the needed modules for FSDP wrapping
-        try:
-            cls_list = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", [])
-            if cls_list is None:
-                cls_list = []
-            if isinstance(cls_list, str):
-                cls_list = [cls_list]
-            for name in ["Qwen2MoTDecoderLayer", "AutoEncoder"]:
-                if name not in cls_list:
-                    cls_list.append(name)
-            self.args.fsdp_config["transformer_layer_cls_to_wrap"] = cls_list
-        except Exception as e:
-            logger.warning(f"Failed to update transformer_layer_cls_to_wrap: {e}")
-
         # Use base FSDP2SFTTrainer prepare_model to wrap the model
         super().prepare_model()
 
@@ -338,57 +313,13 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                 self.inferencer.vae_model = self.model.vae_model
 
         # Register FSDP forward methods similar to uni_fsdp_engine
-        try:
-            register_fsdp_forward_method(self.model, "forward_cache_update_vae")
-            register_fsdp_forward_method(self.model, "forward_cache_update_vit")
-            register_fsdp_forward_method(self.model, "forward_cache_update_text")
-            register_fsdp_forward_method(self.model, "generate_image")
-            register_fsdp_forward_method(self.model, "_forward_flow")
-            if hasattr(self.model, "vae_model") and self.model.vae_model is not None:
-                register_fsdp_forward_method(self.model.vae_model, "decode")
-                register_fsdp_forward_method(self.model.vae_model, "encode")
-        except Exception as e:
-            logger.warning(f"Failed to register FSDP forward methods: {e}")
-
-    def _patch_qwen2_rmsnorm_for_dtensor(self):
-        """
-        Runtime patch Qwen2RMSNorm.forward to handle DTensor weights (FSDP2) mixing with local tensors.
-        This avoids editing model source files while preventing runtime errors.
-        """
-        try:
-            from lmms_engine.models.bagel.qwen2.modeling_qwen2 import Qwen2RMSNorm
-        except Exception as e:
-            logger.warning(f"Could not import Qwen2RMSNorm for patching: {e}")
-            return
-
-        if getattr(Qwen2RMSNorm, "_patched_for_dtensor", False):
-            return
-
-        def _patched_forward(self, hidden_states):
-            input_dtype = hidden_states.dtype
-            hidden_states_fp32 = hidden_states.to(torch.float32)
-            variance = hidden_states_fp32.pow(2).mean(-1, keepdim=True)
-            hidden_states_fp32 = hidden_states_fp32 * torch.rsqrt(variance + self.variance_epsilon)
-
-            weight = self.weight
-            try:
-                return weight * hidden_states_fp32.to(input_dtype)
-            except RuntimeError as e:
-                # Handle DTensor/local tensor mix by gathering full weight if needed
-                if "mixed torch.Tensor and DTensor" in str(e) or "must match the size of tensor" in str(e):
-                    try:
-                        from torch.distributed.tensor import DTensor
-
-                        if isinstance(weight, DTensor):
-                            weight_full = weight.full_tensor()
-                            return weight_full * hidden_states_fp32.to(input_dtype)
-                    except Exception:
-                        pass
-                raise e
-
-        Qwen2RMSNorm.forward = _patched_forward
-        Qwen2RMSNorm._patched_for_dtensor = True
-        logger.info("Patched Qwen2RMSNorm.forward at runtime to handle DTensor weights.")
+        register_fsdp_forward_method(self.model, "forward_cache_update_vae")
+        register_fsdp_forward_method(self.model, "forward_cache_update_vit")
+        register_fsdp_forward_method(self.model, "forward_cache_update_text")
+        register_fsdp_forward_method(self.model, "generate_image")
+        register_fsdp_forward_method(self.model, "_forward_flow")
+        register_fsdp_forward_method(self.model.vae_model, "decode")
+        register_fsdp_forward_method(self.model.vae_model, "encode")
 
     def prepare_optimizer(self):
         """
