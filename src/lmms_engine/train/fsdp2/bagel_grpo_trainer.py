@@ -23,6 +23,7 @@ import torch.nn as nn
 from accelerate.utils import send_to_device
 from loguru import logger
 from PIL import Image
+from torch.distributed.fsdp import register_fsdp_forward_method
 from torch.utils.data import Dataset, DistributedSampler, IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
@@ -305,134 +306,49 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
     def prepare_model(self):
         """
         Prepare model for GRPO training.
-
-        Unlike standard FSDP2 training which wraps the entire model,
-        for GRPO we only wrap the language_model (transformer) to allow
-        the inferencer to work correctly during sampling.
-
-        This matches the approach in train_bagel.py where only the transformer
-        is wrapped with FSDP, not the entire Bagel model.
         """
-        import gc
-
-        # Patch Qwen2RMSNorm at runtime to handle DTensor weights without touching model source code
+        # Keep the runtime patch to avoid DTensor/Tensor RMSNorm issues without touching model code
         self._patch_qwen2_rmsnorm_for_dtensor()
 
-        from torch.distributed.fsdp import MixedPrecisionPolicy
+        # Ensure the layer class list includes the needed modules for FSDP wrapping
+        try:
+            cls_list = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", [])
+            if cls_list is None:
+                cls_list = []
+            if isinstance(cls_list, str):
+                cls_list = [cls_list]
+            for name in ["Qwen2MoTDecoderLayer", "AutoEncoder"]:
+                if name not in cls_list:
+                    cls_list.append(name)
+            self.args.fsdp_config["transformer_layer_cls_to_wrap"] = cls_list
+        except Exception as e:
+            logger.warning(f"Failed to update transformer_layer_cls_to_wrap: {e}")
 
-        from lmms_engine.utils.fsdp2_utils import (
-            apply_fsdp2,
-            fsdp2_load_full_state_dict,
-        )
+        # Use base FSDP2SFTTrainer prepare_model to wrap the model
+        super().prepare_model()
 
-        # Setup reference model BEFORE FSDP wrapping if beta > 0
-        if (
-            hasattr(self.grpo_config, "train")
-            and hasattr(self.grpo_config.train, "beta")
-            and self.grpo_config.train.beta > 0
-        ):
-            logger.info("Setting up reference model for KL penalty")
-            if hasattr(self.model, "language_model"):
-                # Clone the language model for reference
-                ref_model = type(self.model.language_model)(self.model.language_model.config)
-                ref_model.load_state_dict(self.model.language_model.state_dict())
-                ref_model.eval()
-                ref_model.requires_grad_(False)
-                self.language_model_ref = ref_model
-                self.model.language_model_ref = ref_model
-
-        # Only wrap language_model with FSDP2, not the entire model
-        # This allows the inferencer to use the model correctly during sampling
-        if hasattr(self.model, "language_model"):
-            transformer = self.model.language_model
-            transformer.config.use_cache = False
-
-            # Get target device
-            local_rank = int(os.environ.get("LOCAL_RANK", 0))
-            device = torch.device(f"cuda:{local_rank}")
-
-            # IMPORTANT: Move transformer to GPU BEFORE FSDP2 wrapping
-            # This ensures all buffers (like rotary_emb.inv_freq) are on the correct device
-            logger.info(f"Moving language_model to {device} before FSDP2 wrapping")
-            transformer = transformer.to(device)
-
-            # Enable gradient checkpointing if configured
-            if self.args.gradient_checkpointing:
-                if hasattr(transformer, "gradient_checkpointing_enable"):
-                    transformer.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-
-            # Setup mixed precision policy
-            if self.args.bf16:
-                param_dtype = torch.bfloat16
-            else:
-                param_dtype = torch.float16
-
-            reduce_dtype = getattr(torch, self.args.reduce_dtype)
-            output_dtype = getattr(torch, self.args.output_dtype)
-            mp_policy = MixedPrecisionPolicy(
-                param_dtype=param_dtype,
-                reduce_dtype=reduce_dtype,
-                output_dtype=output_dtype,
-            )
-
-            fsdp_kwargs = {
-                "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
-                "mp_policy": mp_policy,
-            }
-
-            # Get transformer layer class to wrap
-            transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)
-
-            # Save state dict before FSDP wrapping
-            full_state = transformer.state_dict()
-
-            logger.info(f"Applying FSDP2 to language_model (transformer only)")
-            apply_fsdp2(transformer, fsdp_kwargs, transformer_cls_names_to_wrap)
-
-            logger.info(f"Loading full state dict to language_model")
-            fsdp2_load_full_state_dict(transformer, full_state)
-
-            # CRITICAL: After FSDP2 wrapping and state loading, some buffers may be on CPU
-            # We need to explicitly move them to the correct device
-            # This is especially important for rotary_emb.inv_freq which is registered with persistent=False
-            def move_buffers_to_device(module, target_device):
-                for name, buf in module.named_buffers(recurse=False):
-                    if buf is not None and buf.device != target_device:
-                        logger.info(f"Moving buffer {name} from {buf.device} to {target_device}")
-                        # Use register_buffer to properly update the buffer
-                        module.register_buffer(name, buf.to(target_device), persistent=False)
-                for child_name, child in module.named_children():
-                    move_buffers_to_device(child, target_device)
-
-            logger.info(f"Moving all buffers to {device}")
-            move_buffers_to_device(transformer, device)
-
-            # Put the wrapped transformer back into the model
-            self.model.language_model = transformer
-
-            logger.info(f"FSDP2 applied to language_model")
-
-            del full_state
-            gc.collect()
-            torch.cuda.empty_cache()
-
-            # Move all other components of Bagel to device (vae2llm, time_embedder, etc.)
-            # language_model is already handled by FSDP
-            for name, module in self.model.named_children():
-                if name != "language_model":
-                    module.to(device)
-
-            # Move reference model to device if exists
-            if self.language_model_ref is not None:
-                self.language_model_ref = self.language_model_ref.to(device)
-                self.model.language_model_ref = self.language_model_ref
-        else:
-            # Fallback to standard FSDP2 wrapping
-            logger.warning("Model does not have language_model attribute, using standard FSDP2 wrapping")
-            super().prepare_model()
-
-        # Set fsdp2_model to the model for compatibility
+        # After super, self.model is FSDP-wrapped
         self.fsdp2_model = self.model
+
+        # Update inferencer references to the wrapped model/vae_model
+        if hasattr(self, "inferencer") and self.inferencer is not None:
+            if hasattr(self.inferencer, "model"):
+                self.inferencer.model = self.model
+            if hasattr(self.model, "vae_model") and hasattr(self.inferencer, "vae_model"):
+                self.inferencer.vae_model = self.model.vae_model
+
+        # Register FSDP forward methods similar to uni_fsdp_engine
+        try:
+            register_fsdp_forward_method(self.model, "forward_cache_update_vae")
+            register_fsdp_forward_method(self.model, "forward_cache_update_vit")
+            register_fsdp_forward_method(self.model, "forward_cache_update_text")
+            register_fsdp_forward_method(self.model, "generate_image")
+            register_fsdp_forward_method(self.model, "_forward_flow")
+            if hasattr(self.model, "vae_model") and self.model.vae_model is not None:
+                register_fsdp_forward_method(self.model.vae_model, "decode")
+                register_fsdp_forward_method(self.model.vae_model, "encode")
+        except Exception as e:
+            logger.warning(f"Failed to register FSDP forward methods: {e}")
 
     def _patch_qwen2_rmsnorm_for_dtensor(self):
         """
@@ -1011,6 +927,26 @@ class BagelGRPOTrainer(FSDP2SFTTrainer):
                                 cur_sample[k] = v[j]
                         else:
                             cur_sample[k] = v[j]
+
+                    # Snap timesteps to the exact values in the training grid to avoid precision mismatch
+                    # The issue: generate_image returns timesteps as Python floats -> tensor conversion,
+                    # while generate_image_learn computes original_timesteps via torch.linspace directly.
+                    # This causes floating-point precision differences, making (original_timesteps == timesteps[i])
+                    # return empty, leading to dtimesteps[t_index] having size 0.
+                    # Fix: compute the exact grid and snap sampled timesteps to their closest matches.
+                    num_steps = self.grpo_config.sample.num_steps
+                    timestep_shift = self.grpo_config.train.timestep_shift
+                    device = cur_sample["timesteps"].device
+
+                    # Compute the exact grid that generate_image_learn will use
+                    grid = torch.linspace(1, 0, num_steps, device=device, dtype=torch.float32)
+                    grid = timestep_shift * grid / (1 + (timestep_shift - 1) * grid)
+
+                    # For each sampled timestep, find the closest match in the grid
+                    sampled_timesteps = cur_sample["timesteps"]  # shape: [num_sde_window_steps]
+                    # Expand dimensions for broadcasting: [num_sde_window_steps, 1] - [1, num_steps]
+                    indices = torch.argmin(torch.abs(sampled_timesteps.unsqueeze(-1) - grid.unsqueeze(0)), dim=-1)
+                    cur_sample["timesteps"] = grid[indices]
 
                     # Use autocast
                     autocast_dtype = torch.bfloat16 if self.args.bf16 else torch.float16
