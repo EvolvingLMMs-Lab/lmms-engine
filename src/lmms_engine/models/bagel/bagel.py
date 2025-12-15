@@ -918,6 +918,7 @@ class Bagel(PreTrainedModel):
         # cache_args
         enable_taylorseer=False,
         # for grpo learn
+        enable_sde: bool = True,
         noise_level: float = 0.7,
         sample_sde_window_size: int = 1,
         sample_sde_window_range: Tuple[int, int] = (0, 5),
@@ -944,7 +945,10 @@ class Bagel(PreTrainedModel):
 
         timesteps = torch.linspace(1, 0, num_timesteps, device=x_t.device)
         timesteps = timestep_shift * timesteps / (1 + (timestep_shift - 1) * timesteps)
-        dts = timesteps[1:] - timesteps[:-1]  # 正确：应该是负值 (下一步时间 - 当前时间)
+        if enable_sde:
+            dts = timesteps[1:] - timesteps[:-1]  # 正确：应该是负值 (下一步时间 - 当前时间)
+        else:
+            dts = timesteps[:-1] - timesteps[1:]
         timesteps = timesteps[:-1]
 
         all_latents = []
@@ -953,15 +957,16 @@ class Bagel(PreTrainedModel):
         rank = dist.get_rank() if dist.is_initialized() else 0
 
         for i, t in tqdm(enumerate(timesteps), total=len(timesteps), disable=rank != 0, desc="Generating Images"):
-            if i < sde_timestep_begin:
-                cur_noise_level = 0
-            elif i == sde_timestep_begin:
-                cur_noise_level = noise_level
-                all_latents.append(x_t)
-            elif i > sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
-                cur_noise_level = noise_level
-            else:
-                cur_noise_level = 0
+            if enable_sde:
+                if i < sde_timestep_begin:
+                    cur_noise_level = 0
+                elif i == sde_timestep_begin:
+                    cur_noise_level = noise_level
+                    all_latents.append(x_t)
+                elif i > sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
+                    cur_noise_level = noise_level
+                else:
+                    cur_noise_level = 0
             timestep = torch.tensor([t] * x_t.shape[0], device=x_t.device)
             if t > cfg_interval[0] and t <= cfg_interval[1]:
                 cfg_text_scale_ = cfg_text_scale
@@ -1008,20 +1013,26 @@ class Bagel(PreTrainedModel):
                 model_pred_img_current=model_pred_img_current,
             )
 
-            # x_t = x_t - v_t.to(x_t.device) * dts[i]  # velocity pointing from data to noise
-            x_t, log_prob, _, _ = self._sde_step_with_logprob(
-                v_t,
-                timesteps[i],
-                timesteps[i + 1] if i + 1 < len(timesteps) else timesteps[i] * 0,  # 最后一个step, timestep是0
-                dts[i],
-                x_t,
-                sigma_max=timesteps[1],
-                noise_level=cur_noise_level,
-            )
-            if i >= sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
+            if enable_sde:
+                x_t, log_prob, _, _ = self._sde_step_with_logprob(
+                    v_t,
+                    timesteps[i],
+                    timesteps[i + 1] if i + 1 < len(timesteps) else timesteps[i] * 0,  # 最后一个step, timestep是0
+                    dts[i],
+                    x_t,
+                    sigma_max=timesteps[1],
+                    noise_level=cur_noise_level,
+                )
+                if i >= sde_timestep_begin and i < sde_timestep_begin + sample_sde_window_size:
+                    all_latents.append(x_t)
+                    all_log_probs.append(log_prob)
+                    all_timesteps.append(t)
+            else:
+                x_t = x_t - v_t.to(x_t.device) * dts[i]
                 all_latents.append(x_t)
-                all_log_probs.append(log_prob)
+                all_log_probs.append(None)
                 all_timesteps.append(t)
+                log_prob = torch.tensor(t, device=x_t.device)
 
         if enable_taylorseer:
             del model_pred_cache_dic, model_pred_current

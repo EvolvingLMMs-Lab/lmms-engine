@@ -117,6 +117,7 @@ class InterleaveInferencer:
         transformer=None,
         noise_level=0.7,
         generators=None,
+        enable_sde=True,
     ):
         # Do not set the initial latent to be the same for the same prompt in eval mode
         if noise_level == 0:
@@ -216,6 +217,7 @@ class InterleaveInferencer:
                 sample_sde_window_range=grpo_config.sample.sde_window_range if grpo_config is not None else (0, 5),
                 process_index=getattr(accelerator, "process_index", 0),
                 device=getattr(accelerator, "device", "cuda"),
+                enable_sde=enable_sde,
             )
 
             # image = self.decode_image(unpacked_latent[0], image_shape)
@@ -301,6 +303,7 @@ class InterleaveInferencer:
         transformer=None,
         noise_level=0.7,
         generators=None,
+        enable_sde=True,
     ) -> List[Union[str, Image.Image]]:
         output_list = []
         gen_context = self.init_gen_context()
@@ -368,6 +371,7 @@ class InterleaveInferencer:
                     transformer=transformer,
                     noise_level=noise_level,
                     generators=generators,
+                    enable_sde=enable_sde,
                 )
 
                 output_list.append(img)
