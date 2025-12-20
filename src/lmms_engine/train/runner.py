@@ -165,11 +165,7 @@ class TrainRunner:
     def run(self, **kwargs):
         if self.config.trainer_args.freeze_modules:
             for modules in self.config.trainer_args.freeze_modules:
-                cls = reduce(
-                    lambda o, k: getattr(o, k, None),
-                    modules.split("."),
-                    self.model
-                )
+                cls = reduce(lambda o, k: getattr(o, k, None), modules.split("."), self.model)
                 if cls is not None:
                     for param in cls.parameters():
                         param.requires_grad = False
