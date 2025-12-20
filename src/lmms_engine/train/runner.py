@@ -4,6 +4,7 @@ import pathlib
 import random
 import shutil
 from copy import deepcopy
+from functools import reduce
 
 import numpy as np
 import torch
@@ -164,7 +165,11 @@ class TrainRunner:
     def run(self, **kwargs):
         if self.config.trainer_args.freeze_modules:
             for modules in self.config.trainer_args.freeze_modules:
-                cls = getattr(self.model, modules, None)
+                cls = reduce(
+                    lambda o, k: getattr(o, k, None),
+                    modules.split("."),
+                    self.model
+                )
                 if cls is not None:
                     for param in cls.parameters():
                         param.requires_grad = False
