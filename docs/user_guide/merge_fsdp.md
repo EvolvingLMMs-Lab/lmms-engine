@@ -13,7 +13,7 @@ The `merge_fsdp.py` script is a utility for merging Fully Sharded Data Parallel 
 The script can be executed with the following command:
 
 ```bash
-python tools/merge_fsdp.py --input_dir <path_to_checkpoints> --model_name_or_class <model_name> --type <hf|fsdp2> [--output_dir <output_path>] [--step <checkpoint_step>] [--merge]
+python tools/merge_fsdp.py --input_dir <path_to_checkpoints> --model_name_or_class <model_name> --type <hf|fsdp2> [--output_dir <output_path>] [--step <checkpoint_step>] [--state_dict_dirname <dirname>] [--merge]
 ```
 
 ### Arguments
@@ -25,6 +25,7 @@ python tools/merge_fsdp.py --input_dir <path_to_checkpoints> --model_name_or_cla
   - `fsdp2`: FSDP version 2 checkpoint.
 - `--output_dir` (optional): Directory to save the merged checkpoint. Defaults to the input directory.
 - `--step` (optional): Specific checkpoint step to merge. If not provided, the latest checkpoint is used.
+- `--state_dict_dirname` (optional): Subfolder name inside checkpoint-* that contains model shards. Defaults to `pytorch_model_fsdp_0`. For EMA checkpoints, use `pytorch_ema_model_fsdp_0`.
 - `--merge` (optional): Merge all checkpoints by averaging their weights.
 
 ### Example
@@ -39,6 +40,12 @@ To merge FSDP version 2 checkpoints:
 
 ```bash
 python tools/merge_fsdp.py --input_dir ./checkpoints --type fsdp2
+```
+
+To merge EMA checkpoints:
+
+```bash
+python tools/merge_fsdp.py --input_dir ./checkpoints --type fsdp2 --state_dict_dirname pytorch_ema_model_fsdp_0
 ```
 
 ## Evaluation

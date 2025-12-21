@@ -23,10 +23,25 @@ class TrainingArguments(transformers.TrainingArguments):
     ep_degree: Optional[int] = 1
     sp_ulysses_degree: Optional[int] = 1
 
+    # --- EMA (Exponential Moving Average) ---
+    ema_enabled: Optional[bool] = False
+    ema_decay: Optional[float] = 0.9999
+    ema_update_every: Optional[int] = 1
+    ema_start_step: Optional[int] = 0
+    ema_requires_grad_only: Optional[bool] = True
+    # Optional name-based filtering for which parameters participate in EMA.
+    # Example:
+    #   ema_param_filter:
+    #     mode: "substring"  # or "regex"
+    #     include: ["language_model"]   # only include matching params
+    #     exclude: ["lm_head"]          # exclude matching params
+    ema_param_filter: Optional[Dict[str, Any]] = None
+    ema_resume_from_ema: Optional[bool] = False
+
 
 @dataclass
 class TrainerConfig:
-    trainer_type: Literal["hf_trainer", "fsdp2_trainer"]
+    trainer_type: Literal["hf_trainer", "fsdp2_trainer", "bagel_grpo_trainer"]
     dataset_config: DatasetConfig
     trainer_args: TrainingArguments
     model_config: ModelConfig

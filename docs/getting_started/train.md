@@ -77,6 +77,7 @@ You can visit the `config.py` file under each subfolder to see what parameters a
 - **freeze_modules**: List of submodules (e.g., `visual`) to freeze during training.
 - **use_liger_kernel/use_rmpad**: Performance optimizations. Keep enabled if supported on your stack.
 - **fsdp2/fsdp_config**: Enable FSDP2 sharding and wrap transformer layer classes via `transformer_layer_cls_to_wrap`. Tune `reshard_after_forward` for memory/perf trade-offs.
+- **EMA (Exponential Moving Average)**: Enable EMA with `ema_enabled: true`. Configure `ema_decay` (default 0.9999), `ema_update_every`, `ema_start_step`, and optionally filter parameters via `ema_param_filter`. EMA checkpoints are saved alongside regular checkpoints and can be merged using `merge_fsdp.py` with `--state_dict_dirname pytorch_ema_model_fsdp_0`.
 
 ## Run
 
@@ -166,6 +167,13 @@ Here are frequently used parameters you can override:
 - `trainer_args.fsdp2`: Enable FSDP2 distributed training
 - `trainer_args.use_liger_kernel`: Enable Liger kernel optimizations
 - `trainer_args.use_rmpad`: Enable padding removal optimization
+- `trainer_args.ema_enabled`: Enable EMA (default: `false`)
+- `trainer_args.ema_decay`: EMA decay rate (default: `0.9999`)
+- `trainer_args.ema_update_every`: Update EMA every N steps (default: `1`)
+- `trainer_args.ema_start_step`: Start EMA from step N (default: `0`)
+- `trainer_args.ema_requires_grad_only`: Only apply EMA to trainable parameters (default: `true`)
+- `trainer_args.ema_param_filter`: Filter parameters by name (supports `mode`, `include`, `exclude`)
+- `trainer_args.ema_resume_from_ema`: Resume training from EMA weights (default: `false`)
 
 ### Advanced Example
 

@@ -4,7 +4,7 @@ import random
 import shutil
 import time
 from functools import partial
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -25,6 +25,7 @@ from lmms_engine.parallel.parallelize import MODEL_TO_PARALLEL_METHOD, apply_par
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils import TrainUtilities
+from lmms_engine.utils.ema_utils import EMAHelper
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
@@ -72,6 +73,9 @@ class FSDP2SFTTrainer:
             rank=dist.get_rank(),
         )
         self.accumulated_grad_steps = 0
+
+        # Optional EMA (fully opt-in)
+        self.ema = EMAHelper(self.args)
 
     def prepare_dataloader(self, dataset: DatasetType, is_training: bool = True):
         data_collator = self.data_collator
@@ -216,14 +220,20 @@ class FSDP2SFTTrainer:
         if should_update:
             grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
             # if grad_norm is not finite, skip the update
+            did_step = False
             if not torch.isfinite(grad_norm):
                 print(f"WARN: grad_norm is not finite: {grad_norm}")
                 self.optimizer.zero_grad()
             else:
                 self.optimizer.step()
+                did_step = True
 
             self.scheduler.step()
             self.accumulated_grad_steps = 0
+            if did_step:
+                # global_step is incremented by the outer train loop after accumulation completes.
+                # Use (global_step + 1) as the upcoming optimizer step index.
+                self.ema.update(step=self.global_step + 1)
 
         # reduce loss across dp ranks
         lr = self.scheduler.get_last_lr()[0]
@@ -268,13 +278,15 @@ class FSDP2SFTTrainer:
             )
 
         self.total_tokens = 0
+        loaded_checkpoint_dir: Optional[str] = None
         if resume_from_checkpoint:
             # Search for the latest checkpoint in the output_dir
             checkpoints = [f for f in os.listdir(self.args.output_dir) if f.startswith("checkpoint")]
             checkpoints.sort(key=lambda x: int(x.split("-")[1]))
             latest_checkpoint = checkpoints[-1]
+            loaded_checkpoint_dir = os.path.join(self.args.output_dir, latest_checkpoint)
             self.load_checkpoints(
-                os.path.join(self.args.output_dir, latest_checkpoint),
+                loaded_checkpoint_dir,
                 int(latest_checkpoint.split("-")[1]),
             )
             start_epoch = int(latest_checkpoint.split("-")[1]) / self.steps_per_epoch
@@ -286,6 +298,9 @@ class FSDP2SFTTrainer:
             start_epoch = 0
             self.global_step = 0
             need_update_pbar = False
+
+        # Initialize EMA after model weights are loaded (and optionally restore from checkpoint).
+        self.ema.maybe_init(model=self.fsdp2_model, checkpoint_dir=loaded_checkpoint_dir)
 
         logger.info(f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps")
         self.step_profiler.start()
@@ -413,6 +428,9 @@ class FSDP2SFTTrainer:
             f"dataloader_state_world_size_{world_size}_rank_{rank}.pt",
         )
         os.makedirs(os.path.join(output_path, "pytorch_model_fsdp_0"), exist_ok=True)
+        ema_enabled = self.ema.is_enabled()
+        if ema_enabled:
+            os.makedirs(os.path.join(output_path, "pytorch_ema_model_fsdp_0"), exist_ok=True)
         os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
         os.makedirs(os.path.join(output_path, "extra_state"), exist_ok=True)
         os.makedirs(os.path.join(output_path, "dataloader_state"), exist_ok=True)
@@ -420,6 +438,13 @@ class FSDP2SFTTrainer:
         dist.barrier()
 
         torch.save(self.fsdp2_model.state_dict(), model_path)
+        if ema_enabled and self.ema.initialized:
+            ema_model_path = os.path.join(
+                output_path,
+                "pytorch_ema_model_fsdp_0",
+                f"model_world_size_{world_size}_rank_{rank}.pt",
+            )
+            torch.save(self.ema.state_dict_for_save(self.fsdp2_model), ema_model_path)
         torch.save(self.optimizer.state_dict(), optim_path)
         extra_state = {
             "lr_scheduler_state": self.scheduler.state_dict(),

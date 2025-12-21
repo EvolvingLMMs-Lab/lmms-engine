@@ -4,7 +4,6 @@ import pathlib
 import random
 import shutil
 from copy import deepcopy
-from functools import reduce
 
 import numpy as np
 import torch
@@ -163,9 +162,25 @@ class TrainRunner:
         return trainer
 
     def run(self, **kwargs):
+        # Optional EMA (currently implemented in fsdp2_trainer). Keep default behavior unchanged.
+        if getattr(self.config.trainer_args, "ema_enabled", False):
+            if self.config.trainer_type != "fsdp2_trainer":
+                logger.warning(
+                    f"EMA is enabled (ema_enabled=True) but trainer_type={self.config.trainer_type!r} "
+                    "does not implement EMA yet. EMA will be ignored."
+                )
+            else:
+                logger.info(
+                    "EMA enabled: "
+                    f"decay={getattr(self.config.trainer_args, 'ema_decay', None)}, "
+                    f"update_every={getattr(self.config.trainer_args, 'ema_update_every', None)}, "
+                    f"start_step={getattr(self.config.trainer_args, 'ema_start_step', None)}, "
+                    f"resume_from_ema={getattr(self.config.trainer_args, 'ema_resume_from_ema', None)}"
+                )
+
         if self.config.trainer_args.freeze_modules:
             for modules in self.config.trainer_args.freeze_modules:
-                cls = reduce(lambda o, k: getattr(o, k, None), modules.split("."), self.model)
+                cls = getattr(self.model, modules, None)
                 if cls is not None:
                     for param in cls.parameters():
                         param.requires_grad = False
