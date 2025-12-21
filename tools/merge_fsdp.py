@@ -26,6 +26,15 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--step", type=int, default=None)
     parser.add_argument(
+        "--state_dict_dirname",
+        type=str,
+        default="pytorch_model_fsdp_0",
+        help=(
+            "Subfolder name inside checkpoint-* that contains model shards. "
+            "For EMA checkpoints saved by lmms-engine fsdp2_trainer, use 'pytorch_ema_model_fsdp_0'."
+        ),
+    )
+    parser.add_argument(
         "--merge",
         action="store_true",
         help="Merge all checkpoints by averaging their weights",
@@ -44,7 +53,7 @@ def merge_hf_fsdp_checkpoint(input_dir: Path, model_path: str, merge: bool = Fal
         checkpoint_folder = [x for x in checkpoint_folder if int(x.name.split("-")[-1]) == args.step]
     latest_checkpoint = checkpoint_folder[-1]
     print(f"Using latest checkpoint: {latest_checkpoint}")
-    shard_state_dict = latest_checkpoint / "pytorch_model_fsdp_0"
+    shard_state_dict = latest_checkpoint / args.state_dict_dirname
     model = model_cls.from_pretrained(
         model_path,
         attn_implementation="sdpa",
@@ -64,8 +73,8 @@ def merge_hf_fsdp_checkpoint(input_dir: Path, model_path: str, merge: bool = Fal
     return model
 
 
-def load_one_checkpoint(checkpoint_path: Path):
-    shard_state_dict = checkpoint_path / "pytorch_model_fsdp_0"
+def load_one_checkpoint(checkpoint_path: Path, state_dict_dirname: str = "pytorch_model_fsdp_0"):
+    shard_state_dict = checkpoint_path / state_dict_dirname
     total_shards = len(list(shard_state_dict.glob("*.pt")))
 
     model_state_dict_lst = [None] * total_shards
@@ -123,10 +132,13 @@ def merge_fsdp2_checkpoint(input_dir: Path, model_path: str, merge: bool = False
     if not merge:
         latest_checkpoint = checkpoint_folder[-1]
         print(f"Using latest checkpoint: {latest_checkpoint}")
-        model_state_dict_lsts = [load_one_checkpoint(latest_checkpoint)]
+        model_state_dict_lsts = [load_one_checkpoint(latest_checkpoint, state_dict_dirname=args.state_dict_dirname)]
     else:
         print(f"Merging {len(checkpoint_folder)} checkpoints")
-        model_state_dict_lsts = [load_one_checkpoint(checkpoint) for checkpoint in checkpoint_folder]
+        model_state_dict_lsts = [
+            load_one_checkpoint(checkpoint, state_dict_dirname=args.state_dict_dirname)
+            for checkpoint in checkpoint_folder
+        ]
 
     full_state_dict_lst = [prepare_full_sd(model_state_dict_lst) for model_state_dict_lst in model_state_dict_lsts]
     state_dict = full_state_dict_lst[0]
