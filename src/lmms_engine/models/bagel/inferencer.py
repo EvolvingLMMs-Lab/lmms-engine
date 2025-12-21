@@ -117,6 +117,7 @@ class InterleaveInferencer:
         transformer=None,
         noise_level=0.7,
         generators=None,
+        enable_sde=True,
     ):
         # Do not set the initial latent to be the same for the same prompt in eval mode
         if noise_level == 0:
@@ -216,6 +217,7 @@ class InterleaveInferencer:
                 sample_sde_window_range=grpo_config.sample.sde_window_range if grpo_config is not None else (0, 5),
                 process_index=getattr(accelerator, "process_index", 0),
                 device=getattr(accelerator, "device", "cuda"),
+                enable_sde=enable_sde,
             )
 
             # image = self.decode_image(unpacked_latent[0], image_shape)
@@ -301,6 +303,7 @@ class InterleaveInferencer:
         transformer=None,
         noise_level=0.7,
         generators=None,
+        enable_sde=True,
     ) -> List[Union[str, Image.Image]]:
         output_list = []
         gen_context = self.init_gen_context()
@@ -368,6 +371,7 @@ class InterleaveInferencer:
                     transformer=transformer,
                     noise_level=noise_level,
                     generators=generators,
+                    enable_sde=enable_sde,
                 )
 
                 output_list.append(img)
@@ -388,28 +392,12 @@ class InterleaveInferencer:
             input_list.append(text)
 
         output_list = self.interleave_inference(input_list, **kargs)
-        return output_list[0]
 
-    # def __call__(self, image: Optional[Image.Image] = None, text: Optional[str] = None, **kargs) -> Dict[str, Any]:
-    #     output_dict = {"image": None, "text": None}
-
-    #     if image is None and text is None:
-    #         print("Please provide at least one input: either an image or text.")
-    #         return output_dict
-
-    #     input_list = []
-    #     if image is not None:
-    #         input_list.append(image)
-    #     if text is not None:
-    #         input_list.append(text)
-
-    #     output_list = self.interleave_inference(input_list, **kargs)
-
-    #     for i in output_list:
-    #         if isinstance(i, Image.Image):
-    #             output_dict["image"] = i
-    #         elif isinstance(i, str):
-    #             output_dict["text"] = i
-    #         elif isinstance(i, dict):
-    #             output_dict.update(i)
-    #     return output_dict
+        for i in output_list:
+            if isinstance(i, Image.Image):
+                output_dict["image"] = i
+            elif isinstance(i, str):
+                output_dict["text"] = i
+            elif isinstance(i, dict):
+                output_dict.update(i)
+        return output_dict
