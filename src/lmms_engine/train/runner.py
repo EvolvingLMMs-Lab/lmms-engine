@@ -4,6 +4,7 @@ import pathlib
 import random
 import shutil
 from copy import deepcopy
+from functools import reduce
 
 import numpy as np
 import torch
