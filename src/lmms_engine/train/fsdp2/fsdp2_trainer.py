@@ -220,20 +220,15 @@ class FSDP2SFTTrainer:
         if should_update:
             grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
             # if grad_norm is not finite, skip the update
-            did_step = False
             if not torch.isfinite(grad_norm):
                 print(f"WARN: grad_norm is not finite: {grad_norm}")
                 self.optimizer.zero_grad()
             else:
                 self.optimizer.step()
-                did_step = True
+                self.ema.update(step=self.global_step + 1)
 
             self.scheduler.step()
             self.accumulated_grad_steps = 0
-            if did_step:
-                # global_step is incremented by the outer train loop after accumulation completes.
-                # Use (global_step + 1) as the upcoming optimizer step index.
-                self.ema.update(step=self.global_step + 1)
 
         # reduce loss across dp ranks
         lr = self.scheduler.get_last_lr()[0]
