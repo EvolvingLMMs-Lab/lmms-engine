@@ -15,11 +15,6 @@ from lmms_engine.datasets.multimodal_mixin import MultiModalDataLoadingMixin
 from lmms_engine.utils import DataUtilities
 
 try:
-    import lmms_engine.parallel.process_group_manager as pgm
-except ImportError:
-    pgm = None
-
-try:
     from google.cloud.storage import Client
 except ImportError:
     logger.info("Google Cloud SDK not installed. Skipping import.")

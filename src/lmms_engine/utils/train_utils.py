@@ -4,9 +4,18 @@ from typing import Iterable, List, Literal, Optional, Union
 
 import deepspeed
 import torch
+import torch.distributed as dist
 from loguru import logger
-from torch.distributed import ProcessGroup, dist
+from torch.distributed import ProcessGroup
 from transformers import AutoProcessor
+
+from lmms_engine.utils.import_utils import is_torch_npu_available
+
+IS_CUDA_AVAILABLE = torch.cuda.is_available()
+IS_NPU_AVAILABLE = is_torch_npu_available()
+
+if IS_NPU_AVAILABLE:
+    torch.npu.config.allow_internal_format = False
 
 
 class TrainUtilities:
@@ -387,6 +396,18 @@ class TrainUtilities:
             )
 
     @staticmethod
+    def get_device_type() -> str:
+        """Get device type based on current machine, currently only support CPU, CUDA, NPU."""
+        if IS_CUDA_AVAILABLE:
+            device = "cuda"
+        elif IS_NPU_AVAILABLE:
+            device = "npu"
+        else:
+            device = "cpu"
+
+        return device
+
+    @staticmethod
     def all_reduce(
         data: Union[int, float, List[Union[int, float]], "torch.Tensor"],
         op: Literal["mean", "sum", "max", "min"] = "mean",
@@ -399,7 +420,7 @@ class TrainUtilities:
             raise RuntimeError("Distributed environment is not initialized.")
 
         if not isinstance(data, torch.Tensor):
-            data = torch.tensor(data, dtype=torch.float, device=get_device_type())
+            data = torch.tensor(data, dtype=torch.float, device=TrainUtilities.get_device_type())
 
         reduce_ops = {
             "mean": dist.ReduceOp.SUM,
