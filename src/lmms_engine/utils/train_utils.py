@@ -1,10 +1,11 @@
 import logging
 import math
-from typing import Iterable, List, Union
+from typing import Iterable, List, Literal, Optional, Union
 
 import deepspeed
 import torch
 from loguru import logger
+from torch.distributed import ProcessGroup, dist
 from transformers import AutoProcessor
 
 
@@ -384,3 +385,33 @@ class TrainUtilities:
                 f" match:\n{mismatched_warning}\nYou should probably TRAIN this model on a down-stream task to be able"
                 " to use it for predictions and inference."
             )
+
+    @staticmethod
+    def all_reduce(
+        data: Union[int, float, List[Union[int, float]], "torch.Tensor"],
+        op: Literal["mean", "sum", "max", "min"] = "mean",
+        group: Optional["ProcessGroup"] = None,
+    ) -> Union[int, float, List[Union[int, float]]]:
+        """
+        Performs all reduce in the given process group.
+        """
+        if not dist.is_initialized():
+            raise RuntimeError("Distributed environment is not initialized.")
+
+        if not isinstance(data, torch.Tensor):
+            data = torch.tensor(data, dtype=torch.float, device=get_device_type())
+
+        reduce_ops = {
+            "mean": dist.ReduceOp.SUM,
+            "sum": dist.ReduceOp.SUM,
+            "max": dist.ReduceOp.MAX,
+            "min": dist.ReduceOp.MIN,
+        }
+        dist.all_reduce(data, op=reduce_ops[op], group=group)
+        if op == "mean":  # ReduceOp.AVG is not supported by the NPU backend
+            data /= dist.get_world_size(group=group)
+
+        if data.numel() == 1:
+            return data.item()
+        else:
+            return data.tolist()
