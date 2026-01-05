@@ -57,10 +57,6 @@ class EMAHelper:
         self._enabled_cache = True
         return True
 
-    # -------------------------
-    # Core lifecycle
-    # -------------------------
-
     def maybe_init(self, model: nn.Module, checkpoint_dir: Optional[str]) -> None:
         if self._initialized or (not self.is_enabled()):
             return
@@ -148,10 +144,6 @@ class EMAHelper:
                 sd[name] = ema_val
         return sd
 
-    # -------------------------
-    # Filtering / compatibility
-    # -------------------------
-
     @staticmethod
     def _local_tensor(t: Any) -> torch.Tensor:
         # Unwrap nn.Parameter
@@ -192,5 +184,3 @@ class EMAHelper:
             if self._name_match(name, exclude, mode):
                 return False
         return True
-
-
