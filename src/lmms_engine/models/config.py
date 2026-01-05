@@ -8,5 +8,5 @@ class ModelConfig(Args):
     load_from_pretrained_path: Optional[str] = None
     load_from_config: Optional[Dict[str, Any]] = None
     attn_implementation: Optional[Literal["flash_attention_2", "sdpa", "eager"]] = "sdpa"
-    overwrite_config: Optional[Dict[str, str]] = None
+    overwrite_config: Optional[Dict[str, Any]] = None
     monkey_patch_kwargs: Optional[Dict[str, Any]] = None
