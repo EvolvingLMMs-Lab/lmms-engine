@@ -1,9 +1,10 @@
+from typing import Optional, Union
+
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 from loguru import logger
 from torch.utils.data import Dataset, IterableDataset
-from typing import Optional, Union
 
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.fsdp2.fsdp2_trainer import FSDP2SFTTrainer
@@ -164,5 +165,3 @@ class BagelFSDP2Trainer(FSDP2SFTTrainer):
                 metrics["train/mse_tokens"] = mse_tokens_t.item()
 
         return metrics
-
-
