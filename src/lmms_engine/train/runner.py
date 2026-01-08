@@ -164,8 +164,9 @@ class TrainRunner:
 
     def run(self, **kwargs):
         # Optional EMA (currently implemented in fsdp2_trainer). Keep default behavior unchanged.
+        ema_trainer_type = ["fsdp2_trainer", "bagel_fsdp2_trainer"]
         if getattr(self.config.trainer_args, "ema_enabled", False):
-            if self.config.trainer_type != "fsdp2_trainer":
+            if self.config.trainer_type not in ema_trainer_type:
                 logger.warning(
                     f"EMA is enabled (ema_enabled=True) but trainer_type={self.config.trainer_type!r} "
                     "does not implement EMA yet. EMA will be ignored."
