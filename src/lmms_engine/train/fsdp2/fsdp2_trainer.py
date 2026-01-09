@@ -80,7 +80,7 @@ class FSDP2SFTTrainer:
 
         # Optional Eval Server Backend (only on rank 0)
         self.eval_backend = None
-        if dist.get_rank() == 0 and self.args.eval_config is not None:
+        if dist.get_rank() == 0 and self.args.eval_config is not None and self.args.eval_strategy != "no":
             self.eval_backend = EvalServerBackend(
                 url=self.args.eval_config.get("server_url"),
                 poll_interval=self.args.eval_config.get("poll_interval", 20.0),
@@ -257,14 +257,22 @@ class FSDP2SFTTrainer:
     def validation_step(self, output_dir, step: int):
         if self.eval_backend is not None:
             checkpoint_type = "regular" if not self.ema.is_enabled() else "ema"
-            self.eval_backend.submit_eval(output_dir, step, checkpoint_type=checkpoint_type)
+            checkpoint_path = os.path.abspath(output_dir)
+            eval_output_dir = os.path.join(checkpoint_path, "eval")
+            self.eval_backend.submit_eval(checkpoint_path, step, eval_output_dir, checkpoint_type=checkpoint_type)
 
-    def _check_eval_results(self, rank: int):
-        if (
-            self.eval_backend is not None
-            and self.global_step % (self.args.eval_config.get("check_interval", 10) if self.args.eval_config else 10)
-            == 0
-        ):
+    def _check_eval_results(self, rank: int, wait_until_complete: bool = False):
+        if self.eval_backend is None:
+            return
+        if wait_until_complete:
+            logger.info("Waiting for pending evaluation jobs to complete...")
+            while len(self.eval_backend.pending_evals) > 0:
+                for eval_step, metrics in self.eval_backend.check_and_get_completed():
+                    if rank == 0:
+                        self.tracking.log(metrics, step=eval_step)
+                time.sleep(self.eval_backend.poll_interval)
+            logger.info("All evaluation jobs completed")
+        else:
             for eval_step, metrics in self.eval_backend.check_and_get_completed():
                 if rank == 0:
                     self.tracking.log(metrics, step=eval_step)
@@ -402,6 +410,9 @@ class FSDP2SFTTrainer:
         output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
         self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
         self.validation_step(output_dir, self.global_step)
+        # Wait for all pending eval jobs to complete
+        if self.eval_backend is not None:
+            self._check_eval_results(rank, wait_until_complete=True)
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
