@@ -269,13 +269,15 @@ class FSDP2SFTTrainer:
             while len(self.eval_backend.pending_evals) > 0:
                 for eval_step, metrics in self.eval_backend.check_and_get_completed():
                     if rank == 0:
-                        self.tracking.log(metrics, step=eval_step)
+                        metrics["global_step"] = eval_step
+                        self.tracking.log(metrics)
                 time.sleep(self.eval_backend.poll_interval)
             logger.info("All evaluation jobs completed")
         else:
             for eval_step, metrics in self.eval_backend.check_and_get_completed():
                 if rank == 0:
-                    self.tracking.log(metrics, step=eval_step)
+                    metrics["global_step"] = eval_step
+                    self.tracking.log(metrics)
 
     def train(self, resume_from_checkpoint: bool = False):
         self.prepare_model()
