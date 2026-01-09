@@ -256,7 +256,8 @@ class FSDP2SFTTrainer:
 
     def validation_step(self, output_dir, step: int):
         if self.eval_backend is not None:
-            self.eval_backend.submit_eval(output_dir, step)
+            checkpoint_type = "regular" if not self.ema.is_enabled() else "ema"
+            self.eval_backend.submit_eval(output_dir, step, checkpoint_type=checkpoint_type)
 
     def _check_eval_results(self, rank: int):
         if (
