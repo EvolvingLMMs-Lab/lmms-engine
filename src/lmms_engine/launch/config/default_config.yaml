@@ -58,7 +58,7 @@ trainer_args:
   log_level: passive
   log_level_replica: warning
   log_on_each_node: true
-  logging_dir: trainer_output/runs/Oct21_23-00-20_di-20250729151342-xr8k6
+  logging_dir: trainer_output/runs/Jan09_03-05-19_di-20250729151342-xr8k6
   logging_strategy: steps
   logging_first_step: false
   logging_steps: 500
@@ -177,12 +177,21 @@ trainer_args:
   freeze_modules: null
   use_rmpad: false
   fsdp2: false
-  sp_ulysses_degree: 1
   reduce_dtype: bfloat16
   output_dtype: bfloat16
   print_batch_input_steps: -1
   enable_profiler: false
   profiler_config: null
+  ep_degree: 1
+  sp_ulysses_degree: 1
+  ema_enabled: false
+  ema_decay: 0.9999
+  ema_update_every: 1
+  ema_start_step: 0
+  ema_requires_grad_only: true
+  ema_param_filter: null
+  ema_resume_from_ema: false
+  eval_config: null
 model_config:
   extra_kwargs: {}
   load_from_pretrained_path: Qwen/Qwen2.5-VL-7B-Instruct
