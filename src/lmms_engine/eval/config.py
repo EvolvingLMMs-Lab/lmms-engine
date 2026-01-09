@@ -23,10 +23,6 @@ class EvalConfig(Args):
     log_samples: Optional[bool] = True
     predict_only: Optional[bool] = False
     num_gpus: Optional[int] = 1
-    output_dir: Optional[str] = None
-
-    # How often (in training steps) to check for completed eval results
-    check_interval: Optional[int] = 10
 
     # How often (in seconds) background thread polls the eval server for job status
     poll_interval: Optional[float] = 20.0
