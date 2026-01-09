@@ -21,6 +21,7 @@ from transformers.trainer_utils import seed_worker
 
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.eval.backends import EvalServerBackend
 from lmms_engine.parallel.parallelize import MODEL_TO_PARALLEL_METHOD, apply_parallelize
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
@@ -76,6 +77,16 @@ class FSDP2SFTTrainer:
 
         # Optional EMA (fully opt-in)
         self.ema = EMAHelper(self.args)
+
+        # Optional Eval Server Backend (only on rank 0)
+        self.eval_backend = None
+        if dist.get_rank() == 0 and self.args.eval_config is not None:
+            self.eval_backend = EvalServerBackend(
+                url=self.args.eval_config.get("server_url"),
+                poll_interval=self.args.eval_config.get("poll_interval", 20.0),
+                eval_config=self.args.eval_config,
+            )
+            assert self.args.eval_steps == self.args.save_steps, "eval_steps must be equal to save_steps"
 
     def prepare_dataloader(self, dataset: DatasetType, is_training: bool = True):
         data_collator = self.data_collator
@@ -243,15 +254,24 @@ class FSDP2SFTTrainer:
 
         return metrics
 
-    def validation_step(self):
-        pass
+    def validation_step(self, output_dir, step: int):
+        if self.eval_backend is not None:
+            self.eval_backend.submit_eval(output_dir, step)
+
+    def _check_eval_results(self, rank: int):
+        if (
+            self.eval_backend is not None
+            and self.global_step % (self.args.eval_config.get("check_interval", 10) if self.args.eval_config else 10)
+            == 0
+        ):
+            for eval_step, metrics in self.eval_backend.check_and_get_completed():
+                if rank == 0:
+                    self.tracking.log(metrics, step=eval_step)
 
     def train(self, resume_from_checkpoint: bool = False):
         self.prepare_model()
         train_dataloader = self.prepare_dataloader(self.train_dataset, is_training=True)
         self.train_dataloader = train_dataloader
-        if self.eval_dataset is not None:
-            raise NotImplementedError("Evaluation is not implemented")
         self.prepare_optimizer()
 
         # Validate config for IterableDataset and Dataset
@@ -365,6 +385,7 @@ class FSDP2SFTTrainer:
                             self.global_step,
                             total_limit=self.args.save_total_limit,
                         )
+                        self.validation_step(output_dir, self.global_step)
 
                     if (
                         self.args.torch_empty_cache_steps is not None
@@ -372,15 +393,14 @@ class FSDP2SFTTrainer:
                     ):
                         self.empty_cache()
                     pbar.update(1)
+                self._check_eval_results(rank)
             curr_epoch += 1
-
-            if self.eval_dataset is not None:
-                raise NotImplementedError("Evaluation is not implemented")
 
         pbar.close()
         # Save the final checkpoint
         output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
         self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
+        self.validation_step(output_dir, self.global_step)
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")

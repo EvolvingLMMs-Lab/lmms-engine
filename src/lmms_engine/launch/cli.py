@@ -14,6 +14,7 @@ from lmms_engine.parallel.process_group_manager import setup_process_group_manag
 from lmms_engine.utils.logging_utils import setup_distributed_logging
 
 from ..datasets import DatasetConfig
+from ..eval import EvalConfig
 from ..models import ModelConfig
 from ..train import TrainerConfig, TrainingArguments, TrainRunner
 
@@ -59,6 +60,12 @@ def create_train_task(config):
     setup_process_group_manager(tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree)
 
     trainer_args = config.pop("trainer_args")
+
+    eval_config_dict = trainer_args.pop("eval_config", None)
+    if eval_config_dict is not None:
+        eval_config = EvalConfig(**eval_config_dict)
+        trainer_args["eval_config"] = eval_config.to_dict()
+
     trainer_args = TrainingArguments(**trainer_args)
 
     train_config = TrainerConfig(

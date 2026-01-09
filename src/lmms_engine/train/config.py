@@ -38,6 +38,9 @@ class TrainingArguments(transformers.TrainingArguments):
     ema_param_filter: Optional[Dict[str, Any]] = None
     ema_resume_from_ema: Optional[bool] = False
 
+    # --- Eval Server Configuration ---
+    eval_config: Optional[Dict[str, Any]] = None
+
 
 @dataclass
 class TrainerConfig:
