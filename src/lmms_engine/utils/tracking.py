@@ -60,6 +60,7 @@ class Tracking:
                 config=config,
             )
             self.logger["wandb"] = wandb
+            wandb.define_metric("eval/*", step_metric="global_step")
 
     def log(self, data, step=None):
         if "wandb" in self.logger:
@@ -72,6 +73,9 @@ class Tracking:
             self.logger["wandb"].log(wandb_data, step=step)
 
         # format console log
+        if step is None and "global_step" in data:
+            step = data["global_step"]
+            del data["global_step"]
         print(f"{data}, step={step}")
 
     def __del__(self):
