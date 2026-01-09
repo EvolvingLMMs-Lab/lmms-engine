@@ -69,9 +69,14 @@ sit = [
     "torchdiffeq",
 ]
 
+eval = [
+    "httpx",
+]
+
 all = [
     "lmms_engine[pref]",
     "lmms_engine[storage]",
+    "lmms_engine[eval]",
 ]
 
 
