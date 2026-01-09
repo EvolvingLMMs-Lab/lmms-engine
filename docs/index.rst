@@ -19,6 +19,7 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
    user_guide/peak_perf
    user_guide/merge_fsdp
    user_guide/fsdp2_reduce_dtype
+   user_guide/async_eval
 
 .. toctree::
    :maxdepth: 2

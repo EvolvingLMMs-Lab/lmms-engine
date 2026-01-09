@@ -11,3 +11,4 @@ Comprehensive guides for using LMMs Engine in various scenarios.
    peak_perf
    merge_fsdp
    fsdp2_reduce_dtype
+   async_eval
