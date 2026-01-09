@@ -39,7 +39,7 @@ class EvalServerBackend:
         self.url = url.rstrip("/")
         self.poll_interval = poll_interval
         self.eval_config = eval_config or {}
-
+        self.checkpoint_key = self.eval_config.get("checkpoint_key", "model")
         try:
             from lmms_eval import EvalClient
 
@@ -55,7 +55,9 @@ class EvalServerBackend:
         self.worker_thread.start()
         logger.info("EvalServerBackend worker thread started")
 
-    def submit_eval(self, checkpoint_dir: str, step: int) -> Optional[str]:
+    def submit_eval(
+        self, checkpoint_dir: str, step: int, checkpoint_type: Optional[str] = None, output_path: Optional[str] = None
+    ) -> Optional[str]:
         """
         Submit an evaluation job to the server (non-blocking).
 
@@ -74,7 +76,15 @@ class EvalServerBackend:
             logger.error(f"Missing model or tasks in eval_config: {self.eval_config}")
             return None
 
-        model_args["pretrained"] = checkpoint_dir
+        model_args[self.checkpoint_key] = checkpoint_dir
+
+        lmms_engine_kwargs = None
+        if checkpoint_type is not None:
+            lmms_engine_kwargs = {
+                "model_path": checkpoint_dir,
+                "checkpoint_type": checkpoint_type,
+                "output_path": output_path,
+            }
 
         try:
             job_response = self.client.evaluate(
@@ -90,6 +100,7 @@ class EvalServerBackend:
                 predict_only=self.eval_config.get("predict_only", False),
                 num_gpus=self.eval_config.get("num_gpus", 1),
                 output_dir=self.eval_config.get("output_dir"),
+                lmms_engine_kwargs=lmms_engine_kwargs,
             )
 
             job_id = job_response.get("job_id")

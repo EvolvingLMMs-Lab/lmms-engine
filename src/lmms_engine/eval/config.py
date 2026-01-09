@@ -13,6 +13,8 @@ class EvalConfig(Args):
         "disable_log_stats": True,
         "gpu_memory_utilization": 0.8,
     }
+    # The key to retrieve the checkpoint directory from the model_args
+    checkpoint_key: Optional[str] = "model"
     num_fewshot: Optional[int] = 0
     batch_size: Optional[Union[int, str]] = 1
     device: Optional[str] = "cuda"
