@@ -41,7 +41,7 @@ class EvalServerBackend:
         self.eval_config = eval_config or {}
         self.checkpoint_key = self.eval_config.get("checkpoint_key", "model")
         try:
-            from lmms_eval import EvalClient
+            from lmms_eval.entrypoints import EvalClient
 
             self.client = EvalClient(base_url=self.url)
             logger.info(f"EvalServerBackend initialized with server: {self.url}")
@@ -56,7 +56,12 @@ class EvalServerBackend:
         logger.info("EvalServerBackend worker thread started")
 
     def submit_eval(
-        self, checkpoint_dir: str, step: int, checkpoint_type: Optional[str] = None, output_path: Optional[str] = None
+        self,
+        checkpoint_dir: str,
+        step: int,
+        eval_output_dir: str,
+        checkpoint_type: Optional[str] = None,
+        output_path: Optional[str] = None,
     ) -> Optional[str]:
         """
         Submit an evaluation job to the server (non-blocking).
@@ -99,7 +104,7 @@ class EvalServerBackend:
                 log_samples=self.eval_config.get("log_samples", True),
                 predict_only=self.eval_config.get("predict_only", False),
                 num_gpus=self.eval_config.get("num_gpus", 1),
-                output_dir=self.eval_config.get("output_dir"),
+                output_dir=eval_output_dir,
                 lmms_engine_kwargs=lmms_engine_kwargs,
             )
 
