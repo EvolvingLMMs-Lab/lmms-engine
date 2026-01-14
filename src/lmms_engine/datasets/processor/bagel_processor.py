@@ -3,8 +3,9 @@ from typing import List, Optional
 
 import numpy as np
 import torch
+from loguru import logger
 from PIL import Image
-from transformers import Qwen2Tokenizer
+from transformers import Qwen2Tokenizer, set_seed
 
 from lmms_engine.mapping_func import register_processor
 from lmms_engine.models.bagel.data_utils import (
@@ -40,9 +41,21 @@ class BagelDataProcessor:
         self.vae_cond_dropout_prob = float(extra_kwargs.get("vae_cond_dropout_prob", 0.0))
 
         self.user_image_as_vae_condition = extra_kwargs.get("user_image_as_vae_condition", None)
+        self.set_random_seed(extra_kwargs.get("random_seed", 4396))
 
     def build(self):
         self.processor = self._build_processor()
+
+    def set_random_seed(self, seed: int):
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+        else:
+            world_size = 1
+            rank = 0
+        seed = seed * world_size + rank
+        logger.info(f"Set random seed to {seed} for rank {rank} in world size {world_size}")
+        set_seed(seed)
 
     def _build_processor(self):
         extra_kwargs = getattr(self.config, "extra_kwargs", None) or {}
