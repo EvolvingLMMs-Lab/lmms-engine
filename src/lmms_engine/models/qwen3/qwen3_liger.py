@@ -13,9 +13,12 @@ except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
 import torch
 
+import torch.distributed as dist
+
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,
     gather_outputs_and_unpad,
+    get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_world_size,
     pad_to_max_across_ranks,
     slice_input_tensor,
@@ -143,7 +146,14 @@ def qwen3_lce_forward(
             # Pad to max size across ranks, then gather and unpad
             loss, total_padding = pad_to_max_across_ranks(loss, dim=0)
             loss = gather_outputs_and_unpad(loss, gather_dim=0, unpad_dim=0, padding_size=total_padding)
-            loss = torch.sum(loss) / (torch.sum(attention_mask) + 1e-8)
+            # Calculate the actual number of valid tokens (non-ignored labels) across all ranks
+            # shift_labels shape is (num_tokens,) after flatten, -100 means ignore
+            num_valid_tokens = (shift_labels != -100).sum().float()
+            # Gather num_valid_tokens across all SP ranks to get the total count
+            sp_group = get_ulysses_sequence_parallel_group()
+            if sp_group is not None:
+                dist.all_reduce(num_valid_tokens, op=dist.ReduceOp.SUM, group=sp_group)
+            loss = torch.sum(loss) / (num_valid_tokens + 1e-8)
 
         if reduction == "sum":
             loss /= loss_kwargs["num_items_in_batch"]
