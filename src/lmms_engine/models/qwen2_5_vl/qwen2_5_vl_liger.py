@@ -1,12 +1,11 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.distributed as dist
 from transformers import Qwen2_5_VLForConditionalGeneration
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
     Qwen2_5_VLCausalLMOutputWithPast,
 )
-
-import torch.distributed as dist
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,

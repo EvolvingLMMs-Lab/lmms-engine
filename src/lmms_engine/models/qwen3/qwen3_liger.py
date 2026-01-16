@@ -12,7 +12,6 @@ try:
 except:
     print("Liger Kernel is not installed, pip install liger-kernel to use this patch")
 import torch
-
 import torch.distributed as dist
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (

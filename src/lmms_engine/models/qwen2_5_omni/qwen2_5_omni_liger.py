@@ -1,14 +1,12 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.distributed as dist
 from transformers.models.qwen2_5_omni.modeling_qwen2_5_omni import (
     Qwen2_5OmniThinkerCausalLMOutputWithPast,
     Qwen2_5OmniThinkerForConditionalGeneration,
 )
 from transformers.utils import is_flash_attn_2_available
-
-import torch
-import torch.distributed as dist
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,

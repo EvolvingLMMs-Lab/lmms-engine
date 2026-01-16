@@ -1,15 +1,13 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.distributed as dist
 from transformers.cache_utils import Cache
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeCausalLMOutputWithPast,
     Qwen3VLMoeForConditionalGeneration,
     load_balancing_loss_func,
 )
-
-import torch
-import torch.distributed as dist
 
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     calculate_seq_len_per_rank,
