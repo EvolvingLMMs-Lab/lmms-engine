@@ -181,7 +181,7 @@ See `examples/qwen3_vl/qwen3_vl_8b_train.sh` for a complete training script usin
 
 ### Overriding Existing YAML Config
 
-You can use a YAML config file as a base and override specific parameters via CLI:
+You can use a YAML config file as a base and override specific parameters via CLI using Hydra's config-path and config-name:
 
 ```bash
 torchrun --nproc_per_node="8" \
@@ -190,13 +190,12 @@ torchrun --nproc_per_node="8" \
     --master_addr="127.0.0.1" \
     --master_port="8000" \
     -m lmms_engine.launch.cli \
-    config_yaml=base_config.yaml \
-    trainer_args.learning_rate=2.0e-04 \
-    trainer_args.per_device_train_batch_size=2 \
-    trainer_args.run_name="experiment_override"
+    --config-path /path/to/config_yaml/directory \
+    --config-name qwen2_5_vl_dp \
+    trainer_args.max_steps=100
 ```
 
-This loads all settings from `base_config.yaml` and only overrides the specified parameters (CLI overrides take precedence).
+This loads all settings from `qwen2_5_vl_dp.yaml` in the specified directory and only overrides the specified parameters (CLI overrides take precedence).
 
 ### Tips
 
