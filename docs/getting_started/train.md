@@ -179,12 +179,31 @@ Here are frequently used parameters you can override:
 
 See `examples/qwen3_vl/qwen3_vl_8b_train.sh` for a complete training script using Hydra overrides with comprehensive parameter configuration for multi-GPU training.
 
+### Overriding Existing YAML Config
+
+You can use a YAML config file as a base and override specific parameters via CLI:
+
+```bash
+torchrun --nproc_per_node="8" \
+    --nnodes="1" \
+    --node_rank="0" \
+    --master_addr="127.0.0.1" \
+    --master_port="8000" \
+    -m lmms_engine.launch.cli \
+    config_yaml=base_config.yaml \
+    trainer_args.learning_rate=2.0e-04 \
+    trainer_args.per_device_train_batch_size=2 \
+    trainer_args.run_name="experiment_override"
+```
+
+This loads all settings from `base_config.yaml` and only overrides the specified parameters (CLI overrides take precedence).
+
 ### Tips
 
 - Use quotes for string values: `processor_name="Qwen/Qwen2.5-VL-7B-Instruct"`
 - Use dot notation for nested configs: `trainer_args.learning_rate=1.0e-06`
 - Boolean values: `packing=true` or `packing=false`
 - For complex values (lists/arrays), use Hydra's syntax: `trainer_args.fsdp_config.transformer_layer_cls_to_wrap=["Qwen2_5_VLDecoderLayer"]`
-- You can mix YAML config files with CLI overrides: `config_yaml=${CONFIG} trainer_args.learning_rate=1.0e-05` (CLI overrides take precedence)
+- Add new parameters with `+`: `+dataset_config.extra_kwargs.image_max_pixels=4194304`
 
 

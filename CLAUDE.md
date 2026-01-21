@@ -31,14 +31,19 @@ Training is configured via YAML files. YAML is recommended for better readabilit
 ### Training Launch
 
 ```bash
-# Recommended: torchrun
+# Recommended: torchrun with YAML config
 torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
   --master_addr="127.0.0.1" --master_port="8000" \
-  -m lmms_engine.launch.cli --config path/to/config.yaml
+  -m lmms_engine.launch.cli config_yaml=path/to/config.yaml
 
-# Alternative: accelerate
-accelerate launch --use_fsdp [options] \
-  -m lmms_engine.launch.cli --config path/to/config.yaml
+# Hydra overrides (no config file needed)
+torchrun --nproc_per_node=8 --nnodes=1 --node_rank=0 \
+  --master_addr="127.0.0.1" --master_port="8000" \
+  -m lmms_engine.launch.cli \
+  trainer_type=fsdp2_trainer \
+  model_config.load_from_pretrained_path="model/path" \
+  trainer_args.output_dir="./output" \
+  trainer_args.num_train_epochs=3
 ```
 
 ### Development Setup
