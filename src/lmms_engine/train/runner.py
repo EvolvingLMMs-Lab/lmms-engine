@@ -12,6 +12,8 @@ import torch.distributed as dist
 import yaml
 from loguru import logger
 
+from lmms_engine.utils.compute_tracker import ComputeTracker
+
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
     DATASET_MAPPING,
@@ -191,6 +193,17 @@ class TrainRunner:
             self.trainer.train(resume_from_checkpoint=True)
         else:
             self.trainer.train()
+        # Finalize compute tracking for HF-based trainers
+        if hasattr(self.trainer, "compute_tracker"):
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            if rank == 0:
+                summary = self.trainer.compute_tracker.finish()
+                ComputeTracker.save_summary(self.config.trainer_args.output_dir, summary)
+                logger.info(
+                    f"Compute Summary: Total FLOPS={summary.total_flops_formatted}, "
+                    f"Duration={summary.training_duration_formatted}, "
+                    f"Energy={summary.energy_kwh} kWh, CO2={summary.co2_formatted}"
+                )
         # Save the state for hf_trainer
         if hasattr(self.trainer, "save_state"):
             self.trainer.save_state()

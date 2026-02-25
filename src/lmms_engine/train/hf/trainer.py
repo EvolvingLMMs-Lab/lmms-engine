@@ -36,6 +36,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
 )
 from lmms_engine.train.registry import TRAINER_REGISTER
+from lmms_engine.utils.compute_tracker import ComputeTracker
 from lmms_engine.utils.train_utils import TrainUtilities
 
 
@@ -335,13 +336,22 @@ class Trainer(HFTrainer):
             self.cur_time = time.perf_counter()
             self.mfu = 0.0
             self.total_seq_len = []
+            if not hasattr(self, "compute_tracker"):
+                self.compute_tracker = ComputeTracker(
+                    num_gpus=self.args.world_size,
+                    carbon_intensity=getattr(self.args, "carbon_intensity", 0.475) or 0.475,
+                    gpu_tdp_watts=TrainUtilities.get_device_tdp(),
+                    gpu_name=torch.cuda.get_device_name(),
+                )
+                self.compute_tracker.start()
         if self.state.global_step % 10 == 0 and self.state.global_step > 0:
             prev_time = self.cur_time
             self.cur_time = time.perf_counter()
             device = self.args.local_rank
-            flops, promised_flops = model_utils.flops_counter.estimate_flops(
+            flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(
                 self.total_seq_len, delta_time=self.cur_time - prev_time
             )
+            self.compute_tracker.accumulate_flops(raw_flops)
             flops_tensor = torch.tensor(flops, device=device)
             torch.distributed.all_reduce(flops_tensor, op=torch.distributed.ReduceOp.SUM)
             # Divide by the number of processes and the number of sequence parallel processes

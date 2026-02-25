@@ -25,7 +25,7 @@ from lmms_engine.eval.backends import EvalServerBackend
 from lmms_engine.parallel.parallelize import MODEL_TO_PARALLEL_METHOD, apply_parallelize
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.registry import TRAINER_REGISTER
-from lmms_engine.utils import TrainUtilities
+from lmms_engine.utils import ComputeTracker, TrainUtilities
 from lmms_engine.utils.ema_utils import EMAHelper
 from lmms_engine.utils.fsdp2_utils import (
     apply_fsdp2,
@@ -304,6 +304,13 @@ class FSDP2SFTTrainer:
             )
 
         self.total_tokens = 0
+        self.compute_tracker = ComputeTracker(
+            num_gpus=world_size,
+            carbon_intensity=getattr(self.args, "carbon_intensity", 0.475) or 0.475,
+            gpu_tdp_watts=TrainUtilities.get_device_tdp(),
+            gpu_name=torch.cuda.get_device_name(),
+        )
+        self.compute_tracker.start()
         loaded_checkpoint_dir: Optional[str] = None
         if resume_from_checkpoint:
             # Search for the latest checkpoint in the output_dir
@@ -361,7 +368,8 @@ class FSDP2SFTTrainer:
 
                 # Calculate flops per rank
                 seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
-                flops, promised_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
+                flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
+                self.compute_tracker.accumulate_flops(raw_flops)
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)
                 sp_size = pgm.process_group_manager.cp_world_size
@@ -415,6 +423,22 @@ class FSDP2SFTTrainer:
         # Wait for all pending eval jobs to complete
         if self.eval_backend is not None:
             self._check_eval_results(rank, wait_until_complete=True)
+
+        # Finalize compute tracking and save summary
+        if rank == 0:
+            summary = self.compute_tracker.finish()
+            self.compute_tracker.save_summary(self.args.output_dir, summary)
+            logger.info(
+                f"Compute Summary: Total FLOPS={summary.total_flops_formatted}, "
+                f"Duration={summary.training_duration_formatted}, "
+                f"Energy={summary.energy_kwh} kWh, CO2={summary.co2_formatted}"
+            )
+            self.tracking.log({
+                "compute/total_flops": summary.total_flops,
+                "compute/duration_seconds": summary.training_duration_seconds,
+                "compute/energy_kwh": summary.energy_kwh,
+                "compute/co2_kg": summary.co2_kg,
+            })
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")
@@ -480,6 +504,7 @@ class FSDP2SFTTrainer:
             "rng": self.get_rng_state(),
             "total_tokens": self.total_tokens,
             "accumulated_grad_steps": self.accumulated_grad_steps,
+            "compute_tracker": self.compute_tracker.state_dict(),
         }
         torch.save(extra_state, extra_state_path)
         torch.save(self.train_dataloader.state_dict(), dataloader_state_path)
@@ -526,6 +551,8 @@ class FSDP2SFTTrainer:
         extra_state = torch.load(extra_state_path, weights_only=False)
         self.total_tokens = extra_state["total_tokens"]
         self.accumulated_grad_steps = extra_state.get("accumulated_grad_steps", 0)
+        if "compute_tracker" in extra_state and hasattr(self, "compute_tracker"):
+            self.compute_tracker.load_state_dict(extra_state["compute_tracker"])
         self.load_rng_state(extra_state["rng"])
         self.scheduler.load_state_dict(extra_state["lr_scheduler_state"])
         self.train_dataloader.load_state_dict(torch.load(dataloader_state_path, weights_only=False))

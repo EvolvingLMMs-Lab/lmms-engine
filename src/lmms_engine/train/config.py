@@ -41,6 +41,9 @@ class TrainingArguments(transformers.TrainingArguments):
     # --- Eval Server Configuration ---
     eval_config: Optional[Dict[str, Any]] = None
 
+    # --- Compute / CO2 Tracking ---
+    carbon_intensity: Optional[float] = 0.475  # kgCO2/kWh, global average
+
 
 @dataclass
 class TrainerConfig:

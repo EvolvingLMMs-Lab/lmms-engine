@@ -154,6 +154,78 @@ class TrainUtilities:
         return flops_unit
 
     @staticmethod
+    def get_device_tdp() -> float:
+        """Return TDP (watts) for the current GPU. 0.0 if unknown."""
+        device_name = torch.cuda.get_device_name()
+        if "MI300X" in device_name:
+            return 750.0
+        elif "B200" in device_name:
+            return 1000.0
+        elif "B300" in device_name:
+            return 1200.0
+        elif "H100" in device_name or "H800" in device_name:
+            return 700.0
+        elif "H200" in device_name:
+            return 700.0
+        elif "A100" in device_name or "A800" in device_name:
+            return 400.0
+        elif "L40" in device_name:
+            return 300.0
+        elif "L20" in device_name:
+            return 275.0
+        elif "H20" in device_name:
+            return 500.0
+        elif "910B" in device_name:
+            return 400.0
+        elif "RTX 3070 Ti" in device_name:
+            return 290.0
+        return 0.0
+
+    @staticmethod
+    def format_flops(flops: Union[int, float]) -> str:
+        """Format a FLOPS count into a compact string with unit suffix.
+
+        Uses a 1,000-based scale: MFLOPS, GFLOPS, TFLOPS, PFLOPS, EFLOPS.
+
+        Examples:
+            1.23e6  -> "1.23 MFLOPS"
+            1.23e12 -> "1.23 TFLOPS"
+            1.23e18 -> "1.23 EFLOPS"
+
+        Args:
+            flops: Total FLOPS count (can be int or float)
+
+        Returns:
+            A compact string representation with an appropriate unit suffix.
+        """
+        if flops is None:
+            return "0 FLOPS"
+        try:
+            value = float(flops)
+        except (TypeError, ValueError):
+            return str(flops)
+
+        if not math.isfinite(value) or value == 0:
+            return "0 FLOPS"
+
+        sign = "-" if value < 0 else ""
+        value = abs(value)
+
+        units = [
+            (1e18, "EFLOPS"),
+            (1e15, "PFLOPS"),
+            (1e12, "TFLOPS"),
+            (1e9, "GFLOPS"),
+            (1e6, "MFLOPS"),
+        ]
+        for threshold, unit in units:
+            if value >= threshold:
+                scaled = value / threshold
+                return f"{sign}{scaled:.2f} {unit}"
+
+        return f"{sign}{value:.0f} FLOPS"
+
+    @staticmethod
     def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
         to_return = {k: t for k, t in named_params if any(key_match in k for key_match in keys_to_match)}
         to_return = {k: TrainUtilities.maybe_zero_3(v, ignore_status=True).cpu() for k, v in to_return.items()}

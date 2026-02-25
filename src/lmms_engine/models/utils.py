@@ -96,7 +96,7 @@ class FlopsCounter:
             self.config = config
 
     def _estimate_unknown_flops(self, tokens_sum, batch_seqlens, delta_time):
-        return 0
+        return 0, 0
 
     def _estimate_qwen2_flops(self, tokens_sum, batch_seqlens, delta_time):
         config = self.config
@@ -135,7 +135,7 @@ class FlopsCounter:
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
-        return flops_achieved
+        return flops_achieved, flops_all_token
 
     def _estimate_deepseek_v3_flops(self, tokens_sum, batch_seqlens, delta_time):
         hidden_size = self.config.hidden_size
@@ -189,7 +189,7 @@ class FlopsCounter:
         flops_all_token = dense_N_flops + attn_qkv_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
 
-        return flops_achieved
+        return flops_achieved, flops_all_token
 
     def _estimate_qwen2_moe_flops(self, tokens_sum, batch_seqlens, delta_time):
         hidden_size = self.config.hidden_size
@@ -229,7 +229,7 @@ class FlopsCounter:
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
-        return flops_achieved
+        return flops_achieved, flops_all_token
 
     def estimate_flops(self, batch_seqlens, delta_time):
         """
@@ -243,6 +243,7 @@ class FlopsCounter:
         Returns:
             estimated_flops (float): The estimated FLOPS based on the input tokens and time.
             promised_flops (float): The expected FLOPS of the current device.
+            raw_flops (float): The total raw FLOPS for all tokens in the batch (fwd + bwd).
         """
         # Flatten batch_seqlens if it contains nested lists (common for vision models)
         if isinstance(batch_seqlens, (list, tuple)):
@@ -255,9 +256,9 @@ class FlopsCounter:
             batch_seqlens = flat_seqlens
         tokens_sum = sum(batch_seqlens)
         func = self.estimate_func.get(self.config.model_type, self._estimate_unknown_flops)
-        estimated_flops = func(tokens_sum, batch_seqlens, delta_time)
+        estimated_flops, raw_flops = func(tokens_sum, batch_seqlens, delta_time)
         promised_flops = TrainUtilities.get_device_flops()
-        return estimated_flops, promised_flops
+        return estimated_flops, promised_flops, raw_flops
 
 
 def setup_flops_counter(config: PretrainedConfig) -> FlopsCounter:
