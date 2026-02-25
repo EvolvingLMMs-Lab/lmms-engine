@@ -12,8 +12,6 @@ import torch.distributed as dist
 import yaml
 from loguru import logger
 
-from lmms_engine.utils.compute_tracker import ComputeTracker
-
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
     DATASET_MAPPING,
@@ -27,6 +25,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     set_ulysses_sequence_parallel_group,
 )
 from lmms_engine.train.hf import Trainer
+from lmms_engine.utils.compute_tracker import ComputeTracker
 
 from ..utils.train_utils import TrainUtilities
 from .config import TrainerConfig

@@ -368,7 +368,9 @@ class FSDP2SFTTrainer:
 
                 # Calculate flops per rank
                 seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
-                flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
+                flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(
+                    seq_len, delta_time=delta_time
+                )
                 self.compute_tracker.accumulate_flops(raw_flops)
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)
@@ -433,12 +435,14 @@ class FSDP2SFTTrainer:
                 f"Duration={summary.training_duration_formatted}, "
                 f"Energy={summary.energy_kwh} kWh, CO2={summary.co2_formatted}"
             )
-            self.tracking.log({
-                "compute/total_flops": summary.total_flops,
-                "compute/duration_seconds": summary.training_duration_seconds,
-                "compute/energy_kwh": summary.energy_kwh,
-                "compute/co2_kg": summary.co2_kg,
-            })
+            self.tracking.log(
+                {
+                    "compute/total_flops": summary.total_flops,
+                    "compute/duration_seconds": summary.training_duration_seconds,
+                    "compute/energy_kwh": summary.energy_kwh,
+                    "compute/co2_kg": summary.co2_kg,
+                }
+            )
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")

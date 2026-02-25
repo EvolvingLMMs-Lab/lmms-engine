@@ -12,9 +12,9 @@ from transformers.utils import is_torch_xla_available
 import lmms_engine.models.utils as model_utils
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.train.hf.trainer import Trainer as HFTrainer
+from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.utils.compute_tracker import ComputeTracker
 from lmms_engine.utils.train_utils import TrainUtilities
-from lmms_engine.train.registry import TRAINER_REGISTER
 
 
 @TRAINER_REGISTER.register("dllm_trainer")

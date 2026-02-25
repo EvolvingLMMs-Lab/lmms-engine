@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from lmms_engine.utils.compute_tracker import ComputeTracker, ComputeSummary
+from lmms_engine.utils.compute_tracker import ComputeSummary, ComputeTracker
 from lmms_engine.utils.train_utils import TrainUtilities
 
 
