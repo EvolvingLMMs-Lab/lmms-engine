@@ -1,9 +1,9 @@
-# NanoVLM Speedrun (LMMs-Lab-Speedrun)
+# NanoVLM Speedrun
 
 > The most striking thing about the [modded-nanogpt](https://github.com/karpathy/modded-nanogpt) experiments is that they expose how much of deep learning is just bloat. 
 > To apply this to Vision-Language Models (VLMs), you have to stop acting like a researcher and start acting like a hacker. You aren't trying to follow academic standards; you are trying to maximize the movement of bits through silicon.
 
-We introduce **LMMs-Lab-Speedrun NanoVLM**: a minimalist VLM recipe designed to strip away the bloat. We provide the bare-minimum components required to bridge the training and evaluation pipeline, enabling lightning-fast iteration and reproduction.
+We introduce **NanoVLM Speedrun**: a minimalist VLM recipe designed to strip away the bloat. We provide the bare-minimum components required to bridge the training and evaluation pipeline, enabling lightning-fast iteration and reproduction.
 
 ## The Recipe (2026H1)
 
