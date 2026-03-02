@@ -25,7 +25,7 @@ dataset_config:
   fps: 1
   video_backend: qwen_vl_utils
 trainer_args:
-  output_dir: ./output/video_debug
+  output_dir: ./output/qwen3_vl_training
   overwrite_output_dir: false
   do_train: false
   do_eval: false
@@ -55,7 +55,7 @@ trainer_args:
   log_level: passive
   log_level_replica: warning
   log_on_each_node: true
-  logging_dir: ./output/qwen2_5_vl_test/runs/Oct15_01-47-28_di-20250729151342-xr8k6
+  logging_dir: ./output/qwen3_vl_training/runs
   logging_strategy: steps
   logging_first_step: false
   logging_steps: 1
