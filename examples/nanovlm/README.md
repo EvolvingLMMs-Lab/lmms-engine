@@ -103,7 +103,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python -m lmms_eval \
 
 ### Training Overhead
 
-| Stage | Total FLOPS | Energy | CO2 Emissions | GPU Hours (H100) |
+| Stage | Total FLOPS | Energy | CO2 Emissions | Training Time (8 $\times$ H100, hours) |
 |-------|-------------|--------|---------------|------------------|
 | Stage 1 | 236.79 PFLOPS | 13.5221 kWh | 6.42 kg | 19.32 |
 | Stage 2 | 98.23 PFLOPS | 3.1006 kWh | 1.47 kg | 4.43 |
