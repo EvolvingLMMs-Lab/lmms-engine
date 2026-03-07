@@ -103,20 +103,18 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python -m lmms_eval \
 
 ### Training Overhead
 
-| Stage | Total FLOPS | Energy | CO2 Emissions | GPU Hours (H100) |
+| Stage | Total FLOPS | Energy | CO2 Emissions | GPU Hours (8 x H100) |
 |-------|-------------|--------|---------------|------------------|
 | Stage 1 | 236.79 PFLOPS | 13.5221 kWh | 6.42 kg | 19.32 |
 | Stage 2 | 98.23 PFLOPS | 3.1006 kWh | 1.47 kg | 4.43 |
 
 ### Benchmark Scores
 
-| Benchmark | Score |
-|-----------|-------|
-| MME | 1204.46 (P: 948.75, C: 255.71) |
-| MMMU (val) | TBD |
-| MMBench (EN Dev) | TBD |
-| OCRBench | TBD |
-| BLINK | TBD |
+| MME  | MMMU_Val | MMStar | GQA | ChartQA | DocVQA | OCRBench | POPE |
+|-----|---------|------|--------|-----|---------|--------|----------|------|
+| 1204.46 (948.75/255.71) | 0.3022 | 0.3273 | 0.4184 | 0.1084 | 0.1018 | 0.165 | 0.7724 |
+
+*Reported metrics: MME (Perception/Cognition); MMBench (EN Dev); MMMU_Val; MMStar (Average); GQA (Exact Match); ChartQA (Relaxed Overall); DocVQA (ANLS); OCRBench; POPE (Accuracy)*
 
 ## Launch Preparation Community Discussion Trails
 
