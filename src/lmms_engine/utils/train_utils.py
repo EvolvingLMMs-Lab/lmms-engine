@@ -134,7 +134,11 @@ class TrainUtilities:
         device_name = torch.cuda.get_device_name()
         flops = float("inf")  # INF flops for unkown gpu type
 
-        if "MI300X" in device_name:
+        if "B200" in device_name:
+            flops = 2.25e15
+        elif "B300" in device_name:
+            flops = 2.25e15
+        elif "MI300X" in device_name:
             flops = 1336e12
         elif "H100" in device_name or "H800" in device_name or "H200" in device_name:
             flops = 989e12
