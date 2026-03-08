@@ -37,11 +37,11 @@ class NanovlmDataProcessor:
             video_token=self.video_token,
             batch_decode=self._tokenizer.batch_decode,
         )
-    
+
     @property
     def special_tokens(self):
-        if not hasattr(self, '_special_tokens'):
-            if hasattr(self._tokenizer, 'all_special_tokens'):
+        if not hasattr(self, "_special_tokens"):
+            if hasattr(self._tokenizer, "all_special_tokens"):
                 self._special_tokens = list(self._tokenizer.all_special_tokens)
             else:
                 self._special_tokens = list(self._tokenizer.additional_special_tokens)

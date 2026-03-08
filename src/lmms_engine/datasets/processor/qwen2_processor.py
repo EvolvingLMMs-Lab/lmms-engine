@@ -49,11 +49,11 @@ class Qwen2DataProcessor(BaseQwen2_5_DataProcessor):
     @property
     def tokenizer(self):
         return self.processor
-    
+
     @property
     def special_tokens(self):
-        if not hasattr(self, '_special_tokens'):
-            if hasattr(self.processor, 'all_special_tokens'):
+        if not hasattr(self, "_special_tokens"):
+            if hasattr(self.processor, "all_special_tokens"):
                 self._special_tokens = list(self.processor.all_special_tokens)
             else:
                 self._special_tokens = list(self.processor.additional_special_tokens)
