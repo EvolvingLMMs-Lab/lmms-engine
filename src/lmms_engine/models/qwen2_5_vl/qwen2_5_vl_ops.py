@@ -35,6 +35,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad,
 )
 
+from ..common_ops.rope import qwen2_5_vl_rope_index
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 logger = logging.get_logger(__name__)
@@ -107,7 +108,8 @@ def vl_model_forward(
     if position_ids is None and (attention_mask is None or attention_mask.ndim == 2):
         # calculate RoPE index once per generation in the pre-fill stage only
         if (cache_position is not None and cache_position[0] == 0) or self.rope_deltas is None:
-            position_ids, rope_deltas = self.get_rope_index(
+            position_ids, rope_deltas = qwen2_5_vl_rope_index(
+                self,
                 original_input_ids,  # Here we use the padded input ids
                 image_grid_thw,
                 video_grid_thw,

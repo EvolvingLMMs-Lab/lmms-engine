@@ -35,6 +35,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad,
 )
 
+from ..common_ops.rope import qwen3_vl_get_rope_index
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 if is_flash_attn_2_available():
@@ -203,7 +204,8 @@ def model_forward(
             or (past_key_values is None or past_key_values.get_seq_length() == 0)
         )
         if (prefill_compiled_stage or prefill_noncompiled_stage) or self.rope_deltas is None:
-            position_ids, rope_deltas = self.get_rope_index(
+            position_ids, rope_deltas = qwen3_vl_get_rope_index(
+                self,
                 original_input_ids,
                 image_grid_thw,
                 video_grid_thw,
