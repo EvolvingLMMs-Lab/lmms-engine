@@ -1,4 +1,3 @@
-
 from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
 
 is_transformers_5 = is_transformers_version_greater_or_equal_to("5.0.0")
@@ -33,7 +32,6 @@ from .wanvideo import (
     WanVideoForConditionalGeneration,
     WanVideoProcessor,
 )
-
 
 __all__ = [
     "AeroForConditionalGeneration",
@@ -72,20 +70,23 @@ __all__ = [
 if not is_transformers_5:
     from .dream_dllm import DreamDLLMConfig, DreamDLLMForMaskedLM
     from .llada_dllm import LLaDADLLMConfig, LLaDADLLMForMaskedLM
-    from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
     from .llava_onevision1_5 import (
         LLaVAOneVision1_5_ForConditionalGeneration,
         Llavaonevision1_5Config,
         apply_liger_kernel_to_llava_onevision1_5,
     )
-    __all__.extend([
-        "Qwen3DLLMConfig",
-        "Qwen3DLLMForMaskedLM",
-        "DreamDLLMConfig",
-        "DreamDLLMForMaskedLM",
-        "LLaDADLLMConfig",
-        "LLaDADLLMForMaskedLM",
-        "Llavaonevision1_5Config",
-        "LLaVAOneVision1_5_ForConditionalGeneration",
-        "apply_liger_kernel_to_llava_onevision1_5",
-    ])
+    from .qwen3_dllm import Qwen3DLLMConfig, Qwen3DLLMForMaskedLM
+
+    __all__.extend(
+        [
+            "Qwen3DLLMConfig",
+            "Qwen3DLLMForMaskedLM",
+            "DreamDLLMConfig",
+            "DreamDLLMForMaskedLM",
+            "LLaDADLLMConfig",
+            "LLaDADLLMForMaskedLM",
+            "Llavaonevision1_5Config",
+            "LLaVAOneVision1_5_ForConditionalGeneration",
+            "apply_liger_kernel_to_llava_onevision1_5",
+        ]
+    )
