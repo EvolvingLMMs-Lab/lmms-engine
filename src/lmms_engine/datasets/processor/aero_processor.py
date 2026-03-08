@@ -18,6 +18,19 @@ class AeroDataProcessor:
     def build(self):
         self.processor = self._build_processor()
         self.processor.chat_template = self.chat_template_no_system
+    
+    @property
+    def special_tokens(self):
+        if not hasattr(self, '_special_tokens'):
+            if hasattr(self.processor.tokenizer, 'all_special_tokens'):
+                self._special_tokens = list(self.processor.tokenizer.all_special_tokens)
+            else:
+                self._special_tokens = list(self.processor.tokenizer.additional_special_tokens)
+            if "<|im_start|>" not in self._special_tokens:
+                self._special_tokens.append("<|im_start|>")
+            if "<|im_end|>" not in self._special_tokens:
+                self._special_tokens.append("<|im_end|>")
+        return self._special_tokens
 
     def _build_processor(self):
         processor = AeroProcessor.from_pretrained(self.config.processor_name)
@@ -88,9 +101,7 @@ class AeroDataProcessor:
         system_message: str = "You are a helpful assistant",
         add_system_prompt: bool = True,
     ):
-        special_tokens = self.processor.tokenizer.additional_special_tokens
-        special_tokens.extend(["<|im_start|>", "<|im_end|>"])
-        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in self.special_tokens]
         input_id, target = [], []
         # The purpose of start from is to record which mm token we are at. Supposing the format is interleaved
         # Then we need to record this so that the mm token can be expanded correctly per conversation

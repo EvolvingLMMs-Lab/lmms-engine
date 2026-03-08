@@ -19,6 +19,15 @@ class LLaVADataProcessor:
 
     def build(self):
         self.processor = self._build_processor()
+    
+    @property
+    def special_tokens(self):
+        if not hasattr(self, '_special_tokens'):
+            if hasattr(self.processor.tokenizer, 'all_special_tokens'):
+                self._special_tokens = list(self.processor.tokenizer.all_special_tokens)
+            else:
+                self._special_tokens = list(self.processor.tokenizer.additional_special_tokens)
+        return self._special_tokens
 
     def _build_processor(self):
         processor = LlavaOnevisionProcessor.from_pretrained(self.config.processor_name)
@@ -64,8 +73,7 @@ class LLaVADataProcessor:
 
     def get_qwen_template_labels(self, hf_messages, num_image_tokens: List[int]):
         image_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
-        special_tokens = self.processor.tokenizer.additional_special_tokens
-        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in self.special_tokens]
         input_id, target = [], []
         start_from = 0
         for message in hf_messages:

@@ -115,9 +115,7 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
         add_system_prompt: bool = True,
         add_generation_prompt: bool = False,
     ):
-        special_tokens = self.processor.tokenizer.additional_special_tokens
-        special_tokens.extend(["<|im_start|>", "<|im_end|>"])
-        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in self.special_tokens]
         input_id, target = [], []
         image_start_from = 0
         video_start_from = 0

@@ -49,6 +49,19 @@ class Qwen2DataProcessor(BaseQwen2_5_DataProcessor):
     @property
     def tokenizer(self):
         return self.processor
+    
+    @property
+    def special_tokens(self):
+        if not hasattr(self, '_special_tokens'):
+            if hasattr(self.processor, 'all_special_tokens'):
+                self._special_tokens = list(self.processor.all_special_tokens)
+            else:
+                self._special_tokens = list(self.processor.additional_special_tokens)
+            if "<|im_start|>" not in self._special_tokens:
+                self._special_tokens.append("<|im_start|>")
+            if "<|im_end|>" not in self._special_tokens:
+                self._special_tokens.append("<|im_end|>")
+        return self._special_tokens
 
     def get_qwen_template_labels(
         self,
@@ -60,9 +73,7 @@ class Qwen2DataProcessor(BaseQwen2_5_DataProcessor):
         add_system_prompt: bool = True,
         add_generation_prompt: bool = False,
     ):
-        special_tokens = self.processor.additional_special_tokens
-        special_tokens.extend(["<|im_start|>", "<|im_end|>"])
-        unmask_tokens_idx = [self.processor.convert_tokens_to_ids(t) for t in special_tokens]
+        unmask_tokens_idx = [self.processor.convert_tokens_to_ids(t) for t in self.special_tokens]
         input_id, target = [], []
         if add_system_prompt and hf_messages[0]["role"] != "system":
             input_id += self.processor.apply_chat_template(

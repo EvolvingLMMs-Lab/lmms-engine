@@ -114,8 +114,7 @@ class LLaVAVideoDataProcessor(LLaVADataProcessor):
         """
         image_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.image_token)
         video_token_index = self.processor.tokenizer.convert_tokens_to_ids(self.processor.video_token)
-        special_tokens = self.processor.tokenizer.additional_special_tokens
-        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in special_tokens]
+        unmask_tokens_idx = [self.processor.tokenizer.convert_tokens_to_ids(t) for t in self.special_tokens]
 
         input_id, target = [], []
         image_idx = 0
