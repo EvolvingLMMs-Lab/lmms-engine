@@ -101,7 +101,9 @@ class Qwen2VLDataProcessor:
 
         # Image start from 0
         start_from = 0
-        input_id += self.processor.apply_chat_template([{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True)[0]
+        input_id += self.processor.apply_chat_template(
+            [{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True
+        )[0]
         target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]

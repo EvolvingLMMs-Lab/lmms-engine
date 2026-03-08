@@ -1,8 +1,7 @@
 from typing import Optional
 
 import torch
-
-from transformers import Qwen3VLModel, Qwen2_5_VLModel
+from transformers import Qwen2_5_VLModel, Qwen3VLModel
 
 
 def qwen3_vl_get_rope_index(
@@ -123,8 +122,6 @@ def qwen3_vl_get_rope_index(
             )
 
         return position_ids, mrope_position_deltas
-
-
 
 
 def qwen2_5_vl_rope_index(
