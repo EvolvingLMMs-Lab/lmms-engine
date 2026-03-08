@@ -16,7 +16,7 @@ license = { text = "Apache-2.0" }
 dependencies = [
     "datasets",
     "hf_transfer",
-    "transformers==4.57.1",
+    "transformers>=4.57.1",
     "accelerate",
     "pillow",
     "peft",
