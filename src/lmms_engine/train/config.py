@@ -44,6 +44,9 @@ class TrainingArguments(transformers.TrainingArguments):
     # --- Compute / CO2 Tracking ---
     carbon_intensity: Optional[float] = 0.475  # kgCO2/kWh, global average
 
+    # --- backward compatibility ---
+    group_by_length: Optional[bool] = False
+
 
 @dataclass
 class TrainerConfig:
