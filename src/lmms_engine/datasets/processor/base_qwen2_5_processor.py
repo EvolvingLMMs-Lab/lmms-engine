@@ -145,9 +145,7 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
         audio_start_from = 0
         video_start_from = 0
         if add_system_prompt and hf_messages[0]["role"] != "system":
-            input_id += self.processor.tokenizer.apply_chat_template(
-                [{"role": "system", "content": system_message}],
-            )
+            input_id += self.processor.apply_chat_template([{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True)[0]
             target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]
