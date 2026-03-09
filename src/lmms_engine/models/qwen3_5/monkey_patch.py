@@ -43,11 +43,14 @@ def apply_liger_kernel_to_qwen3_5(
         from .qwen3_5_liger import qwen3_5_lce_forward
 
         if use_rmpad:
+
             def wrap_forward(func):
                 @wraps(func)
                 def wrapper(*args, **kwargs):
                     return func(use_rmpad=use_rmpad, *args, **kwargs)
+
                 return wrapper
+
             qwen3_5_lce_forward = wrap_forward(qwen3_5_lce_forward)
         modeling_qwen3_5.Qwen3_5ForCausalLM.forward = qwen3_5_lce_forward
 
@@ -56,7 +59,9 @@ def apply_liger_kernel_to_qwen3_5(
 
     if use_rmpad:
         from .qwen3_5_ops import attn_forward as qwen3_5_ops_attn_forward
-        from .qwen3_5_ops import decoder_layer_forward as qwen3_5_ops_decoder_layer_forward
+        from .qwen3_5_ops import (
+            decoder_layer_forward as qwen3_5_ops_decoder_layer_forward,
+        )
         from .qwen3_5_ops import model_forward as qwen3_5_ops_model_forward
 
         modeling_qwen3_5.Qwen3_5TextModel.forward = qwen3_5_ops_model_forward

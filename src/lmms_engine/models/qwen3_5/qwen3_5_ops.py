@@ -21,10 +21,7 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad_and_slice_inputs,
 )
 
-from ..sequence_packing_utils import (
-    BaseModelOutputWithPastAndRmpad,
-    _unpad_input,
-)
+from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 logger = logging.get_logger(__name__)
 
@@ -85,9 +82,9 @@ def model_forward(
         position_ids = cache_position.unsqueeze(0)
     position_ids = position_ids.repeat_interleave(bs, dim=0)
 
-    position_ids = index_first_axis(
-        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-    ).transpose(0, 1)
+    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(
+        0, 1
+    )
     original_position_ids = position_ids
 
     if get_ulysses_sequence_parallel_world_size() > 1:
@@ -207,9 +204,7 @@ def attn_forward(
     hidden_shape = (*input_shape, -1, self.head_dim)
 
     # Qwen3.5 uses gated attention: q_proj outputs query + gate (2x size)
-    query_states, gate = torch.chunk(
-        self.q_proj(hidden_states).view(*input_shape, -1, self.head_dim * 2), 2, dim=-1
-    )
+    query_states, gate = torch.chunk(self.q_proj(hidden_states).view(*input_shape, -1, self.head_dim * 2), 2, dim=-1)
     gate = gate.reshape(*input_shape, -1)
 
     query_states = self.q_norm(query_states.view(hidden_shape))
@@ -244,7 +239,7 @@ def attn_forward(
 
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-    if past_key_values is not None and hasattr(past_key_values, 'update'):
+    if past_key_values is not None and hasattr(past_key_values, "update"):
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": None}
         key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
