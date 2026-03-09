@@ -1,11 +1,13 @@
 import argparse
 import datetime
+import inspect
 import os
 import shutil
 from copy import deepcopy
 
 import hydra
 import torch.distributed as dist
+import transformers
 import yaml
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -17,6 +19,27 @@ from ..datasets import DatasetConfig
 from ..eval import EvalConfig
 from ..models import ModelConfig
 from ..train import TrainerConfig, TrainingArguments, TrainRunner
+
+
+def filter_training_args(kwargs: dict) -> dict:
+    valid_params = set(inspect.signature(transformers.TrainingArguments.__init__).parameters.keys())
+    valid_params.discard("self")
+
+    custom_fields = {f.name for f in TrainingArguments.__dataclass_fields__.values()}
+    valid_params.update(custom_fields)
+
+    valid_kwargs = {}
+    filtered = []
+    for key, value in kwargs.items():
+        if key in valid_params:
+            valid_kwargs[key] = value
+        else:
+            filtered.append(key)
+
+    if filtered:
+        logger.warning(f"Filtering out unsupported TrainingArguments parameters: {filtered}")
+
+    return valid_kwargs
 
 
 def create_train_task(config):
@@ -66,7 +89,7 @@ def create_train_task(config):
         eval_config = EvalConfig(**eval_config_dict)
         trainer_args["eval_config"] = eval_config.to_dict()
 
-    trainer_args = TrainingArguments(**trainer_args)
+    trainer_args = TrainingArguments(**filter_training_args(trainer_args))
 
     train_config = TrainerConfig(
         dataset_config=dataset_config,
