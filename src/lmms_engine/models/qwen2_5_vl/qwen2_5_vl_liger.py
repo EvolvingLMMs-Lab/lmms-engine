@@ -91,6 +91,8 @@ def lce_forward(
         labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
     labels = labels_unpad
 
+    config = getattr(self.config, "text_config", self.config)
+
     # if in training mode, don't materialize logits
     if labels is not None:
         if use_rmpad:
@@ -114,7 +116,7 @@ def lce_forward(
             shift_labels = labels[..., 1:].contiguous()
 
         # flatten tokens
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_hidden_states = shift_hidden_states.view(-1, config.hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"

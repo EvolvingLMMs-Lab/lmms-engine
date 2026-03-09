@@ -478,12 +478,17 @@ def attn_forward(
     # Unsqueeze the first dim to apply pos embeds
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
+    # transformers 5.0 compatible fixing
+    if hasattr(self, "rope_scaling"):
+        mrope_section = self.rope_scaling["mrope_section"]
+    elif hasattr(self, "rope_parameters"):
+        mrope_section = self.rope_parameters["mrope_section"]
     query_states, key_states = apply_multimodal_rotary_pos_emb(
         query_states,
         key_states,
         cos,
         sin,
-        self.rope_scaling["mrope_section"],
+        mrope_section,
     )
 
     max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None

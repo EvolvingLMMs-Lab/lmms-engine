@@ -81,6 +81,7 @@ class FlopsCounter:
         }
         if config.model_type in [
             "llava_onevision",
+            "qwen2_5_vl",
             "qwen3_vl",
             "qwen3_vl_moe",
             "qwen2_5_omni",
