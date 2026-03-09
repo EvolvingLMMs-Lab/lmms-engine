@@ -49,7 +49,5 @@ class Qwen3_5IterableDataset(VisionSFTIterableDataset):
         if len(videos) == 0:
             videos = None
 
-        inputs = self.processor.process(
-            images=images, hf_messages=hf_messages, videos=videos, **kwargs
-        )
+        inputs = self.processor.process(images=images, hf_messages=hf_messages, videos=videos, **kwargs)
         return inputs
