@@ -53,6 +53,16 @@ if is_flash_attn_2_available():
         raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 
+def parse_visual_output(output):
+    if isinstance(output, tuple):
+        return output
+    if hasattr(output, "pooler_output") and hasattr(output, "deepstack_features"):
+        return output.pooler_output, output.deepstack_features
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output, None
+    return output, None
+
+
 def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):
     """
     Distribute deepstack embeddings for the current rank based on sequence parallel split.
@@ -238,13 +248,15 @@ def model_forward(
     video_mask = None
 
     if pixel_values is not None:
-        image_embeds, deepstack_image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        image_output = self.get_image_features(pixel_values, image_grid_thw)
+        image_embeds, deepstack_image_embeds = parse_visual_output(image_output)
         image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
         image_mask, _ = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds)
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
     if pixel_values_videos is not None:
-        video_embeds, deepstack_video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_output = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_embeds, deepstack_video_embeds = parse_visual_output(video_output)
         video_embeds = torch.cat(video_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
         _, video_mask = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds)
         inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)

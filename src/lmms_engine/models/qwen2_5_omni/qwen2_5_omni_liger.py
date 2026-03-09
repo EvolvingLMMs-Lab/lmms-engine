@@ -27,6 +27,15 @@ if is_flash_attn_2_available():
     except:
         raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
+
+def parse_visual_output(output):
+    if isinstance(output, tuple):
+        return output
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output
+    return output
+
+
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (
         LigerFusedLinearCrossEntropyLoss,
@@ -165,7 +174,9 @@ def lce_forward(
         inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
 
     if pixel_values is not None:
-        image_embeds = self.get_image_features(pixel_values, image_grid_thw)
+        image_output = self.get_image_features(pixel_values, image_grid_thw)
+        image_embeds = parse_visual_output(image_output)
+        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         n_image_tokens_check = (input_ids == self.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
@@ -180,7 +191,9 @@ def lce_forward(
         inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
 
     if pixel_values_videos is not None:
-        video_embeds = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_output = self.get_video_features(pixel_values_videos, video_grid_thw)
+        video_embeds = parse_visual_output(video_output)
+        video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
 
         n_video_tokens_check = (input_ids == self.config.video_token_id).sum().item()

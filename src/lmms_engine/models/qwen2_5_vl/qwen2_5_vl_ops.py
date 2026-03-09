@@ -41,6 +41,14 @@ from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_inp
 logger = logging.get_logger(__name__)
 
 
+def parse_visual_output(output):
+    if isinstance(output, tuple):
+        return output
+    if hasattr(output, "pooler_output"):
+        return output.pooler_output
+    return output
+
+
 if is_flash_attn_2_available():
     try:
         from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -145,7 +153,7 @@ def vl_model_forward(
 
     if pixel_values is not None:
         pixel_values = pixel_values.type(self.visual.dtype)
-        image_embeds = self.visual(pixel_values, grid_thw=image_grid_thw)
+        image_embeds = parse_visual_output(self.visual(pixel_values, grid_thw=image_grid_thw))
         n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
         if n_image_tokens != n_image_features:
@@ -163,7 +171,7 @@ def vl_model_forward(
 
     if pixel_values_videos is not None:
         pixel_values_videos = pixel_values_videos.type(self.visual.dtype)
-        video_embeds = self.visual(pixel_values_videos, grid_thw=video_grid_thw)
+        video_embeds = parse_visual_output(self.visual(pixel_values_videos, grid_thw=video_grid_thw))
         n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
         n_video_features = video_embeds.shape[0]
         if n_video_tokens != n_video_features:
