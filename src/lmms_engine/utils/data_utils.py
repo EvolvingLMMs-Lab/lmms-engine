@@ -225,3 +225,14 @@ class DataUtilities:
         data_list = concatenate_datasets(data_list)
 
         return data_list, data_folder_list
+
+    @staticmethod
+    def apply_chat_template(hf_processor, messages: List[Dict], use_key: str = "input_ids", tokenize: bool = True):
+        result = hf_processor.apply_chat_template(messages, tokenize=tokenize)
+        if hasattr(result, "get"):
+            if use_key == "all":
+                return result
+            return result.get(use_key)
+        if isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
+            return result[0]
+        return result

@@ -5,6 +5,7 @@ import torch
 from PIL import Image
 
 from lmms_engine.mapping_func import register_processor
+from lmms_engine.utils import DataUtilities
 
 from ...models.aero.processing_aero import AeroProcessor, AeroProcessorKwargs
 from .config import ProcessorConfig
@@ -111,14 +112,13 @@ class AeroDataProcessor:
         video_start_from = 0
 
         if add_system_prompt and hf_messages[0]["role"] != "system":
-            input_id += self.processor.apply_chat_template(
-                [{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True
-            )[0]
+            input_id += DataUtilities.apply_chat_template(
+                self.processor, [{"role": "system", "content": [{"type": "text", "text": system_message}]}]
+            )
             target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]
-            # Cautions, qwen2_5 vl tokenizer wrap into a list
-            encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
+            encode_id = DataUtilities.apply_chat_template(self.processor, [message])
             if self.audio_token_id in encode_id:
                 encode_id, used_audio = self._expand_encode_id_audio_tokens(
                     encode_id, num_audio_tokens, audio_start_from

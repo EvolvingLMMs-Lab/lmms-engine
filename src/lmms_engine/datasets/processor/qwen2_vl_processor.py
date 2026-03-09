@@ -6,6 +6,7 @@ from transformers import Qwen2VLProcessor
 from transformers.models.qwen2_vl.processing_qwen2_vl import Qwen2VLProcessorKwargs
 
 from lmms_engine.mapping_func import register_processor
+from lmms_engine.utils import DataUtilities
 
 from .config import ProcessorConfig
 
@@ -101,13 +102,13 @@ class Qwen2VLDataProcessor:
 
         # Image start from 0
         start_from = 0
-        input_id += self.processor.apply_chat_template(
-            [{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True
-        )[0]
+        input_id += DataUtilities.apply_chat_template(
+            self.processor, [{"role": "system", "content": [{"type": "text", "text": system_message}]}]
+        )
         target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]
-            encode_id = self.processor.apply_chat_template([message], tokenize=True)
+            encode_id = DataUtilities.apply_chat_template(self.processor, [message])
             if self.image_token_id in encode_id:
                 encode_id, used_images = self._expand_encode_id_image_tokens(encode_id, image_token_num, start_from)
                 start_from += used_images

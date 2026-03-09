@@ -8,6 +8,7 @@ from transformers.models.llava_onevision.processing_llava_onevision import (
 )
 
 from lmms_engine.mapping_func import register_processor
+from lmms_engine.utils import DataUtilities
 
 from .config import ProcessorConfig
 
@@ -78,7 +79,7 @@ class LLaVADataProcessor:
         start_from = 0
         for message in hf_messages:
             role = message["role"]
-            encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
+            encode_id = DataUtilities.apply_chat_template(self.processor, [message])
             # If num image tokens is not None, it means we have images in the batch
             # otherwise something like <image> tag in html is used
             if image_token_index in encode_id and num_image_tokens is not None:

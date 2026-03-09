@@ -7,6 +7,8 @@ from transformers.models.qwen2_5_vl.processing_qwen2_5_vl import (
     Qwen2_5_VLProcessorKwargs,
 )
 
+from lmms_engine.utils import DataUtilities
+
 from .aero_processor import AeroDataProcessor
 
 
@@ -145,14 +147,13 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
         audio_start_from = 0
         video_start_from = 0
         if add_system_prompt and hf_messages[0]["role"] != "system":
-            input_id += self.processor.apply_chat_template(
-                [{"role": "system", "content": [{"type": "text", "text": system_message}]}], tokenize=True
-            )[0]
+            input_id += DataUtilities.apply_chat_template(
+                self.processor, [{"role": "system", "content": [{"type": "text", "text": system_message}]}]
+            )
             target += [-100] * len(input_id)
         for message in hf_messages:
             role = message["role"]
-            # Cautions, qwen2_5 vl tokenizer wrap into a list
-            encode_id = self.processor.apply_chat_template([message], tokenize=True)[0]
+            encode_id = DataUtilities.apply_chat_template(self.processor, [message])
             # Should be 3 if instead of if else, so that can expand for each case
             if self.image_token_id in encode_id:
                 encode_id, used_images = self._expand_encode_id_image_tokens(
