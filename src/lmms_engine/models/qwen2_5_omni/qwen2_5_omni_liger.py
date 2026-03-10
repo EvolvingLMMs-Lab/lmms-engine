@@ -177,7 +177,6 @@ def lce_forward(
         image_output = self.get_image_features(pixel_values, image_grid_thw)
         image_embeds = parse_visual_output(image_output)
         image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         n_image_tokens_check = (input_ids == self.config.image_token_id).sum().item()
         n_image_features = image_embeds.shape[0]
         if n_image_tokens_check != n_image_features:
@@ -193,7 +192,6 @@ def lce_forward(
     if pixel_values_videos is not None:
         video_output = self.get_video_features(pixel_values_videos, video_grid_thw)
         video_embeds = parse_visual_output(video_output)
-        video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
         video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
 
         n_video_tokens_check = (input_ids == self.config.video_token_id).sum().item()
