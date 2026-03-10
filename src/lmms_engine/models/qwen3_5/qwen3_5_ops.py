@@ -61,6 +61,7 @@ def model_forward(
         original_inputs = inputs_embeds
         inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(inputs_embeds, attention_mask)
         if get_ulysses_sequence_parallel_world_size() > 1:
+            input_ids_rmpad = torch.zeros(1, inputs_embeds.shape[0], dtype=torch.long, device=inputs_embeds.device)
             inputs_embeds = slice_input_tensor(inputs_embeds, dim=0, padding=True)
     bs, seqlen = original_inputs.shape[:2]
 
