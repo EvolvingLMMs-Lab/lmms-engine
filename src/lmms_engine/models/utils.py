@@ -33,6 +33,7 @@ VALID_CONFIG_TYPE = {
     "qwen3_moe",
     "qwen3_omni_moe",
     "qwen3_omni_moe_thinker",
+    "qwen3_5",
     "qwen3_vl",
     "qwen3_vl_moe",
     "deepseek_v3",
@@ -82,6 +83,7 @@ class FlopsCounter:
         if config.model_type in [
             "llava_onevision",
             "qwen2_5_vl",
+            "qwen3_5",
             "qwen3_vl",
             "qwen3_vl_moe",
             "qwen2_5_omni",
