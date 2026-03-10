@@ -39,14 +39,7 @@ if is_flash_attn_2_available():
     from flash_attn.bert_padding import index_first_axis, rearrange
 
 
-def parse_visual_output(output):
-    if isinstance(output, tuple):
-        return output
-    if hasattr(output, "pooler_output") and hasattr(output, "deepstack_features"):
-        return output.pooler_output, output.deepstack_features
-    if hasattr(output, "pooler_output"):
-        return output.pooler_output, None
-    return output, None
+from ..common_ops.visual import parse_visual_output_with_deepstack as parse_visual_output
 
 
 def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):

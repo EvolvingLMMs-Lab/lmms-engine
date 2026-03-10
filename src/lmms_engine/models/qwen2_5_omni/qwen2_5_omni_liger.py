@@ -28,13 +28,7 @@ if is_flash_attn_2_available():
         raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 
-def parse_visual_output(output):
-    if isinstance(output, tuple):
-        return output
-    if hasattr(output, "pooler_output"):
-        return output.pooler_output
-    return output
-
+from ..common_ops.visual import parse_visual_output
 
 try:
     from liger_kernel.transformers.fused_linear_cross_entropy import (

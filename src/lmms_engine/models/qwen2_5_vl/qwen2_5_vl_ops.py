@@ -36,17 +36,10 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
 )
 
 from ..common_ops.rope import qwen2_5_vl_rope_index
+from ..common_ops.visual import parse_visual_output
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
 logger = logging.get_logger(__name__)
-
-
-def parse_visual_output(output):
-    if isinstance(output, tuple):
-        return output
-    if hasattr(output, "pooler_output"):
-        return output.pooler_output
-    return output
 
 
 if is_flash_attn_2_available():
