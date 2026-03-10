@@ -7,6 +7,7 @@ from PIL import Image
 from transformers import AutoProcessor, AutoTokenizer
 
 from lmms_engine.mapping_func import register_processor
+from lmms_engine.utils import DataUtilities
 
 from .config import ProcessorConfig
 
@@ -41,14 +42,9 @@ class NanovlmDataProcessor:
     @property
     def special_tokens(self):
         if not hasattr(self, "_special_tokens"):
-            if hasattr(self._tokenizer, "all_special_tokens"):
-                self._special_tokens = list(self._tokenizer.all_special_tokens)
-            else:
-                self._special_tokens = list(self._tokenizer.additional_special_tokens)
-            if "<|im_start|>" not in self._special_tokens:
-                self._special_tokens.append("<|im_start|>")
-            if "<|im_end|>" not in self._special_tokens:
-                self._special_tokens.append("<|im_end|>")
+            self._special_tokens = DataUtilities.get_special_tokens(
+                self._tokenizer, extra_tokens=["<|im_start|>", "<|im_end|>"]
+            )
         return self._special_tokens
 
     def save_pretrained(self, output_dir: str):

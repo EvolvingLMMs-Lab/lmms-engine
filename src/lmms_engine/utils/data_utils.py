@@ -236,3 +236,15 @@ class DataUtilities:
         if isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
             return result[0]
         return result
+
+    @staticmethod
+    def get_special_tokens(tokenizer, extra_tokens=None):
+        if hasattr(tokenizer, "all_special_tokens"):
+            tokens = list(tokenizer.all_special_tokens)
+        else:
+            tokens = list(tokenizer.additional_special_tokens)
+        if extra_tokens:
+            for t in extra_tokens:
+                if t not in tokens:
+                    tokens.append(t)
+        return tokens

@@ -23,10 +23,7 @@ class Qwen2VLDataProcessor:
     @property
     def special_tokens(self):
         if not hasattr(self, "_special_tokens"):
-            if hasattr(self.processor.tokenizer, "all_special_tokens"):
-                self._special_tokens = list(self.processor.tokenizer.all_special_tokens)
-            else:
-                self._special_tokens = list(self.processor.tokenizer.additional_special_tokens)
+            self._special_tokens = DataUtilities.get_special_tokens(self.processor.tokenizer)
         return self._special_tokens
 
     def _build_processor(self):
