@@ -72,7 +72,6 @@ class FlopsCounter:
             "qwen3_moe": self._estimate_qwen2_moe_flops,
             "qwen3_omni_moe": self._estimate_qwen2_moe_flops,
             "qwen3_omni_moe_thinker": self._estimate_qwen2_moe_flops,
-            "qwen3_5": self._estimate_qwen2_flops,
             "qwen3_vl": self._estimate_qwen2_flops,
             "qwen3_vl_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
