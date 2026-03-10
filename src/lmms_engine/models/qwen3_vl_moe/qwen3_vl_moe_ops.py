@@ -53,7 +53,9 @@ if is_flash_attn_2_available():
         raise ModuleNotFoundError("flash_attn is not available. Please install it via `pip install flash_attn`.")
 
 
-from ..common_ops.visual import parse_visual_output_with_deepstack as parse_visual_output
+from ..common_ops.visual import (
+    parse_visual_output_with_deepstack as parse_visual_output,
+)
 
 
 def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):

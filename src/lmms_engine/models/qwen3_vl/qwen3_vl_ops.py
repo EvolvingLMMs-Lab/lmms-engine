@@ -38,8 +38,9 @@ if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, rearrange
 
-
-from ..common_ops.visual import parse_visual_output_with_deepstack as parse_visual_output
+from ..common_ops.visual import (
+    parse_visual_output_with_deepstack as parse_visual_output,
+)
 
 
 def _distribute_deepstack_embeds_for_rank(deepstack_embeds, original_mask, sp_size):
