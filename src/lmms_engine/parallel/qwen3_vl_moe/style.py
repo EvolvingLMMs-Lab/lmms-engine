@@ -1,13 +1,9 @@
-from functools import partial
 from typing import Optional
 
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.tensor import (
     DeviceMesh,
-    DTensor,
-    Replicate,
     Shard,
     distribute_module,
     distribute_tensor,
@@ -87,7 +83,6 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
         if isinstance(mod, Qwen3VLMoeTextExperts):
             expert_parallel_dim = 0
 
-            # CRITICAL: Shard the FUSED gate_up_proj parameter
             mod.register_parameter(
                 "gate_up_proj",
                 nn.Parameter(
@@ -111,10 +106,13 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
             )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        if isinstance(module, Qwen3VLMoeTextExperts):
+            self.num_experts = module.num_experts
+
         return distribute_module(
             module,
             device_mesh,
             partition_fn=Qwen3VLMoeParallelStyle._partition_fn,
-            input_fn=Qwen3VLMoeParallelStyle._input_fn,
-            output_fn=Qwen3VLMoeParallelStyle._output_fn,
+            input_fn=self._input_fn,
+            output_fn=self._output_fn,
         )

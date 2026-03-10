@@ -29,6 +29,7 @@ from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
     Qwen3OmniMoeAudioEncoder,
     Qwen3OmniMoeThinkerForConditionalGeneration,
+    Qwen3OmniMoeThinkerTextExperts,
     Qwen3OmniMoeThinkerTextModel,
     Qwen3OmniMoeThinkerTextSparseMoeBlock,
     Qwen3OmniMoeVisionEncoder,
@@ -66,6 +67,7 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 
     from .qwen3_omni_moe_liger import lce_forward as qwen3_omni_moe_lce_forward
+    from .qwen3_omni_moe_ops import experts_forward as qwen3_omni_moe_experts_forward
     from .qwen3_omni_moe_ops import (
         moe_sparse_layer_forward as qwen3_omni_moe_moe_sparse_layer_forward,
     )
@@ -137,14 +139,11 @@ def apply_liger_kernel_to_qwen3_omni_moe(
             if rms_norm:
                 _patch_rms_norm_module(text_model.norm)
             for decoder_layer in text_model.layers:
-                if swiglu:
-                    if hasattr(decoder_layer.mlp, "experts"):
-                        for expert in decoder_layer.mlp.experts:
-                            _patch_swiglu_module(expert, LigerSwiGLUMLP)
-                    else:
-                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
+                if swiglu and not isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
+                    _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
                 if rms_norm:
                     _patch_rms_norm_module(decoder_layer.input_layernorm)
                     _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
     modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextSparseMoeBlock.forward = qwen3_omni_moe_moe_sparse_layer_forward
+    modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextExperts.forward = qwen3_omni_moe_experts_forward

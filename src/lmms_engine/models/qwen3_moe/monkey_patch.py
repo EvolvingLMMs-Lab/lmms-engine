@@ -50,6 +50,7 @@ def apply_liger_kernel_to_qwen3_moe(
     from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeModel
 
     from .qwen3_moe_liger import lce_forward as qwen3_lce_forward
+    from .qwen3_moe_ops import experts_forward as qwen3_moe_experts_forward
 
     if rope:
         modeling_qwen3_moe.apply_rotary_pos_emb = liger_rotary_pos_emb
@@ -94,25 +95,18 @@ def apply_liger_kernel_to_qwen3_moe(
         modeling_qwen3_moe.Qwen3MoeAttention.forward = qwen3_moe_ops_attn_forward
 
     if model is not None:
-        # The model instance already exists, so we need to additionally patch the
-        # instance variables that reference already-instantiated modules
-
-        # get the base model from the model instance
         base_model: Qwen3MoeModel = getattr(model, model.base_model_prefix, model)
 
         if rms_norm:
             _patch_rms_norm_module(base_model.norm)
         for decoder_layer in base_model.layers:
-            if swiglu:
-                for mlp_expert in decoder_layer.mlp.experts:
-                    _patch_swiglu_module(mlp_expert, LigerQwen3MoeSwiGLUMLP)
             if rms_norm:
                 _patch_rms_norm_module(decoder_layer.input_layernorm)
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
-    # Apply patch for sparse layer
     from .qwen3_moe_ops import (
         moe_sparse_layer_forward as qwen3_moe_ops_moe_sparse_layer_forward,
     )
 
     modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = qwen3_moe_ops_moe_sparse_layer_forward
+    modeling_qwen3_moe.Qwen3MoeExperts.forward = qwen3_moe_experts_forward

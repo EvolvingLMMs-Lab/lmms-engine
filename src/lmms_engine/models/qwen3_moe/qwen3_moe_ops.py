@@ -8,21 +8,16 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     MoeModelOutputWithPast,
     Qwen3MoeAttention,
     Qwen3MoeDecoderLayer,
+    Qwen3MoeExperts,
     Qwen3MoeModel,
     Qwen3MoeSparseMoeBlock,
     apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available
 
-import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.models.sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _unpad_input,
-)
-from lmms_engine.parallel.expert_parallel.utils import (
-    _compute_permute_indices,
-    _token_combine,
-    _token_dispatch,
 )
 
 if is_flash_attn_2_available():
@@ -253,47 +248,57 @@ def attn_forward(
 
 
 def moe_sparse_layer_forward(self: Qwen3MoeSparseMoeBlock, hidden_states: torch.Tensor, **kwargs) -> torch.Tensor:
-    """
-    Modified from the original code to support parallelization, similar to the MoE in torchtitan
-    """
+    num_experts = self.gate.num_experts
+    top_k = self.gate.top_k
+
     batch_size, sequence_length, hidden_dim = hidden_states.shape
     hidden_states = hidden_states.view(-1, hidden_dim)
-    # router_logits: (batch * sequence_length, n_experts)
-    router_logits = self.gate(hidden_states)
 
-    routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-    routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+    router_logits, routing_weights, selected_experts = self.gate(hidden_states)
+
     selected_experts = selected_experts.to(torch.float32)
-
-    if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
-        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-    # we cast back to the input dtype
-    routing_weights = routing_weights.to(hidden_states.dtype)
-
-    # Calculate the number of tokens per expert
-    # [num_tokens on expert_0, num_tokens on expert_1, ...]
-    num_tokens_per_expert = torch.histc(selected_experts, bins=self.num_experts, min=0, max=self.num_experts)
-    # Histc does not support half tensor or int64, so we cast to float32 and cast back to int64
+    num_tokens_per_expert = torch.histc(selected_experts, bins=num_experts, min=0, max=num_experts)
     selected_experts = selected_experts.to(torch.int64)
     num_tokens_per_expert = num_tokens_per_expert.to(torch.int64)
 
-    # Will need to compute num_tokens * top_k num tokens, sorted by the token index and match the expert order
     token_indices_experts_sorted = torch.argsort(selected_experts.view(-1), stable=True)
-    # Get scores for each token
     top_scores_experts_sorted = routing_weights.view(-1)[token_indices_experts_sorted]
-    # Divide by top_k to get the token index that matches the expert order
-    # [token_index_on_expert_0, token_index_on_expert_1, ...]
-    token_indices_experts_sorted = token_indices_experts_sorted // self.top_k
+    token_indices_experts_sorted = token_indices_experts_sorted // top_k
 
     token_indices_experts_sorted = token_indices_experts_sorted.reshape(-1, 1).expand(-1, hidden_dim)
     routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
 
     out_experts_split = self.experts(routed_input, num_tokens_per_expert)
 
-    # Gather the output from the experts
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
     final_hidden_states = torch.zeros_like(hidden_states)
     final_hidden_states = final_hidden_states.scatter_add(dim=0, index=token_indices_experts_sorted, src=routed_output)
 
     final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
     return final_hidden_states, router_logits
+
+
+def experts_forward(self: Qwen3MoeExperts, *routed_input):
+    if len(routed_input) == 2 and routed_input[1].ndim == 1:
+        routed_input = torch.split(
+            routed_input[0],
+            split_size_or_sections=routed_input[1].tolist(),
+            dim=0,
+        )
+
+    out_experts_split = []
+    if isinstance(self.down_proj, DTensor):
+        down_proj = self.down_proj.to_local()
+        gate_up_proj = self.gate_up_proj.to_local()
+    else:
+        down_proj = self.down_proj
+        gate_up_proj = self.gate_up_proj
+
+    for idx, x in enumerate(routed_input):
+        gate_up = F.linear(x, gate_up_proj[idx])
+        gate, up = gate_up.chunk(2, dim=-1)
+        hidden = up * self.act_fn(gate)
+        hidden = F.linear(hidden, down_proj[idx])
+        out_experts_split.append(hidden)
+
+    return torch.cat(out_experts_split, dim=0)

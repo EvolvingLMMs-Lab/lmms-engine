@@ -1,22 +1,20 @@
-from functools import partial
 from typing import Optional
 
 import torch
-import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.tensor import (
     DeviceMesh,
-    DTensor,
-    Replicate,
     Shard,
     distribute_module,
     distribute_tensor,
 )
 from torch.distributed.tensor.parallel import ParallelStyle
 from torch.distributed.tensor.placement_types import Placement
+from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+    Qwen3OmniMoeThinkerTextExperts,
+)
 
 import lmms_engine.parallel.process_group_manager as pgm
-from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts
 from lmms_engine.parallel.expert_parallel.utils import (
     _compute_permute_indices,
     _token_combine,
@@ -84,25 +82,14 @@ class Qwen3OmniMoeParallelStyle(ParallelStyle):
 
     @staticmethod
     def _partition_fn(name, mod, device_mesh):
-        if isinstance(mod, Qwen3OmniMoeExperts):
+        if isinstance(mod, Qwen3OmniMoeThinkerTextExperts):
             expert_parallel_dim = 0
 
             mod.register_parameter(
-                "gate_proj",
+                "gate_up_proj",
                 nn.Parameter(
                     distribute_tensor(
-                        mod.gate_proj,
-                        device_mesh,
-                        [Shard(expert_parallel_dim)],
-                    )
-                ),
-            )
-
-            mod.register_parameter(
-                "up_proj",
-                nn.Parameter(
-                    distribute_tensor(
-                        mod.up_proj,
+                        mod.gate_up_proj,
                         device_mesh,
                         [Shard(expert_parallel_dim)],
                     )
@@ -121,7 +108,7 @@ class Qwen3OmniMoeParallelStyle(ParallelStyle):
             )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
-        if isinstance(module, Qwen3OmniMoeExperts):
+        if isinstance(module, Qwen3OmniMoeThinkerTextExperts):
             self.num_experts = module.num_experts
 
         return distribute_module(
