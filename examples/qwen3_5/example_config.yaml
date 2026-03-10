@@ -1,11 +1,11 @@
 trainer_type: fsdp2_trainer
 dataset_config:
   extra_kwargs: {}
-  dataset_type: qwen3_5_iterable
+  dataset_type: qwen3_vl_iterable
   dataset_format: yaml
   processor_config:
     processor_name: Qwen/Qwen3-VL-8B-Instruct
-    processor_type: qwen3_5
+    processor_type: qwen3_vl
   dataset_path: data/video/debug.yaml
   datasets: null
   shuffle: true
