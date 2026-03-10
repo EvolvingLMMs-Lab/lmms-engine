@@ -10,7 +10,6 @@ from .qwen2_5_omni_processor import Qwen2_5OmniDataProcessor
 from .qwen2_5_vl_processor import Qwen2_5_VLDataProcessor
 from .qwen2_processor import Qwen2DataProcessor
 from .qwen2_vl_processor import Qwen2VLDataProcessor
-from .qwen3_5_processor import Qwen3_5DataProcessor
 from .qwen3_omni_moe_processor import Qwen3OmniMoeDataProcessor
 from .qwen3_vl_processor import Qwen3_VLDataProcessor
 from .rae_processor import RaeSiglipDataProcessor
@@ -34,6 +33,5 @@ __all__ = [
     "BagelDataProcessor",
     "RaeSiglipDataProcessor",
     "SitDataProcessor",
-    "Qwen3_5DataProcessor",
     "Qwen3_VLDataProcessor",
 ]
