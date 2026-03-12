@@ -62,6 +62,12 @@ Welcome to the LMMs Engine documentation! LMMs Engine is a flexible and extensib
    models/qwen3_moe
    models/qwen3_omni_moe
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Troubleshooting
+
+   troubleshoot/index
+
 Indices and tables
 ==================
 
