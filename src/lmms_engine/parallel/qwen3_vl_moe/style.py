@@ -83,6 +83,7 @@ class Qwen3VLMoeParallelStyle(ParallelStyle):
         if isinstance(mod, Qwen3VLMoeTextExperts):
             expert_parallel_dim = 0
 
+            # CRITICAL: Shard the FUSED gate_up_proj parameter
             mod.register_parameter(
                 "gate_up_proj",
                 nn.Parameter(

@@ -408,7 +408,7 @@ def experts_forward(self: Qwen3OmniMoeThinkerTextExperts, *routed_input):
     for idx, x in enumerate(routed_input):
         gate_up = torch.nn.functional.linear(x, gate_up_proj[idx])
         gate, up = gate_up.chunk(2, dim=-1)
-        hidden = up * self.act_fn(gate)
+        hidden = self.act_fn(gate) * up
         hidden = torch.nn.functional.linear(hidden, down_proj[idx])
         out_experts_split.append(hidden)
 

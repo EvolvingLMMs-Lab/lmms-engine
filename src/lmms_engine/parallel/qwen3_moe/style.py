@@ -78,7 +78,8 @@ class Qwen3MoeParallelStyle(ParallelStyle):
     @staticmethod
     def _partition_fn(name, mod, device_mesh):
         if isinstance(mod, Qwen3MoeExperts):
-            expert_parallel_dim = 0
+            # Distribute the expert parameters across the expert parallel mesh
+            expert_parallel_dim = 0  # Assuming experts are sharded along the first dimension
 
             mod.register_parameter(
                 "gate_up_proj",

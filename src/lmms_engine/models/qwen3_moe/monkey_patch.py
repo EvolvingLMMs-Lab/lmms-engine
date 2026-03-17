@@ -95,6 +95,10 @@ def apply_liger_kernel_to_qwen3_moe(
         modeling_qwen3_moe.Qwen3MoeAttention.forward = qwen3_moe_ops_attn_forward
 
     if model is not None:
+        # The model instance already exists, so we need to additionally patch the
+        # instance variables that reference already-instantiated modules
+
+        # get the base model from the model instance
         base_model: Qwen3MoeModel = getattr(model, model.base_model_prefix, model)
 
         if rms_norm:
@@ -104,6 +108,7 @@ def apply_liger_kernel_to_qwen3_moe(
                 _patch_rms_norm_module(decoder_layer.input_layernorm)
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
+    # Apply patch for sparse layer
     from .qwen3_moe_ops import (
         moe_sparse_layer_forward as qwen3_moe_ops_moe_sparse_layer_forward,
     )

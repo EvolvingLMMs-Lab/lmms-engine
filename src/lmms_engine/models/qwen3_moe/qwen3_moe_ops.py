@@ -297,7 +297,7 @@ def experts_forward(self: Qwen3MoeExperts, *routed_input):
     for idx, x in enumerate(routed_input):
         gate_up = F.linear(x, gate_up_proj[idx])
         gate, up = gate_up.chunk(2, dim=-1)
-        hidden = up * self.act_fn(gate)
+        hidden = self.act_fn(gate) * up
         hidden = F.linear(hidden, down_proj[idx])
         out_experts_split.append(hidden)
 
