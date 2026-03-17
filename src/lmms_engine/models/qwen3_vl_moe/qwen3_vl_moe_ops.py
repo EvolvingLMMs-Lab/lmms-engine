@@ -574,13 +574,23 @@ def attn_forward(
 def moe_sparse_layer_forward(
     self: Qwen3VLMoeTextSparseMoeBlock, hidden_states: torch.Tensor, **kwargs
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    num_experts = self.gate.num_experts
-    top_k = self.gate.top_k
-
     batch_size, sequence_length, hidden_dim = hidden_states.shape
     hidden_states = hidden_states.view(-1, hidden_dim)
 
-    router_logits, routing_weights, selected_experts = self.gate(hidden_states)
+    if hasattr(self.gate, 'num_experts'):
+        # transformers >= 5.0: TopKRouter
+        num_experts = self.gate.num_experts
+        top_k = self.gate.top_k
+        router_logits, routing_weights, selected_experts = self.gate(hidden_states)
+    else:
+        # transformers < 5.0: nn.Linear gate
+        router_logits = self.gate(hidden_states)
+        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
+        routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+        routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        routing_weights = routing_weights.to(hidden_states.dtype)
+        num_experts = self.num_experts
+        top_k = self.top_k
 
     selected_experts = selected_experts.to(torch.float32)
     num_tokens_per_expert = torch.histc(selected_experts, bins=num_experts, min=0, max=num_experts)

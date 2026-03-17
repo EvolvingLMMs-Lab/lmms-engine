@@ -45,7 +45,10 @@ SUPPORTED_TRANSFORMER_VERSION = "4.46.1"
 TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 will soon be discontinued due to issues with incorrect gradient accumulation. \n Please consider upgrading to avoid potential issues. See details: https://github.com/huggingface/transformers/pull/34191"
 
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
+from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
 from lmms_engine.utils.logging_utils import Logging
+
+_IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
 
 
 @MONKEY_PATCHER.register("qwen3_omni_moe", "liger")
@@ -67,10 +70,12 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 
     from .qwen3_omni_moe_liger import lce_forward as qwen3_omni_moe_lce_forward
-    from .qwen3_omni_moe_ops import experts_forward as qwen3_omni_moe_experts_forward
     from .qwen3_omni_moe_ops import (
         moe_sparse_layer_forward as qwen3_omni_moe_moe_sparse_layer_forward,
     )
+
+    if _IS_TRANSFORMERS_5:
+        from .qwen3_omni_moe_ops import experts_forward as qwen3_omni_moe_experts_forward
 
     def wrap_forward(func):
         @wraps(func)
@@ -139,11 +144,17 @@ def apply_liger_kernel_to_qwen3_omni_moe(
             if rms_norm:
                 _patch_rms_norm_module(text_model.norm)
             for decoder_layer in text_model.layers:
-                if swiglu and not isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
-                    _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
+                if swiglu:
+                    if isinstance(decoder_layer.mlp, Qwen3OmniMoeThinkerTextSparseMoeBlock):
+                        if not _IS_TRANSFORMERS_5:
+                            for mlp_expert in decoder_layer.mlp.experts:
+                                _patch_swiglu_module(mlp_expert, LigerSwiGLUMLP)
+                    else:
+                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
                 if rms_norm:
                     _patch_rms_norm_module(decoder_layer.input_layernorm)
                     _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
 
     modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextSparseMoeBlock.forward = qwen3_omni_moe_moe_sparse_layer_forward
-    modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextExperts.forward = qwen3_omni_moe_experts_forward
+    if _IS_TRANSFORMERS_5:
+        modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextExperts.forward = qwen3_omni_moe_experts_forward

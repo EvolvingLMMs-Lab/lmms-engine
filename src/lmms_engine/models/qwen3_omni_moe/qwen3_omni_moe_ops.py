@@ -353,9 +353,6 @@ def attn_forward(
 
 
 def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
-    num_experts = self.gate.num_experts
-    top_k = self.gate.top_k
-
     is_3d = hidden_states.ndim == 3
     if is_3d:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -363,7 +360,24 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
     else:
         hidden_dim = hidden_states.shape[-1]
 
-    router_logits, routing_weights, selected_experts = self.gate(hidden_states)
+    gate = _get_module_attr(self, "gate")
+    if hasattr(gate, 'num_experts'):
+        # transformers >= 5.0: TopKRouter
+        num_experts = gate.num_experts
+        top_k = gate.top_k
+        router_logits, routing_weights, selected_experts = gate(hidden_states)
+    else:
+        # transformers < 5.0: nn.Linear gate
+        num_experts = gate.out_features
+        num_experts_per_tok = _get_module_attr(self, "num_experts_per_tok")
+        norm_topk_prob = _get_module_attr(self, "norm_topk_prob")
+        router_logits = gate(hidden_states)
+        routing_weights = torch.nn.functional.softmax(router_logits, dim=1, dtype=torch.float)
+        routing_weights, selected_experts = torch.topk(routing_weights, num_experts_per_tok, dim=-1)
+        if norm_topk_prob:
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        routing_weights = routing_weights.to(hidden_states.dtype)
+        top_k = num_experts_per_tok
 
     selected_experts = selected_experts.to(torch.float32)
     num_tokens_per_expert = torch.histc(selected_experts, bins=num_experts, min=0, max=num_experts)

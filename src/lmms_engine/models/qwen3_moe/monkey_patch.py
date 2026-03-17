@@ -26,6 +26,9 @@ TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 wi
 from loguru import logger
 
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
+from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
+
+_IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
 
 
 @MONKEY_PATCHER.register("qwen3_moe", "liger")
@@ -50,7 +53,9 @@ def apply_liger_kernel_to_qwen3_moe(
     from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeModel
 
     from .qwen3_moe_liger import lce_forward as qwen3_lce_forward
-    from .qwen3_moe_ops import experts_forward as qwen3_moe_experts_forward
+
+    if _IS_TRANSFORMERS_5:
+        from .qwen3_moe_ops import experts_forward as qwen3_moe_experts_forward
 
     if rope:
         modeling_qwen3_moe.apply_rotary_pos_emb = liger_rotary_pos_emb
@@ -104,6 +109,9 @@ def apply_liger_kernel_to_qwen3_moe(
         if rms_norm:
             _patch_rms_norm_module(base_model.norm)
         for decoder_layer in base_model.layers:
+            if swiglu and not _IS_TRANSFORMERS_5:
+                for mlp_expert in decoder_layer.mlp.experts:
+                    _patch_swiglu_module(mlp_expert, LigerQwen3MoeSwiGLUMLP)
             if rms_norm:
                 _patch_rms_norm_module(decoder_layer.input_layernorm)
                 _patch_rms_norm_module(decoder_layer.post_attention_layernorm)
@@ -114,4 +122,5 @@ def apply_liger_kernel_to_qwen3_moe(
     )
 
     modeling_qwen3_moe.Qwen3MoeSparseMoeBlock.forward = qwen3_moe_ops_moe_sparse_layer_forward
-    modeling_qwen3_moe.Qwen3MoeExperts.forward = qwen3_moe_experts_forward
+    if _IS_TRANSFORMERS_5:
+        modeling_qwen3_moe.Qwen3MoeExperts.forward = qwen3_moe_experts_forward

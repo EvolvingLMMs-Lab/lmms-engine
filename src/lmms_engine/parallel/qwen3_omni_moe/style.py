@@ -10,9 +10,16 @@ from torch.distributed.tensor import (
 )
 from torch.distributed.tensor.parallel import ParallelStyle
 from torch.distributed.tensor.placement_types import Placement
-from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
-    Qwen3OmniMoeThinkerTextExperts,
-)
+from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
+
+_IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
+
+if _IS_TRANSFORMERS_5:
+    from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
+        Qwen3OmniMoeThinkerTextExperts,
+    )
+else:
+    from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts as Qwen3OmniMoeThinkerTextExperts
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.parallel.expert_parallel.utils import (
@@ -85,27 +92,60 @@ class Qwen3OmniMoeParallelStyle(ParallelStyle):
         if isinstance(mod, Qwen3OmniMoeThinkerTextExperts):
             expert_parallel_dim = 0
 
-            mod.register_parameter(
-                "gate_up_proj",
-                nn.Parameter(
-                    distribute_tensor(
-                        mod.gate_up_proj,
-                        device_mesh,
-                        [Shard(expert_parallel_dim)],
-                    )
-                ),
-            )
-
-            mod.register_parameter(
-                "down_proj",
-                nn.Parameter(
-                    distribute_tensor(
-                        mod.down_proj,
-                        device_mesh,
-                        [Shard(expert_parallel_dim)],
-                    )
-                ),
-            )
+            if _IS_TRANSFORMERS_5:
+                # transformers >= 5.0: fused gate_up_proj + down_proj
+                mod.register_parameter(
+                    "gate_up_proj",
+                    nn.Parameter(
+                        distribute_tensor(
+                            mod.gate_up_proj,
+                            device_mesh,
+                            [Shard(expert_parallel_dim)],
+                        )
+                    ),
+                )
+                mod.register_parameter(
+                    "down_proj",
+                    nn.Parameter(
+                        distribute_tensor(
+                            mod.down_proj,
+                            device_mesh,
+                            [Shard(expert_parallel_dim)],
+                        )
+                    ),
+                )
+            else:
+                # transformers < 5.0: separate gate_proj + up_proj + down_proj
+                mod.register_parameter(
+                    "up_proj",
+                    nn.Parameter(
+                        distribute_tensor(
+                            mod.up_proj,
+                            device_mesh,
+                            [Shard(expert_parallel_dim)],
+                        )
+                    ),
+                )
+                mod.register_parameter(
+                    "down_proj",
+                    nn.Parameter(
+                        distribute_tensor(
+                            mod.down_proj,
+                            device_mesh,
+                            [Shard(expert_parallel_dim)],
+                        )
+                    ),
+                )
+                mod.register_parameter(
+                    "gate_proj",
+                    nn.Parameter(
+                        distribute_tensor(
+                            mod.gate_proj,
+                            device_mesh,
+                            [Shard(expert_parallel_dim)],
+                        )
+                    ),
+                )
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
         if isinstance(module, Qwen3OmniMoeThinkerTextExperts):
