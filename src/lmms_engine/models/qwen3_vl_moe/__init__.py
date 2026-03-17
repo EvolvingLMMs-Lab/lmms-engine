@@ -16,23 +16,24 @@ if _IS_TRANSFORMERS_5:
 
     Qwen3VLMoeTextConfig.__init__ = _patched_qwen3_vl_moe_text_config_init
 
-    #patch expert weight loading to handle old checkpoint shape convention
-    #old checkpoints store [E, H, 2I] / [E, I, H], new transformers 5.0 expects [E, 2I, H] / [E, H, I]
+    #patch Experts.__init__ to match checkpoint shape convention
+    #checkpoint stores [E, H, 2I] / [E, I, H], but transformers 5.0 creates [E, 2I, H] / [E, H, I]
+    #we patch __init__ to use the checkpoint convention so loading works directly
+    import torch
+    import torch.nn as nn
+    from transformers.activations import ACT2FN
     from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
 
-    _original_experts_load_state_dict = Qwen3VLMoeTextExperts._load_from_state_dict
+    def _patched_experts_init(self, config):
+        nn.Module.__init__(self)
+        self.num_experts = config.num_experts
+        self.hidden_dim = config.hidden_size
+        self.intermediate_dim = config.moe_intermediate_size
+        self.gate_up_proj = nn.Parameter(torch.empty(self.num_experts, self.hidden_dim, 2 * self.intermediate_dim))
+        self.down_proj = nn.Parameter(torch.empty(self.num_experts, self.intermediate_dim, self.hidden_dim))
+        self.act_fn = ACT2FN[config.hidden_act]
 
-    def _patched_experts_load_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        for key_suffix in ("gate_up_proj", "down_proj"):
-            key = prefix + key_suffix
-            if key in state_dict:
-                ckpt_shape = state_dict[key].shape
-                model_shape = getattr(self, key_suffix).shape
-                if len(ckpt_shape) == 3 and ckpt_shape[0] == model_shape[0] and ckpt_shape[1] == model_shape[2] and ckpt_shape[2] == model_shape[1]:
-                    state_dict[key] = state_dict[key].transpose(1, 2).contiguous()
-        _original_experts_load_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
-    Qwen3VLMoeTextExperts._load_from_state_dict = _patched_experts_load_state_dict
+    Qwen3VLMoeTextExperts.__init__ = _patched_experts_init
 
 from .monkey_patch import apply_liger_kernel_to_qwen3_vl_moe  # noqa: E402
 

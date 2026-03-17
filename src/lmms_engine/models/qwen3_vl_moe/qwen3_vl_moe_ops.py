@@ -631,10 +631,10 @@ def experts_forward(self: Qwen3VLMoeTextExperts, *routed_input):
         gate_up_proj = self.gate_up_proj
 
     for idx, x in enumerate(routed_input):
-        gate_up = F.linear(x, gate_up_proj[idx])
+        gate_up = torch.matmul(x, gate_up_proj[idx])
         gate, up = gate_up.chunk(2, dim=-1)
         hidden = self.act_fn(gate) * up
-        hidden = F.linear(hidden, down_proj[idx])
+        hidden = torch.matmul(hidden, down_proj[idx])
         out_experts_split.append(hidden)
 
     return torch.cat(out_experts_split, dim=0)
