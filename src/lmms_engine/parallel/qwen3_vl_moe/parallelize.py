@@ -40,7 +40,7 @@ def apply_qwen3_vl_moe_parallel(
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3-VL MoE"
 
     num_moe_layers = 0
-    for decoder_layer in model.language_model.layers:
+    for decoder_layer in model.model.language_model.layers:
         module = decoder_layer.mlp
         ep_plan = Qwen3VLMoeParallelStyle()
         parallelize_module(
@@ -103,7 +103,7 @@ def apply_qwen3_vl_moe_fsdp2(
         fully_shard(model.model.visual, **fsdp_kwargs)
 
     # Wrap text model decoder layers
-    for decoder_layer in model.language_model.layers:
+    for decoder_layer in model.model.language_model.layers:
         expert_mod = decoder_layer.mlp
         if ep_size > 1:
             fully_shard(expert_mod, **expert_fsdp_kwargs)
