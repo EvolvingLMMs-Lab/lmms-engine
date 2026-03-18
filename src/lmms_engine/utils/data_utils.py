@@ -21,6 +21,34 @@ FPS_MIN_FRAMES = 4
 FPS_MAX_FRAMES = 768
 
 
+def _safe_concatenate_datasets(data_list):
+    """Concatenate datasets with automatic schema alignment.
+
+    When loading multiple parquet files, schema mismatches can occur if columns
+    have different inferred types (e.g., a struct column is null in one file but
+    has nested fields in another). This function handles such cases by falling
+    back to row-wise concatenation when direct concatenation fails.
+
+    Args:
+        data_list: List of HuggingFace Dataset objects to concatenate.
+
+    Returns:
+        A single concatenated Dataset.
+    """
+    if len(data_list) <= 1:
+        return concatenate_datasets(data_list)
+    try:
+        return concatenate_datasets(data_list)
+    except Exception as e:
+        logger.warning(
+            f"Direct concatenation failed due to schema mismatch: {e}. " f"Falling back to row-wise concatenation."
+        )
+        all_rows = []
+        for ds in data_list:
+            all_rows.extend(ds.to_list())
+        return Dataset.from_list(all_rows)
+
+
 class DataUtilities:
     @staticmethod
     def load_json(path: str) -> List[Dict[str, List]]:
@@ -104,7 +132,7 @@ class DataUtilities:
                     data_list.append(data)
                 logger.info(f"Dataset size: {len(data)}")
                 data_folder_list.extend([data_folder] * len(data))
-            data_list = concatenate_datasets(data_list)
+            data_list = _safe_concatenate_datasets(data_list)
         return data_list, data_folder_list
 
     @staticmethod
@@ -222,7 +250,7 @@ class DataUtilities:
                 data_list.append(data)
             logger.info(f"Dataset size: {len(data)}")
             data_folder_list.extend([data_folder] * len(data))
-        data_list = concatenate_datasets(data_list)
+        data_list = _safe_concatenate_datasets(data_list)
 
         return data_list, data_folder_list
 
