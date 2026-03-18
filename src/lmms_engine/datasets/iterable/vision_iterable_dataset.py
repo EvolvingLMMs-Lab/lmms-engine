@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Dict
 
@@ -63,6 +64,9 @@ class VisionSFTIterableDataset(MultiModalIterableDataset):
         videos = []
         kwargs = {}
         messages = data["messages"]
+        # Support messages stored as JSON string (common in parquet files)
+        if isinstance(messages, str):
+            messages = json.loads(messages)
         for message in messages:
             for content in message["content"]:
                 if content["type"] == "image_url":
@@ -92,6 +96,8 @@ class VisionSFTIterableDataset(MultiModalIterableDataset):
 
     def load_from_hf(self, data) -> Dict[str, torch.Tensor]:
         messages = data["messages"]
+        if isinstance(messages, str):
+            messages = json.loads(messages)
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
         if isinstance(data["image"], list):
             images = data["image"]

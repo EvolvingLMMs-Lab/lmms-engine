@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Dict, Tuple
 
@@ -22,6 +23,9 @@ class Qwen3VLIterableDataset(VisionSFTIterableDataset):
         videos = []
         kwargs = {}
         messages = data["messages"]
+        # Support messages stored as JSON string (common in parquet files)
+        if isinstance(messages, str):
+            messages = json.loads(messages)
         for message in messages:
             for content in message["content"]:
                 if content["type"] == "image_url":
