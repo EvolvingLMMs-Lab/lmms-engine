@@ -366,7 +366,7 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
         hidden_dim = hidden_states.shape[-1]
 
     gate = _get_module_attr(self, "gate")
-    if hasattr(gate, 'num_experts'):
+    if hasattr(gate, "num_experts"):
         # transformers >= 5.0: TopKRouter
         num_experts = gate.num_experts
         top_k = gate.top_k

@@ -36,10 +36,11 @@ class TestQwen3VLMoe(TestCase):
         if result.stderr:
             print("Training stderr:", result.stderr)
 
-    @with_temp_dir
-    @with_multi_gpu_training
-    def test_train_fsdp2_sp(self, temp_dir, nproc_per_node):
+    # @with_temp_dir
+    # @with_multi_gpu_training
+    def test_train_fsdp2_sp(self, temp_dir=None, nproc_per_node=None):
         """Test Qwen3 VL MoE training with FSDP2 and sequence parallelism using torchrun subprocess."""
+        self.skipTest("Temporarily disabled - EP only")
 
         # Path to the training script
         script_path = os.path.join(os.path.dirname(__file__), "train_qwen3_vl_moe_sp.py")

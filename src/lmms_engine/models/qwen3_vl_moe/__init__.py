@@ -7,7 +7,7 @@ from transformers.models.qwen3_vl_moe.configuration_qwen3_vl_moe import (
 )
 
 if _IS_TRANSFORMERS_5:
-    #patch missing pad_token_id for transformers 5.0 compatibility
+    # patch missing pad_token_id for transformers 5.0 compatibility
     _original_qwen3_vl_moe_text_config_init = Qwen3VLMoeTextConfig.__init__
 
     def _patched_qwen3_vl_moe_text_config_init(self, *args, **kwargs):
@@ -16,13 +16,15 @@ if _IS_TRANSFORMERS_5:
 
     Qwen3VLMoeTextConfig.__init__ = _patched_qwen3_vl_moe_text_config_init
 
-    #patch Experts.__init__ to match checkpoint shape convention
-    #checkpoint stores [E, H, 2I] / [E, I, H], but transformers 5.0 creates [E, 2I, H] / [E, H, I]
-    #we patch __init__ to use the checkpoint convention so loading works directly
+    # patch Experts.__init__ to match checkpoint shape convention
+    # checkpoint stores [E, H, 2I] / [E, I, H], but transformers 5.0 creates [E, 2I, H] / [E, H, I]
+    # we patch __init__ to use the checkpoint convention so loading works directly
     import torch
     import torch.nn as nn
     from transformers.activations import ACT2FN
-    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeTextExperts
+    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+        Qwen3VLMoeTextExperts,
+    )
 
     def _patched_experts_init(self, config):
         nn.Module.__init__(self)

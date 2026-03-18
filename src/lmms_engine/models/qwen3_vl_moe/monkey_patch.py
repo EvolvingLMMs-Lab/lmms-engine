@@ -36,7 +36,10 @@ TRANSFORMER_DEPRECATION_WARNING = "Support for transformers versions < 4.46.1 wi
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.models.monkey_patch import MONKEY_PATCHER
+from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
 from lmms_engine.utils.logging_utils import Logging
+
+_IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
 
 
 @MONKEY_PATCHER.register("qwen3_vl_moe", "liger")
@@ -96,6 +99,7 @@ def apply_liger_kernel_to_qwen3_vl_moe(
         modeling_qwen3_vl_moe.Qwen3VLMoeTextModel.forward = qwen3_vl_moe_text_model_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextDecoderLayer.forward = qwen3_vl_moe_decoder_layer_forward
         modeling_qwen3_vl_moe.Qwen3VLMoeTextAttention.forward = qwen3_vl_moe_attn_forward
+        modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts.forward = qwen3_vl_moe_experts_forward
 
     if get_ulysses_sequence_parallel_world_size() > 1:
         patch_vlm_for_ulysses_input_slicing(modeling_qwen3_vl_moe.Qwen3VLMoeModel)
@@ -125,6 +129,14 @@ def apply_liger_kernel_to_qwen3_vl_moe(
             if rms_norm:
                 _patch_qwen3_vl_moe_rms_norm(text_model.norm)
             for decoder_layer in text_model.layers:
+                if swiglu and not _IS_TRANSFORMERS_5:
+                    if hasattr(decoder_layer.mlp, "experts"):
+                        experts_module = decoder_layer.mlp.experts
+                        if not hasattr(experts_module, "gate_up_proj"):
+                            for expert in experts_module:
+                                _patch_swiglu_module(expert, LigerSwiGLUMLP)
+                    else:
+                        _patch_swiglu_module(decoder_layer.mlp, LigerSwiGLUMLP)
                 if rms_norm:
                     _patch_qwen3_vl_moe_rms_norm(decoder_layer.input_layernorm)
                     _patch_qwen3_vl_moe_rms_norm(decoder_layer.post_attention_layernorm)
@@ -140,6 +152,5 @@ def apply_liger_kernel_to_qwen3_vl_moe(
                 _patch_layer_norm_module(vision_block.norm1)
                 _patch_layer_norm_module(vision_block.norm2)
 
-    if pgm.process_group_manager.enable_parallel:
-        modeling_qwen3_vl_moe.Qwen3VLMoeTextExperts.forward = qwen3_vl_moe_experts_forward
-        modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock.forward = qwen3_vl_moe_moe_sparse_layer_forward
+    # Always patch SparseMoeBlock forward (handles both < 5.0 and >= 5.0 via hasattr gate check)
+    modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock.forward = qwen3_vl_moe_moe_sparse_layer_forward

@@ -10,6 +10,7 @@ from torch.distributed.tensor import (
 )
 from torch.distributed.tensor.parallel import ParallelStyle
 from torch.distributed.tensor.placement_types import Placement
+
 from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
 
 _IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
@@ -19,7 +20,9 @@ if _IS_TRANSFORMERS_5:
         Qwen3OmniMoeThinkerTextExperts,
     )
 else:
-    from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts as Qwen3OmniMoeThinkerTextExperts
+    from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import (
+        Qwen3OmniMoeExperts as Qwen3OmniMoeThinkerTextExperts,
+    )
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.parallel.expert_parallel.utils import (

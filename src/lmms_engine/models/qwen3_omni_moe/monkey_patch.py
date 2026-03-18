@@ -87,7 +87,9 @@ def apply_liger_kernel_to_qwen3_omni_moe(
     )
 
     if _IS_TRANSFORMERS_5:
-        from .qwen3_omni_moe_ops import experts_forward as qwen3_omni_moe_experts_forward
+        from .qwen3_omni_moe_ops import (
+            experts_forward as qwen3_omni_moe_experts_forward,
+        )
 
     def wrap_forward(func):
         @wraps(func)

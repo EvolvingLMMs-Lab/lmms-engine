@@ -577,7 +577,7 @@ def moe_sparse_layer_forward(
     batch_size, sequence_length, hidden_dim = hidden_states.shape
     hidden_states = hidden_states.view(-1, hidden_dim)
 
-    if hasattr(self.gate, 'num_experts'):
+    if hasattr(self.gate, "num_experts"):
         # transformers >= 5.0: TopKRouter
         num_experts = self.gate.num_experts
         top_k = self.gate.top_k

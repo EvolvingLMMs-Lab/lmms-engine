@@ -28,7 +28,9 @@ if TYPE_CHECKING:
 
 def stack_expert_params_qwen3_omni_moe(model: Qwen3OmniMoeThinkerForConditionalGeneration) -> None:
     """Stack individual expert nn.Linear weights into fused Parameters (transformers < 5.0 only)."""
-    from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import Qwen3OmniMoeExperts
+    from lmms_engine.models.qwen3_omni_moe.qwen3_omni_moe_experts import (
+        Qwen3OmniMoeExperts,
+    )
 
     logger.info("Stacking expert parameters for Qwen3-Omni MoE model")
 
