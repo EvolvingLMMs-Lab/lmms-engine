@@ -8,11 +8,16 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     MoeModelOutputWithPast,
     Qwen3MoeAttention,
     Qwen3MoeDecoderLayer,
-    Qwen3MoeExperts,
     Qwen3MoeModel,
     Qwen3MoeSparseMoeBlock,
     apply_rotary_pos_emb,
 )
+
+from lmms_engine.utils.import_utils import is_transformers_version_greater_or_equal_to
+
+_IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
+if _IS_TRANSFORMERS_5:
+    from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 from transformers.utils import is_flash_attn_2_available
 
 from lmms_engine.models.sequence_packing_utils import (
@@ -289,7 +294,7 @@ def moe_sparse_layer_forward(self: Qwen3MoeSparseMoeBlock, hidden_states: torch.
     return final_hidden_states, router_logits
 
 
-def experts_forward(self: Qwen3MoeExperts, *routed_input):
+def experts_forward(self, *routed_input):
     if len(routed_input) == 2 and routed_input[1].ndim == 1:
         routed_input = torch.split(
             routed_input[0],

@@ -29,7 +29,6 @@ from transformers.models.qwen3_omni_moe import modeling_qwen3_omni_moe
 from transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe import (
     Qwen3OmniMoeAudioEncoder,
     Qwen3OmniMoeThinkerForConditionalGeneration,
-    Qwen3OmniMoeThinkerTextExperts,
     Qwen3OmniMoeThinkerTextModel,
     Qwen3OmniMoeThinkerTextSparseMoeBlock,
     Qwen3OmniMoeVisionEncoder,
@@ -49,6 +48,19 @@ from lmms_engine.utils.import_utils import is_transformers_version_greater_or_eq
 from lmms_engine.utils.logging_utils import Logging
 
 _IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
+
+# Workaround for transformers bug: Qwen3OmniMoeThinkerTextRotaryEmbedding.__init__
+# accesses config.rope_scaling.get("mrope_section", ...) without None check
+_orig_rotary_init = modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextRotaryEmbedding.__init__
+
+
+def _patched_rotary_init(self, config, device=None):
+    if not hasattr(config, "rope_scaling") or config.rope_scaling is None:
+        config.rope_scaling = {"rope_type": "default", "mrope_section": [24, 20, 20]}
+    return _orig_rotary_init(self, config, device)
+
+
+modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextRotaryEmbedding.__init__ = _patched_rotary_init
 
 
 @MONKEY_PATCHER.register("qwen3_omni_moe", "liger")
