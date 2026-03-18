@@ -398,7 +398,22 @@ def moe_sparse_layer_forward(self, hidden_states: torch.Tensor, **kwargs) -> Tup
 
     routed_input = torch.gather(hidden_states, dim=0, index=token_indices_experts_sorted)
 
-    out_experts_split = self.experts(routed_input, num_tokens_per_expert)
+    # Check if EP is enabled by checking if expert params are DTensors
+    # >= 5.0 uses gate_up_proj (fused), < 5.0 uses gate_proj (separate)
+    expert_param = getattr(self.experts, "gate_up_proj", None)
+    if expert_param is None:
+        expert_param = getattr(self.experts, "gate_proj", None)
+    if isinstance(expert_param, DTensor):
+        # EP is enabled - ParallelStyle._input_fn will handle the split
+        out_experts_split = self.experts(routed_input, num_tokens_per_expert)
+    else:
+        # EP is disabled, need to split routed_input manually
+        routed_input_split = torch.split(
+            routed_input,
+            split_size_or_sections=num_tokens_per_expert.tolist(),
+            dim=0,
+        )
+        out_experts_split = self.experts(*routed_input_split)
 
     routed_output = out_experts_split * top_scores_experts_sorted.reshape(-1, 1)
     final_hidden_states = torch.zeros_like(hidden_states)
