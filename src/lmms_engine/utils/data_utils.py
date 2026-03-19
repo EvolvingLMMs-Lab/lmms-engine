@@ -26,8 +26,8 @@ def _safe_concatenate_datasets(data_list):
 
     When loading multiple parquet files, schema mismatches can occur if columns
     have different inferred types (e.g., a struct column is null in one file but
-    has nested fields in another). This function handles such cases by falling
-    back to row-wise concatenation when direct concatenation fails.
+    has nested fields in another). This function handles such cases by casting
+    all datasets to a unified schema before concatenation.
 
     Args:
         data_list: List of HuggingFace Dataset objects to concatenate.
@@ -41,12 +41,29 @@ def _safe_concatenate_datasets(data_list):
         return concatenate_datasets(data_list)
     except Exception as e:
         logger.warning(
-            f"Direct concatenation failed due to schema mismatch: {e}. " f"Falling back to row-wise concatenation."
+            f"Direct concatenation failed due to schema mismatch: {e}. " f"Attempting schema alignment via cast."
         )
-        all_rows = []
-        for ds in data_list:
-            all_rows.extend(ds.to_list())
-        return Dataset.from_list(all_rows)
+        # Use the first dataset's features as the target schema and cast others to match.
+        # This avoids the memory overhead of to_list() on large datasets.
+        target_features = data_list[0].features
+        aligned = [data_list[0]]
+        for ds in data_list[1:]:
+            try:
+                aligned.append(ds.cast(target_features))
+            except Exception:
+                # If cast to first dataset's schema fails, build a merged
+                # feature set from all datasets, preferring non-null types.
+                from datasets import Features
+
+                merged = {}
+                for d in data_list:
+                    for col_name, col_type in d.features.items():
+                        if col_name not in merged or str(merged[col_name]) == "Value(dtype='null')":
+                            merged[col_name] = col_type
+                merged_features = Features(merged)
+                aligned = [d.cast(merged_features) for d in data_list]
+                break
+        return concatenate_datasets(aligned)
 
 
 class DataUtilities:
