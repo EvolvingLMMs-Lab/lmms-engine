@@ -109,9 +109,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python -m lmms_eval \
 | Stage 2 | 98.23 PFLOPS | 3.1006 kWh | 1.47 kg | 4.43 |
 
 ### Benchmark Scores
-
-| MME  | MMMU_Val | MMStar | GQA | ChartQA | DocVQA | OCRBench | POPE |
-|-----|---------|------|--------|-----|---------|--------|----------|------|
+| MME | MMMU_Val | MMStar | GQA | ChartQA | DocVQA | OCRBench | POPE |
+|-----|----------|--------|-----|---------|--------|----------|------|
 | 1204.46 (948.75/255.71) | 0.3022 | 0.3273 | 0.4184 | 0.1084 | 0.1018 | 0.165 | 0.7724 |
 
 *Reported metrics: MME (Perception/Cognition); MMBench (EN Dev); MMMU_Val; MMStar (Average); GQA (Exact Match); ChartQA (Relaxed Overall); DocVQA (ANLS); OCRBench; POPE (Accuracy)*
