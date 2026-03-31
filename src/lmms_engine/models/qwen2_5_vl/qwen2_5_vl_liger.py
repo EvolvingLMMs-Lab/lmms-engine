@@ -53,10 +53,6 @@ def lce_forward(
         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-    tokens_count = attention_mask.sum().item()
-    n_image_tokens = (input_ids == self.config.image_token_id).sum().item()
-    n_video_tokens = (input_ids == self.config.video_token_id).sum().item()
-    visual_tokens = n_image_tokens + n_video_tokens
 
     outputs = self.model(
         input_ids=input_ids,

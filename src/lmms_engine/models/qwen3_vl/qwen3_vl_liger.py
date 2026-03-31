@@ -73,8 +73,6 @@ def qwen3_vl_lce_forward(
     seq_lens = outputs.get("seq_lens", None)
     word_idx = outputs.get("word_idx", None)
 
-    hidden_states = outputs[0]
-
     loss = None
     logits = None
     # if we are using sequence parallel, we need to slice the hidden states and labels

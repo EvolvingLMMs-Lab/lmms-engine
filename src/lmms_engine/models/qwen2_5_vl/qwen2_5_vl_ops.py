@@ -437,9 +437,6 @@ def attn_forward(
     **kwargs,
 ):
     ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
-    bsz = hidden_states.shape[0]
-    q_len = torch.max(position_ids).item() + 1
-    kv_seq_len = q_len
     query_states = self.q_proj(hidden_states).view(-1, self.num_heads, self.head_dim)
     key_states = self.k_proj(hidden_states).view(-1, self.num_key_value_heads, self.head_dim)
     value_states = self.v_proj(hidden_states).view(-1, self.num_key_value_heads, self.head_dim)

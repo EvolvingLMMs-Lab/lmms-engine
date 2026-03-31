@@ -433,7 +433,7 @@ def text_model_forward(
         hidden_states = layer_outputs
 
         # add visual features to the hidden states of first several layers
-        if deepstack_visual_embeds is not None and layer_idx in range(len(deepstack_visual_embeds)):
+        if deepstack_visual_embeds is not None and layer_idx < len(deepstack_visual_embeds):
             hidden_states = self._deepstack_process(
                 hidden_states,
                 visual_pos_masks,
