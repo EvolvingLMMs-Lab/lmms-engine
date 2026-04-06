@@ -1,9 +1,17 @@
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
 from functools import wraps
+
+
+def find_free_port():
+    """Find a free port on localhost by binding to port 0 and letting the OS assign one."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return str(s.getsockname()[1])
 
 
 # Copied from https://github.com/axolotl-ai-cloud/axolotl/blob/main/tests/e2e/utils.py
@@ -39,7 +47,7 @@ def launch_torchrun_training(
     nnodes=1,
     node_rank=0,
     master_addr="127.0.0.1",
-    master_port="8000",
+    master_port=None,
     timeout=300,
 ):
     """
@@ -52,7 +60,7 @@ def launch_torchrun_training(
         nnodes: Number of nodes
         node_rank: Rank of this node
         master_addr: Master address
-        master_port: Master port
+        master_port: Master port (auto-selects a free port if not specified)
         timeout: Timeout in seconds for the training process
 
     Returns:
@@ -62,6 +70,10 @@ def launch_torchrun_training(
         nproc_per_node = get_available_gpus()
         if nproc_per_node == 0:
             nproc_per_node = 1
+
+    if master_port is None:
+        master_port = find_free_port()
+        print(f"Auto-selected free port: {master_port}")
 
     # Build torchrun command
     cmd = [
