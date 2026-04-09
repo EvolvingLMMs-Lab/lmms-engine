@@ -59,6 +59,8 @@ class Qwen3VLIterableDataset(VisionSFTIterableDataset):
         assert (
             self.config.video_backend == "qwen_vl_utils"
         ), "Qwen3VLIterableDataset only supports qwen_vl_utils backend"
+        if data_folder is not None:
+            video_path = os.path.join(data_folder, video_path)
         frames, video_metadata, sample_fps = self.load_video_qwen_vl_utils(video_path, fps)
         return frames, video_metadata, sample_fps
 
