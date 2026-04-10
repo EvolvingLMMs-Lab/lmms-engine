@@ -1,0 +1,75 @@
+# Git directory (contains tokens in remote URL)
+.git
+.gitignore
+
+# Local directories (from .gitignore)
+data/
+scripts/
+wandb/
+playground/
+output/
+outputs/
+trainer_output/
+checkpoints/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+*.so
+*.pth
+build/
+dist/
+develop-eggs/
+.eggs/
+sdist/
+wheels/
+MANIFEST
+
+# Environments
+.env
+.venv
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / editor
+.vscode
+.idea/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+cover/
+nosetests.xml
+coverage.xml
+
+# Documentation build
+docs/_build/
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+.pytype/
+.pyre/
+
+# Misc
+.DS_Store
+*.log
+.deepspeed_env
+cython_debug/
+.ipynb_checkpoints
+.cache
+
+# Docker
+Dockerfile
+.dockerignore
