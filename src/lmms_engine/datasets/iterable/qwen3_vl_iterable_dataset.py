@@ -91,13 +91,17 @@ class Qwen3VLIterableDataset(VisionSFTIterableDataset):
         if self.config.video_sampling_strategy == "frame_num":
             n_frames = self.config.frame_num
             video_dict["nframes"] = n_frames
-            video_inputs, sample_fps = fetch_video(video_dict, return_video_sample_fps=True, return_video_metadata=True)
+            video_inputs, sample_fps = fetch_video(
+                video_dict, image_patch_size=16, return_video_sample_fps=True, return_video_metadata=True
+            )
             frames, video_metadata = video_inputs
             frames = frames.numpy()
             return frames, video_metadata, sample_fps
         elif self.config.video_sampling_strategy == "fps":
             video_dict["fps"] = fps
-            video_inputs, sample_fps = fetch_video(video_dict, return_video_sample_fps=True, return_video_metadata=True)
+            video_inputs, sample_fps = fetch_video(
+                video_dict, image_patch_size=16, return_video_sample_fps=True, return_video_metadata=True
+            )
             frames, video_metadata = video_inputs
             frames = frames.numpy()
             return frames, video_metadata, sample_fps
