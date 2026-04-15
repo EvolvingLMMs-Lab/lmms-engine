@@ -1,6 +1,7 @@
 """FSDP2 checkpoint merger implementation."""
 
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
@@ -198,5 +199,12 @@ class FSDP2Merger(CheckpointMerger):
         config.save_pretrained(output_path)
         # Save merged checkpoint
         model.save_pretrained(output_path)
+
+        # Copy over any extra config files that AutoProcessor may not handle
+        # (e.g. processor_config.json for custom processors)
+        for extra_file in ["processor_config.json"]:
+            src = checkpoint_path / extra_file
+            if src.exists():
+                shutil.copy2(src, output_path / extra_file)
 
         return output_path
