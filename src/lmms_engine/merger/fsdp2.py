@@ -98,13 +98,20 @@ class FSDP2Merger(CheckpointMerger):
             state_dict[key] = []
             for model_state_shard in shard_state_dicts:
                 tensor = model_state_shard.pop(key)
-                state_dict[key].append(tensor._local_tensor.bfloat16())
+                # Non-sharded tensors (e.g. buffers like inv_freq) are plain Tensors,
+                # while FSDP-sharded parameters are DTensors with _local_tensor.
+                local = tensor._local_tensor if hasattr(tensor, "_local_tensor") else tensor
+                state_dict[key].append(local.bfloat16())
 
         # Merge tensors along dim=0 (data parallel dimension)
         for key in sorted(state_dict):
             if not isinstance(state_dict[key], list):
                 continue
-            state_dict[key] = torch.cat(state_dict[key], dim=0)
+            # Non-sharded tensors are duplicated across ranks; just take the first one
+            if all(t.shape == state_dict[key][0].shape and torch.equal(t, state_dict[key][0]) for t in state_dict[key][1:]):
+                state_dict[key] = state_dict[key][0]
+            else:
+                state_dict[key] = torch.cat(state_dict[key], dim=0)
 
         return state_dict
 
