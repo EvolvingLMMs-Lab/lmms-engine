@@ -146,6 +146,36 @@ class FSDP2Merger(CheckpointMerger):
         latest_checkpoint = checkpoint_folders[-1]
         return latest_checkpoint
 
+    def maybe_tie_weights(self, model: torch.nn.Module, config: object, state_dict: dict) -> None:
+        """Re-tie weights if the model declares weight tying.
+
+        FSDP saves tied parameters (e.g. ``lm_head`` <-> ``embed_tokens``) as
+        independent shards, so after ``load_state_dict(..., assign=True)`` they
+        become separate tensors and ``save_pretrained`` would write both.
+
+        Only re-ties when the model declares tying AND the saved tensors
+        actually agree, to avoid silently dropping divergent weights.
+        """
+        tied_keys_map = getattr(model, "_tied_weights_keys", None)
+        tie_word_embeddings = getattr(config, "tie_word_embeddings", False) or getattr(
+            getattr(config, "text_config", None), "tie_word_embeddings", False
+        )
+        if not (tied_keys_map and tie_word_embeddings):
+            return
+
+        if isinstance(tied_keys_map, dict):
+            for tied_key, source_key in tied_keys_map.items():
+                t1 = state_dict.get(tied_key)
+                t2 = state_dict.get(source_key)
+                if t1 is not None and t2 is not None and not torch.equal(t1, t2):
+                    logger.warning(
+                        f"Tied weights mismatch: '{tied_key}' != '{source_key}'. Skipping tie_weights()."
+                    )
+                    return
+
+        logger.info("Re-tying weights (tie_word_embeddings=True).")
+        model.tie_weights()
+
     def merge(
         self,
         checkpoint_path: Path,
@@ -194,6 +224,7 @@ class FSDP2Merger(CheckpointMerger):
         with init_empty_weights():
             model = model_cls.from_config(config)
         model.load_state_dict(full_state_dict, assign=True)
+        self.maybe_tie_weights(model, config, full_state_dict)
         processor = AutoProcessor.from_pretrained(checkpoint_path)
         processor.save_pretrained(output_path)
         config.save_pretrained(output_path)
