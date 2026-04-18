@@ -109,7 +109,9 @@ class FSDP2Merger(CheckpointMerger):
             if not isinstance(state_dict[key], list):
                 continue
             # Non-sharded tensors are duplicated across ranks; just take the first one
-            if all(t.shape == state_dict[key][0].shape and torch.equal(t, state_dict[key][0]) for t in state_dict[key][1:]):
+            if all(
+                t.shape == state_dict[key][0].shape and torch.equal(t, state_dict[key][0]) for t in state_dict[key][1:]
+            ):
                 state_dict[key] = state_dict[key][0]
             else:
                 state_dict[key] = torch.cat(state_dict[key], dim=0)
@@ -168,9 +170,7 @@ class FSDP2Merger(CheckpointMerger):
                 t1 = state_dict.get(tied_key)
                 t2 = state_dict.get(source_key)
                 if t1 is not None and t2 is not None and not torch.equal(t1, t2):
-                    logger.warning(
-                        f"Tied weights mismatch: '{tied_key}' != '{source_key}'. Skipping tie_weights()."
-                    )
+                    logger.warning(f"Tied weights mismatch: '{tied_key}' != '{source_key}'. Skipping tie_weights().")
                     return
 
         logger.info("Re-tying weights (tie_word_embeddings=True).")
