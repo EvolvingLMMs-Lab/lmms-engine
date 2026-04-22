@@ -669,7 +669,7 @@ class FSDP2SFTTrainer:
         total_tokens += total_seq_len.item()
 
         tokens_per_second = total_seq_len.item() / delta_time
-        tokens_per_gpu = tokens_per_second / sp_size / world_size
+        tokens_per_gpu = tokens_per_second / world_size
 
         # Log total tokens and total tokens per second
         metrics["train/total_tokens"] = TrainUtilities.format_tokens(total_tokens)
