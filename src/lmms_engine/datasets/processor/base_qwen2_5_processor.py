@@ -16,6 +16,23 @@ class BaseQwen2_5_DataProcessor(AeroDataProcessor):
     def _build_processor(self):
         raise NotImplementedError("This method should be implemented in subclasses.")
 
+    @staticmethod
+    def _set_vision_processor_size(processor, min_pixels=None, max_pixels=None):
+        if processor is None or (min_pixels is None and max_pixels is None):
+            return
+
+        size = getattr(processor, "size", None) or {}
+        if hasattr(size, "to_dict"):
+            size = size.to_dict()
+        else:
+            size = dict(size)
+
+        if min_pixels is not None:
+            size["shortest_edge"] = min_pixels
+        if max_pixels is not None:
+            size["longest_edge"] = max_pixels
+        processor.size = size
+
     def process(
         self,
         images: List[Image.Image],

@@ -20,18 +20,12 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
         # Set image processor parameters
         image_max_pixels = self.config.extra_kwargs.get("image_max_pixels", None)
         image_min_pixels = self.config.extra_kwargs.get("image_min_pixels", None)
-        if image_max_pixels:
-            processor.image_processor.max_pixels = image_max_pixels
-        if image_min_pixels:
-            processor.image_processor.min_pixels = image_min_pixels
+        self._set_vision_processor_size(processor.image_processor, image_min_pixels, image_max_pixels)
 
         # Set video processor parameters
         video_max_pixels = self.config.extra_kwargs.get("video_max_pixels", None)
         video_min_pixels = self.config.extra_kwargs.get("video_min_pixels", None)
-        if video_max_pixels:
-            processor.video_processor.max_pixels = video_max_pixels
-        if video_min_pixels:
-            processor.video_processor.min_pixels = video_min_pixels
+        self._set_vision_processor_size(processor.video_processor, video_min_pixels, video_max_pixels)
         return processor
 
     def process(
