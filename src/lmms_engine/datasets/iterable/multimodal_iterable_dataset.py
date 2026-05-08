@@ -28,6 +28,7 @@ except ImportError:
     logger.info("Azure SDK not installed. Skipping import.")
 
 from lmms_engine.datasets.iterable.base_iterable_dataset import BaseIterableDataset
+from lmms_engine.datasets.packing import build_online_packer
 
 
 class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin):
@@ -167,9 +168,13 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
         if self.config.packing:
             # Reset index at the start of each iteration pass
             self.cur_idx = 0
-            buffer = []
-            buffer_length = 0
             packing_length = self.config.packing_length
+            packing_kwargs = self.config.extra_kwargs.get("packing_kwargs", {})
+            packer = build_online_packer(
+                self.config.packing_strategy or "next_fit",
+                packing_length,
+                **packing_kwargs,
+            )
 
             # Iterate through the dataset once per epoch
             while self.cur_idx < len(curr_data_list):
@@ -180,33 +185,24 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
                     logger.error(f"Error getting one sample: {e}, skip this sample")
                     self.cur_idx += 1
                     continue
-                input_ids = data_dict["input_ids"]
-                data_length = input_ids.shape[0]
+                data_length = data_dict["input_ids"].shape[0]
                 self.cur_idx += 1
 
                 # Drop overlong sample if filtering is enabled
                 if data_length > packing_length and self.config.filter_overlong:
                     continue
 
-                # If current sample cannot fit into current buffer, yield the buffer first
-                if buffer_length > 0 and buffer_length + data_length > packing_length:
-                    yield buffer
-                    buffer = []
-                    buffer_length = 0
-
-                # If the sample is still longer than packing_length (and not filtered),
-                # yield it as its own batch to avoid stalling
+                # Oversized samples bypass the packer: flush whatever is buffered
+                # first (to preserve ordering) and yield the sample on its own.
                 if data_length > packing_length:
+                    yield from packer.flush()
                     yield [data_dict]
                     continue
 
-                # Append to buffer
-                buffer.append(data_dict)
-                buffer_length += data_length
+                yield from packer.add(data_dict, data_length)
 
             # Flush remaining buffer
-            if len(buffer) > 0:
-                yield buffer
+            yield from packer.flush()
         else:
             self.cur_idx = 0
             while self.cur_idx < len(curr_data_list):
