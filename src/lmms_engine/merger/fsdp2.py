@@ -86,35 +86,71 @@ class FSDP2Merger(CheckpointMerger):
     def consolidate(self, shard_state_dicts: list[dict]) -> dict:
         """Consolidate sharded FSDP2 state dicts into a single full state dict.
 
+        Uses each tensor's ``DTensor.placements`` to decide whether shards are
+        sharded (concatenate along the sharding dim) or replicated (take one
+        copy). Falls back to value equality for plain tensors that don't carry
+        placement metadata.
+
         Args:
             shard_state_dicts: List of state dicts from each shard
 
         Returns:
             Full consolidated state dict
         """
-        state_dict = {}
+        state_dict: dict = {}
 
-        # Gather all tensor shards by key
+        # Gather all tensor shards by key, remembering placements / global shape
+        # for proper consolidation. We can't use byte-level equality because a
+        # parameter that happens to be uniform after init (e.g. RMSNorm.weight
+        # initialized to 1.0) is genuinely sharded but every shard has the
+        # same values, so equality would silently drop 7/8 of its dim.
+        placements_per_key: dict = {}
+        global_shape_per_key: dict = {}
         for key in set(shard_state_dicts[0].keys()):
-            state_dict[key] = []
+            shards: list[torch.Tensor] = []
+            placements = None
+            global_shape = None
             for model_state_shard in shard_state_dicts:
                 tensor = model_state_shard.pop(key)
-                # Non-sharded tensors (e.g. buffers like inv_freq) are plain Tensors,
-                # while FSDP-sharded parameters are DTensors with _local_tensor.
-                local = tensor._local_tensor if hasattr(tensor, "_local_tensor") else tensor
-                state_dict[key].append(local.bfloat16())
+                if hasattr(tensor, "_local_tensor"):
+                    if placements is None:
+                        placements = tensor.placements
+                        global_shape = tuple(tensor.shape)
+                    shards.append(tensor._local_tensor.bfloat16())
+                else:
+                    # Plain tensor (e.g. inv_freq buffer): replicated implicitly.
+                    shards.append(tensor.bfloat16())
+            state_dict[key] = shards
+            placements_per_key[key] = placements
+            global_shape_per_key[key] = global_shape
 
-        # Merge tensors along dim=0 (data parallel dimension)
+        # Merge tensors using placements when available, otherwise fall back to
+        # value equality for plain tensors.
         for key in sorted(state_dict):
-            if not isinstance(state_dict[key], list):
+            shards = state_dict[key]
+            placements = placements_per_key[key]
+            if placements is None:
+                # Plain tensor (no DTensor metadata): replicated across ranks,
+                # all shards should be equal — take one.
+                state_dict[key] = shards[0]
                 continue
-            # Non-sharded tensors are duplicated across ranks; just take the first one
-            if all(
-                t.shape == state_dict[key][0].shape and torch.equal(t, state_dict[key][0]) for t in state_dict[key][1:]
-            ):
-                state_dict[key] = state_dict[key][0]
+
+            # Single placement (FSDP1D): handle Shard / Replicate / Partial.
+            if len(placements) == 1:
+                p = placements[0]
+                if p.is_replicate():
+                    state_dict[key] = shards[0]
+                elif p.is_shard():
+                    state_dict[key] = torch.cat(shards, dim=p.dim)
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported placement {p} for key '{key}' (only Shard / Replicate are handled)."
+                    )
             else:
-                state_dict[key] = torch.cat(state_dict[key], dim=0)
+                # Multi-axis (e.g. HSDP / 2D mesh): not currently produced by
+                # the trainer's FSDP2 setup. Fail loudly rather than silently
+                # mis-consolidating.
+                raise NotImplementedError(f"Multi-placement DTensor not supported: key='{key}' placements={placements}")
 
         return state_dict
 
