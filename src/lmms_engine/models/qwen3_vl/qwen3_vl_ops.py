@@ -35,8 +35,9 @@ from ..common_ops.rope import qwen3_vl_get_rope_index
 from ..sequence_packing_utils import _unpad_input
 
 if is_flash_attn_2_available():
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, rearrange
+
+from lmms_engine.kernels.attention import varlen_attn
 
 from ..common_ops.visual import (
     parse_visual_output_with_deepstack as parse_visual_output,
@@ -563,7 +564,7 @@ def attn_forward(
 
     window_size = (-1, -1)
 
-    attn_output = flash_attn_varlen_func(
+    attn_output = varlen_attn(
         q=query_states,
         k=key_states,
         v=value_states,
@@ -575,6 +576,7 @@ def attn_forward(
         window_size=window_size,
         softmax_scale=self.head_dim**-0.5,
         dropout_p=0.0,
+        backend=self.config._attn_implementation,
     )
 
     ########## AlltoAll for Ulysses ##########
