@@ -110,102 +110,105 @@ class BestFitPacking(OnlinePackingStrategy):
 
 
 class BalancedPacking(OnlinePackingStrategy):
-    """Two-phase pack-then-balance.
+    """Streaming pack-then-balance with a single ``num_buckets``-sized buffer.
 
-    Phase 1 (online): use best-fit to fill ``balance_window`` packs.
-    Phase 2 (batched): run swap-based local search to minimize the
-    length variance across those packs.
-    Phase 3: yield all balanced packs in one batch.
+    Maintains exactly one list of up to ``num_buckets`` open packs. Each
+    incoming sample is placed via best-fit. When no bucket can accept the
+    sample and all ``num_buckets`` slots are taken, the packer:
 
-    Trades a small amount of latency (one window's worth of samples) for
-    significantly more uniform pack lengths -- which directly translates
-    to better DP utilization since each step's wall time is bounded by
-    the slowest rank's token count.
+    1. runs swap-based local search across all open buckets to minimize
+       length variance;
+    2. yields the oldest bucket (FIFO);
+    3. opens a new bucket containing the current sample in the freed slot.
 
-    Note: pack ordering is not preserved within a window. Samples within a
-    window may be reshuffled across packs by the balancing step.
+    This produces a smooth 1-in-1-out yield rhythm at steady state, so the
+    DataLoader's worker prefetch can keep the pipeline full -- avoiding
+    the periodic stall that batch-balanced strategies suffer from when
+    they ``yield`` an entire window at once.
+
+    Pack ordering reflects bucket creation order (not original sample
+    order), since balancing reshuffles items across the open buckets.
     """
 
     def __init__(
         self,
         packing_length: int,
-        balance_window: int = 64,
-        num_open_buckets: int = 8,
+        num_buckets: int = 8,
         max_swap_iters: int = 200,
         min_gain: int = 1,
     ) -> None:
         super().__init__(packing_length)
-        if balance_window < 1:
-            raise ValueError("balance_window must be >= 1")
-        if num_open_buckets < 1:
-            raise ValueError("num_open_buckets must be >= 1")
-        self.balance_window = balance_window
-        self.num_open_buckets = num_open_buckets
+        if num_buckets < 1:
+            raise ValueError("num_buckets must be >= 1")
+        self.num_buckets = num_buckets
         self.max_swap_iters = max_swap_iters
         self.min_gain = min_gain
 
-        # Open buckets being filled. Each bucket = [length, [(item, length), ...]].
-        # We carry per-item lengths because the balance phase needs them.
-        self._open: List[List[Any]] = []
-        # Completed packs awaiting balancing. Same shape as buckets.
-        self._completed: List[List[Any]] = []
+        # Each bucket = [length, [(item, item_length), ...]].
+        # We carry per-item lengths because the balance step needs them.
+        # List order is creation order (oldest at index 0).
+        self._buckets: List[List[Any]] = []
 
-    # ---- Phase 1: best-fit fill -----------------------------------------
-    def add(self, item: Any, length: int) -> Iterator[List[Any]]:
-        n = self.packing_length
-
-        # Find best-fit open bucket.
+    def _find_best_bucket(self, length: int) -> int:
+        """Return index of best-fit bucket for ``length``, or -1 if none can fit."""
         best_idx = -1
-        best_remain = n + 1
-        for i, (blen, _) in enumerate(self._open):
-            remain = n - blen - length
+        best_remain = self.packing_length + 1
+        for i, (blen, _) in enumerate(self._buckets):
+            remain = self.packing_length - blen - length
             if 0 <= remain < best_remain:
                 best_remain = remain
                 best_idx = i
+        return best_idx
 
-        if best_idx == -1:
-            if len(self._open) < self.num_open_buckets:
-                self._open.append([length, [(item, length)]])
-            else:
-                # All slots taken; evict the fullest into _completed.
-                evict_idx = max(range(len(self._open)), key=lambda i: self._open[i][0])
-                self._completed.append(self._open[evict_idx])
-                self._open[evict_idx] = [length, [(item, length)]]
-        else:
-            self._open[best_idx][0] += length
-            self._open[best_idx][1].append((item, length))
+    def add(self, item: Any, length: int) -> Iterator[List[Any]]:
+        idx = self._find_best_bucket(length)
 
-        if len(self._completed) >= self.balance_window:
-            yield from self._balance_and_emit()
+        if idx >= 0:
+            # Best-fit: append to existing bucket. No yield.
+            self._buckets[idx][0] += length
+            self._buckets[idx][1].append((item, length))
+            return
 
-    def flush(self) -> Iterator[List[Any]]:
-        # Move all still-open buckets into completed, then balance & emit.
-        for blen, pairs in self._open:
-            if pairs:
-                self._completed.append([blen, pairs])
-        self._open = []
-        if self._completed:
-            yield from self._balance_and_emit()
+        # Nothing can fit this sample.
+        if len(self._buckets) < self.num_buckets:
+            # Cold start: open a new bucket. No yield.
+            self._buckets.append([length, [(item, length)]])
+            return
 
-    # ---- Phase 2 + 3: balance and yield ---------------------------------
-    def _balance_and_emit(self) -> Iterator[List[Any]]:
-        sums: List[int] = [c[0] for c in self._completed]
-        packs: List[List[Tuple[Any, int]]] = [c[1] for c in self._completed]
-        self._completed = []
-
+        # All num_buckets slots are taken AND none can accept the sample.
+        # Balance everything, evict the oldest, open a fresh bucket.
+        sums = [b[0] for b in self._buckets]
+        packs = [b[1] for b in self._buckets]
         if len(packs) >= 2:
             self._balance(packs, sums)
+        # After balancing, write back so the remaining buckets see the
+        # updated contents on the next add.
+        for i, (s, p) in enumerate(zip(sums, packs)):
+            self._buckets[i] = [s, p]
 
-        for pairs in packs:
+        oldest = self._buckets.pop(0)
+        yield [it for it, _ in oldest[1]]
+
+        self._buckets.append([length, [(item, length)]])
+
+    def flush(self) -> Iterator[List[Any]]:
+        if len(self._buckets) >= 2:
+            sums = [b[0] for b in self._buckets]
+            packs = [b[1] for b in self._buckets]
+            self._balance(packs, sums)
+            self._buckets = [[s, p] for s, p in zip(sums, packs)]
+
+        for _, pairs in self._buckets:
             if pairs:
-                yield [item for item, _ in pairs]
+                yield [it for it, _ in pairs]
+        self._buckets = []
 
     def _balance(
         self,
         packs: List[List[Tuple[Any, int]]],
         sums: List[int],
     ) -> None:
-        """Swap-based local search to reduce length variance.
+        """Swap-based local search to reduce length variance across packs.
 
         Each iteration picks the (max, min) pair and tries:
         1. A one-way move from max -> min that strictly shrinks the gap.
