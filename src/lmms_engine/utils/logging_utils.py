@@ -1,9 +1,19 @@
+import logging as _stdlib_logging
 from contextlib import redirect_stdout
 from typing import Any, Dict
 
 import torch.distributed as dist
 from loguru import logger
 from rich.logging import RichHandler
+
+# Third-party loggers that emit too-verbose warnings during multimodal data
+# loading (e.g. decord/torchvision fallback noise on every video). These are
+# silenced at startup by ``setup_distributed_logging`` to keep training logs
+# readable.
+_NOISY_LOGGERS = (
+    "qwen_vl_utils",
+    "qwen_vl_utils.vision_process",
+)
 
 
 def distributed_filter(record: Dict[str, Any]) -> bool:
@@ -31,6 +41,12 @@ def setup_distributed_logging():
         filter=distributed_filter,
         level="DEBUG",
     )
+
+    # Silence noisy third-party loggers (e.g. qwen_vl_utils warns on every
+    # video decode fallback). These warnings flood the log without being
+    # actionable.
+    for name in _NOISY_LOGGERS:
+        _stdlib_logging.getLogger(name).setLevel(_stdlib_logging.ERROR)
 
 
 class Logging:
