@@ -3,7 +3,7 @@ import random
 from copy import deepcopy
 from io import BytesIO
 from multiprocessing import cpu_count
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import librosa
 import numpy as np
@@ -100,7 +100,13 @@ class MultiModalDataLoadingMixin:
             audio = librosa.load(audio_path, sr=sr)[0]
         return audio
 
-    def load_videos(self, video_path: str, data_folder=None, fps: int = 1) -> Tuple[np.ndarray, float]:
+    def load_videos(
+        self,
+        video_path: str,
+        data_folder=None,
+        fps: int = 1,
+        video_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[np.ndarray, float]:
         """
         Load video from file path or object storage.
 
@@ -108,6 +114,10 @@ class MultiModalDataLoadingMixin:
             video_path: Path to the video file
             data_folder: Optional folder path to prepend
             fps: Target frames per second
+            video_kwargs: Optional extra fields forwarded to the underlying
+                video backend (e.g. ``video_start`` / ``video_end`` for
+                ``qwen_vl_utils.fetch_video``). Backends that don't support a
+                given key silently ignore it.
 
         Returns:
             Tuple of (video frames, sample fps)
@@ -131,7 +141,7 @@ class MultiModalDataLoadingMixin:
         if self.config.video_backend == "decord":
             return self.load_video_decord(video_path, fps)
         elif self.config.video_backend == "qwen_vl_utils":
-            return self.load_video_qwen_vl_utils(video_path, fps)
+            return self.load_video_qwen_vl_utils(video_path, fps, video_kwargs=video_kwargs)
         elif self.config.video_backend == "qwen_omni_utils":
             return self.load_video_qwen_omni_utils(video_path, fps)
         else:
@@ -177,6 +187,7 @@ class MultiModalDataLoadingMixin:
         self,
         video_path: str,
         fps: int,
+        video_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Tuple[np.ndarray, float]:
         """
         Load video using Qwen VL utils.
@@ -184,6 +195,8 @@ class MultiModalDataLoadingMixin:
         Args:
             video_path: Path to video file
             fps: Target frames per second
+            video_kwargs: Optional extra ele fields forwarded to ``fetch_video``
+                (e.g. ``video_start`` / ``video_end`` for sub-clip seek).
 
         Returns:
             Tuple of (video frames, sample fps)
@@ -196,6 +209,8 @@ class MultiModalDataLoadingMixin:
             "max_frames": self.config.video_max_frames,
             "min_pixels": self.config.video_min_pixels,
         }
+        if video_kwargs:
+            video_dict.update(video_kwargs)
 
         if self.config.video_sampling_strategy == "frame_num":
             is_even = self.config.frame_num % 2 == 0

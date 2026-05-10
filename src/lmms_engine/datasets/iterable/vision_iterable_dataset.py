@@ -38,10 +38,13 @@ class VisionSFTIterableDataset(MultiModalIterableDataset):
                 if content["type"] == "image_url":
                     images_list.append(content["image_url"]["url"])
                 elif content["type"] == "video_url":
+                    video_url = content["video_url"]
+                    extra = {k: v for k, v in video_url.items() if k != "url" and v is not None}
                     frames, sample_fps = self.load_videos(
-                        content["video_url"]["url"],
+                        video_url["url"],
                         data_folder=data_folder,
                         fps=self.config.fps,
+                        video_kwargs=extra or None,
                     )
                     videos.append(frames)
                     kwargs["fps"] = sample_fps
@@ -73,10 +76,13 @@ class VisionSFTIterableDataset(MultiModalIterableDataset):
                     images_list.append(content["image_url"]["url"])
                 elif content["type"] == "video_url":
                     # Loading videos with fps
+                    video_url = content["video_url"]
+                    extra = {k: v for k, v in video_url.items() if k != "url" and v is not None}
                     frames, sample_fps = self.load_videos(
-                        content["video_url"]["url"],
+                        video_url["url"],
                         data_folder=data_folder,
                         fps=self.config.fps,
+                        video_kwargs=extra or None,
                     )
                     videos.append(frames)
                     # Update kwargs
