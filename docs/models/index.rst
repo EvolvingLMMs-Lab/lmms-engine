@@ -13,6 +13,7 @@ Documentation for available models and model architectures.
    qwen2_5_omni
    qwen3_vl_moe
    qwen3_moe
+   qwen3_5
    qwen3_omni_moe
    wanvideo
    fla_models
