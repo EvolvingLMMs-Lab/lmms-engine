@@ -1,12 +1,14 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
-from transformers.cache_utils import Cache
+import torch.nn.functional as F
+from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.qwen3_5.modeling_qwen3_5 import (
     Qwen3_5Attention,
     Qwen3_5DecoderLayer,
-    Qwen3_5DynamicCache,
+    Qwen3_5GatedDeltaNet,
     Qwen3_5TextModel,
+    apply_mask_to_padding_states,
     apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available, logging
@@ -29,6 +31,145 @@ logger = logging.get_logger(__name__)
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis, rearrange
+
+try:
+    from causal_conv1d import causal_conv1d_fn
+
+    _HAS_CAUSAL_CONV1D = True
+except ImportError:
+    causal_conv1d_fn = None
+    _HAS_CAUSAL_CONV1D = False
+
+try:
+    from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+
+    _HAS_FLA = True
+except ImportError:
+    chunk_gated_delta_rule = None
+    _HAS_FLA = False
+
+
+def _seq_idx_from_cu_seqlens(cu_seqlens: torch.Tensor, total_tokens: int) -> torch.Tensor:
+    """Build per-token sample index (int32) from cumulative seqlens.
+
+    cu_seqlens shape ``[N+1]``; returns shape ``[1, total_tokens]`` int32 with
+    each token labelled by its sample id, as required by ``causal_conv1d_fn``.
+    """
+    lens = torch.diff(cu_seqlens.to(torch.long))
+    seq_idx = torch.repeat_interleave(
+        torch.arange(lens.numel(), device=cu_seqlens.device, dtype=torch.int32),
+        lens,
+    )
+    # Pad / truncate defensively in case cu_seqlens didn't end exactly at total_tokens
+    if seq_idx.numel() != total_tokens:
+        if seq_idx.numel() < total_tokens:
+            pad = total_tokens - seq_idx.numel()
+            seq_idx = torch.cat(
+                [seq_idx, torch.full((pad,), seq_idx[-1].item() + 1, device=seq_idx.device, dtype=torch.int32)]
+            )
+        else:
+            seq_idx = seq_idx[:total_tokens]
+    return seq_idx.unsqueeze(0).contiguous()
+
+
+def linear_attn_forward(
+    self: Qwen3_5GatedDeltaNet,
+    hidden_states: torch.Tensor,
+    cache_params: Optional[Cache] = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    cu_seq_lens: Optional[torch.Tensor] = None,
+    **kwargs,  # absorb e.g. cache_position passed by upstream decoder layer
+) -> torch.Tensor:
+    """Packed/varlen ``Qwen3_5GatedDeltaNet.forward``.
+
+    This patch is only installed when ``use_rmpad=True``, so we always go
+    through the packed path. ``cu_seq_lens`` must be provided.
+
+    * ``causal_conv1d_fn(..., seq_idx=...)`` if causal_conv1d is installed,
+      otherwise ``nn.Conv1d`` (leaks up to ``conv_kernel_size - 1`` tokens
+      across sample boundaries — accepted as a soft compromise).
+    * ``fla.ops.gated_delta_rule.chunk_gated_delta_rule(..., cu_seqlens=...)``
+      so the recurrent state resets per sample. fla is required.
+    """
+    assert cu_seq_lens is not None, "linear_attn_forward requires cu_seq_lens (rmpad must be on)"
+    if not _HAS_FLA:
+        raise RuntimeError(
+            "Packed linear attention requires `fla` (flash-linear-attention). "
+            "Install it via `pip install flash-linear-attention`."
+        )
+
+    hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
+    batch_size, seq_len, _ = hidden_states.shape
+    assert batch_size == 1, (
+        f"packed linear_attn_forward expects batch_size=1, got {batch_size}. "
+        "Caller must squeeze rmpad inputs to (1, total_tokens, hidden)."
+    )
+
+    seq_idx = _seq_idx_from_cu_seqlens(cu_seq_lens, total_tokens=seq_len)
+
+    mixed_qkv = self.in_proj_qkv(hidden_states)
+    mixed_qkv = mixed_qkv.transpose(1, 2)  # (B, conv_dim, T)
+
+    z = self.in_proj_z(hidden_states)
+    z = z.reshape(batch_size, seq_len, -1, self.head_v_dim)
+
+    b = self.in_proj_b(hidden_states)
+    a = self.in_proj_a(hidden_states)
+
+    if _HAS_CAUSAL_CONV1D:
+        mixed_qkv = causal_conv1d_fn(
+            x=mixed_qkv,
+            weight=self.conv1d.weight.squeeze(1),
+            bias=self.conv1d.bias,
+            activation=self.activation,
+            seq_idx=seq_idx,
+        )
+    else:
+        # Fallback: plain nn.Conv1d. Leaks up to (kernel-1) tokens across
+        # sample boundaries. Accepted to avoid the causal_conv1d build dep.
+        logger.warning_once(
+            f"Packed linear attention without causal_conv1d_fn; up to "
+            f"{self.conv_kernel_size - 1} tokens will leak across sample "
+            f"boundaries in the input conv. Install causal_conv1d to avoid."
+        )
+        mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
+
+    mixed_qkv = mixed_qkv.transpose(1, 2)
+    query, key, value = torch.split(
+        mixed_qkv,
+        [self.key_dim, self.key_dim, self.value_dim],
+        dim=-1,
+    )
+
+    query = query.reshape(batch_size, seq_len, -1, self.head_k_dim)
+    key = key.reshape(batch_size, seq_len, -1, self.head_k_dim)
+    value = value.reshape(batch_size, seq_len, -1, self.head_v_dim)
+
+    beta = b.sigmoid()
+    # If the model is loaded in fp16, without the .float() here, A might be -inf
+    g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
+    if self.num_v_heads // self.num_k_heads > 1:
+        query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
+        key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
+
+    core_attn_out, _ = chunk_gated_delta_rule(
+        query,
+        key,
+        value,
+        g=g,
+        beta=beta,
+        initial_state=None,
+        output_final_state=False,
+        use_qk_l2norm_in_kernel=True,
+        cu_seqlens=cu_seq_lens.to(torch.long),
+    )
+
+    core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
+    z = z.reshape(-1, self.head_v_dim)
+    core_attn_out = self.norm(core_attn_out, z)
+    core_attn_out = core_attn_out.reshape(batch_size, seq_len, -1)
+
+    return self.out_proj(core_attn_out)
 
 
 def model_forward(
@@ -69,7 +210,7 @@ def model_forward(
         inputs_embeds = self.embed_tokens(input_ids)
 
     if use_cache and past_key_values is None:
-        past_key_values = Qwen3_5DynamicCache(config=self.config)
+        past_key_values = DynamicCache(config=self.config)
 
     if cache_position is None:
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
@@ -163,6 +304,7 @@ def decoder_layer_forward(
             cache_params=past_key_values,
             cache_position=cache_position,
             attention_mask=None,
+            cu_seq_lens=cu_seq_lens,
         )
         if needs_squeeze:
             hidden_states = hidden_states.squeeze(0)

@@ -62,11 +62,13 @@ def apply_liger_kernel_to_qwen3_5(
         from .qwen3_5_ops import (
             decoder_layer_forward as qwen3_5_ops_decoder_layer_forward,
         )
+        from .qwen3_5_ops import linear_attn_forward as qwen3_5_ops_linear_attn_forward
         from .qwen3_5_ops import model_forward as qwen3_5_ops_model_forward
 
         modeling_qwen3_5.Qwen3_5TextModel.forward = qwen3_5_ops_model_forward
         modeling_qwen3_5.Qwen3_5DecoderLayer.forward = qwen3_5_ops_decoder_layer_forward
         modeling_qwen3_5.Qwen3_5Attention.forward = qwen3_5_ops_attn_forward
+        modeling_qwen3_5.Qwen3_5GatedDeltaNet.forward = qwen3_5_ops_linear_attn_forward
 
     if model is not None:
         from transformers.models.qwen3_5.modeling_qwen3_5 import (
