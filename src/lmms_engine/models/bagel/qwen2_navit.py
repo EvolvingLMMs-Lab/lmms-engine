@@ -16,7 +16,11 @@ from functools import partial
 from typing import List, Optional, Tuple
 
 import torch
-from flash_attn import flash_attn_varlen_func
+
+try:
+    from flash_attn import flash_attn_varlen_func
+except ImportError:
+    flash_attn_varlen_func = None
 from torch import nn
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch.nn.attention.flex_attention import flex_attention

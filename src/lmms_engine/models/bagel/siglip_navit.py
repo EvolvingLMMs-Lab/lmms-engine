@@ -11,7 +11,11 @@
 # This modified file is released under the same license.
 
 import torch
-from flash_attn import flash_attn_varlen_func
+
+try:
+    from flash_attn import flash_attn_varlen_func
+except ImportError:
+    flash_attn_varlen_func = None
 from torch import nn
 from transformers.activations import ACT2FN
 
