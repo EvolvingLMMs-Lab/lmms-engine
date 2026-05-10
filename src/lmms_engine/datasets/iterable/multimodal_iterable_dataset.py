@@ -171,7 +171,7 @@ class MultiModalIterableDataset(BaseIterableDataset, MultiModalDataLoadingMixin)
             packing_length = self.config.packing_length
             packing_kwargs = self.config.extra_kwargs.get("packing_kwargs", {})
             packer = build_online_packer(
-                self.config.packing_strategy or "next_fit",
+                self.config.packing_strategy or "first_fit",
                 packing_length,
                 **packing_kwargs,
             )

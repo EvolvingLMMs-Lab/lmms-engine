@@ -5,8 +5,8 @@ from typing import Any, Iterator, List, Tuple
 from .base import OnlinePackingStrategy
 
 
-class NextFitPacking(OnlinePackingStrategy):
-    """Single-buffer next-fit packing.
+class FirstFitPacking(OnlinePackingStrategy):
+    """Single-buffer first-fit packing.
 
     Behaviorally equivalent to the original logic in
     ``MultiModalIterableDataset.__iter__``: maintain one open buffer; whenever

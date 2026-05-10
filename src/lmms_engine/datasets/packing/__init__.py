@@ -5,10 +5,10 @@ by map-style datasets will be migrated here later.
 """
 
 from .base import OnlinePackingStrategy
-from .online import BalancedPacking, BestFitPacking, NextFitPacking
+from .online import BalancedPacking, BestFitPacking, FirstFitPacking
 
 _ONLINE_REGISTRY = {
-    "next_fit": NextFitPacking,
+    "first_fit": FirstFitPacking,
     "best_fit": BestFitPacking,
     "balanced": BalancedPacking,
 }
@@ -18,7 +18,7 @@ def build_online_packer(strategy: str, packing_length: int, **kwargs) -> OnlineP
     """Construct an online packer by name.
 
     Args:
-        strategy: Strategy name. One of ``"next_fit"``, ``"best_fit"``,
+        strategy: Strategy name. One of ``"first_fit"``, ``"best_fit"``,
             ``"balanced"``.
         packing_length: Per-pack token budget.
         **kwargs: Forwarded to the concrete strategy's constructor.
@@ -30,7 +30,7 @@ def build_online_packer(strategy: str, packing_length: int, **kwargs) -> OnlineP
 
 __all__ = [
     "OnlinePackingStrategy",
-    "NextFitPacking",
+    "FirstFitPacking",
     "BestFitPacking",
     "BalancedPacking",
     "build_online_packer",
