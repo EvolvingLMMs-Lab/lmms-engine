@@ -1,166 +1,91 @@
+# Qwen3.5 VL training example
+#
+# IMPORTANT: ``Qwen3.5`` registers under both ``AutoModelForCausalLM`` and
+# ``AutoModelForImageTextToText``. The default load path picks the causal-LM
+# class (text-only), which would silently train only the text tower.
+# Set ``model_general_type: image_text_to_text`` to force the VL stack
+# (``Qwen3_5ForConditionalGeneration``).
+#
+# See ``docs/models/qwen3_5.md`` for the full notes (Liger RoPE caveat,
+# linear-attention SP status, etc.) and
+# ``docs/user_guide/vit_frame_parallel.md`` for the ViT frame parallel design.
+
 trainer_type: fsdp2_trainer
+
 dataset_config:
-  extra_kwargs: {}
   dataset_type: qwen3_vl_iterable
   dataset_format: yaml
-  processor_config:
-    processor_name: Qwen/Qwen3-VL-8B-Instruct
-    processor_type: qwen3_vl
   dataset_path: data/video/debug.yaml
-  datasets: null
+  processor_config:
+    processor_name: Qwen/Qwen3.5-4B
+    processor_type: qwen3_vl                # qwen3_vl processor is reused for qwen3.5
+    extra_kwargs:
+      video_max_pixels: 360448
+      video_min_pixels: 28800
+      image_max_pixels: 360448
+      image_min_pixels: 28800
   shuffle: true
-  eval_dataset_path: null
   object_storage: none
-  bucket_name: null
-  packing: false
-  packing_strategy: first_fit
-  packing_length: 51200
+  packing: true
+  packing_strategy: balanced
+  packing_length: 32768
   filter_overlong: true
   filter_overlong_workers: 8
-  max_length: null
   video_sampling_strategy: fps
-  video_max_pixels: 50176
-  video_max_frames: 512
-  frame_num: 64
+  video_max_pixels: 360448
+  video_max_frames: 64
+  frame_num: 32
   fps: 1
   video_backend: qwen_vl_utils
+  extra_kwargs:
+    packing_kwargs:
+      num_buckets: 2
+
 trainer_args:
   output_dir: ./output/qwen3_5_training
-  do_train: false
+  do_train: true
   do_eval: false
-  do_predict: false
-  eval_strategy: 'no'
-  prediction_loss_only: false
   per_device_train_batch_size: 1
-  per_device_eval_batch_size: 8
   gradient_accumulation_steps: 1
-  eval_accumulation_steps: null
-  eval_delay: 0
-  torch_empty_cache_steps: null
-  learning_rate: 0.0002
-  weight_decay: 0.0
-  adam_beta1: 0.9
-  adam_beta2: 0.999
-  adam_epsilon: 1.0e-08
-  max_grad_norm: 1.0
+  learning_rate: 1.0e-05
   num_train_epochs: 1
   max_steps: 1000
   lr_scheduler_type: cosine
-  lr_scheduler_kwargs: {}
-  warmup_ratio: 0.1
-  warmup_steps: 0
-  log_level: passive
-  log_level_replica: warning
-  log_on_each_node: true
-  logging_dir: ./output/qwen3_5_training/runs
-  logging_strategy: steps
-  logging_first_step: false
+  warmup_ratio: 0.03
   logging_steps: 1
-  logging_nan_inf_filter: true
   save_strategy: steps
-  save_steps: 1000
+  save_steps: 500
   save_total_limit: 1
-  save_on_each_node: false
-  save_only_model: false
-  restore_callback_states_from_checkpoint: false
-  use_cpu: false
-  seed: 42
-  data_seed: null
   bf16: true
-  fp16: false
-  bf16_full_eval: false
-  fp16_full_eval: false
-  tf32: null
-  local_rank: 0
-  ddp_backend: null
-  debug: []
-  dataloader_drop_last: false
-  eval_steps: null
-  dataloader_num_workers: 0
-  dataloader_prefetch_factor: null
-  run_name: qwen3_5_debug
-  disable_tqdm: false
-  remove_unused_columns: true
-  label_names: null
-  load_best_model_at_end: false
-  metric_for_best_model: null
-  greater_is_better: null
-  ignore_data_skip: false
-  fsdp: []
-  fsdp_config:
-    transformer_layer_cls_to_wrap:
-    - Qwen3_5DecoderLayer
-    reshard_after_forward: false
-    min_num_params: 0
-    xla: false
-    xla_fsdp_v2: false
-    xla_fsdp_grad_ckpt: false
-  accelerator_config:
-    split_batches: false
-    dispatch_batches: null
-    even_batches: true
-    use_seedable_sampler: true
-    non_blocking: false
-    gradient_accumulation_kwargs: null
-  parallelism_config: null
-  deepspeed: null
-  label_smoothing_factor: 0.0
-  optim: adamw_torch_fused
-  optim_args: null
-  length_column_name: length
-  report_to: []
-  project: huggingface
-  trackio_space_id: trackio
-  ddp_find_unused_parameters: null
-  ddp_bucket_cap_mb: null
-  ddp_broadcast_buffers: null
-  dataloader_pin_memory: true
-  dataloader_persistent_workers: false
-  skip_memory_metrics: true
-  push_to_hub: false
-  resume_from_checkpoint: null
-  hub_model_id: null
-  hub_strategy: every_save
-  hub_token: <HUB_TOKEN>
-  hub_private_repo: null
-  hub_always_push: false
-  hub_revision: null
+  tf32: true
+  dataloader_drop_last: true
+  dataloader_num_workers: 4
+  dataloader_prefetch_factor: 2
+  remove_unused_columns: false
   gradient_checkpointing: true
-  gradient_checkpointing_kwargs: null
-  include_for_metrics: []
-  eval_do_concat_batches: true
-  auto_find_batch_size: false
-  full_determinism: false
-  ddp_timeout: 1800
-  torch_compile: false
-  torch_compile_backend: null
-  torch_compile_mode: null
-  include_num_input_tokens_seen: 'no'
-  neftune_noise_alpha: null
-  optim_target_modules: null
-  batch_eval_metrics: false
-  eval_on_start: false
   use_liger_kernel: true
-  liger_kernel_config: null
-  eval_use_gather_object: false
-  average_tokens_across_devices: true
-  use_muon: false
-  freeze_modules: null
   use_rmpad: true
   fsdp2: true
-  sp_ulysses_degree: 1
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+      - Qwen3_5DecoderLayer
+    reshard_after_forward: false
+    min_num_params: 0
+  sp_ulysses_degree: 1                      # MUST stay 1: SP on linear attention is currently broken
   reduce_dtype: bfloat16
   output_dtype: bfloat16
-  print_batch_input_steps: 5
-  enable_profiler: false
-  profiler_config:
-    start_step: 1
-    end_step: 3
+  optim: adamw_torch_fused
+  seed: 42
+  run_name: qwen3_5_training
+
 model_config:
-  extra_kwargs: {}
-  load_from_pretrained_path: Qwen/Qwen3.5-VL-8B-Instruct
-  load_from_config: null
+  load_from_pretrained_path: Qwen/Qwen3.5-4B
   attn_implementation: flash_attention_2
-  overwrite_config: null
-  monkey_patch_kwargs: null
-extra_kwargs: null
+  torch_dtype: bfloat16
+  # REQUIRED for VL training. Without this the loader picks the causal-LM head.
+  model_general_type: image_text_to_text
+  monkey_patch_kwargs:
+    # Add "vit_frame_parallel" if per-sample frame counts are skewed across DP
+    # ranks (typical for video + image mixed batches). See
+    # docs/user_guide/vit_frame_parallel.md.
+    patch_type: ["liger"]

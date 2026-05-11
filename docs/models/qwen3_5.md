@@ -13,9 +13,40 @@ between standard softmax attention and a linear-attention block backed by
 |---------|---------|
 | **FSDP2** | ✅ |
 | **USP / Ulysses SP** | ⚠️ broken on linear-attention layers — see below |
-| **Liger Kernel** | ✅ |
+| **Liger Kernel** | ✅ (Liger RoPE intentionally disabled — see below) |
 | **Packing (rmpad)** | ✅ |
+| **VL stack (`Qwen3_5ForConditionalGeneration`)** | ✅ — requires `model_general_type` override (see below) |
+| **ViT frame parallel** | ✅ — see [`vit_frame_parallel`](../user_guide/vit_frame_parallel.md) |
 | **causal_conv1d fast path** | ✅ optional, ~4× warmup speedup |
+
+## Choosing the model class (`model_general_type`)
+
+The Qwen3.5 `AutoConfig` registers under **both** auto-classes:
+
+- `AutoModelForCausalLM` → `Qwen3_5ForCausalLM` (text-only, `model_type="qwen3_5_text"`)
+- `AutoModelForImageTextToText` → `Qwen3_5ForConditionalGeneration` (VL, `model_type="qwen3_5"`)
+
+By default `from_pretrained` resolves to the causal-LM class, which means you
+would silently train only the text tower. For VL training, **explicitly set
+`model_general_type: image_text_to_text`** so the engine routes the load
+through the right auto-class:
+
+```yaml
+model_config:
+  load_from_pretrained_path: Qwen/Qwen3.5-4B
+  attn_implementation: flash_attention_2
+  model_general_type: image_text_to_text   # force the VL stack
+```
+
+For text-only training (or starting from the text-only checkpoint), set
+`model_general_type: causal_lm` or omit the field.
+
+## Liger Kernel notes
+
+Liger is fully supported except for `rope`, which is **not yet available for
+Qwen3.5** due to the hybrid attention layout (Gated DeltaNet + Gated
+Attention). The patch raises `NotImplementedError` if `rope=True` is forced.
+RMSNorm, SwiGLU, and fused linear cross-entropy are all on by default.
 
 ## Packed Linear Attention
 
@@ -85,22 +116,25 @@ Tracking work separately.
 
 ## Quick Start
 
-Example training config (FSDP2, packed, no SP):
+Example training config (FSDP2, packed, VL stack, no SP):
 
 ```yaml
 trainer_type: fsdp2_trainer
 
 dataset_config:
-  dataset_type: vision_iterable
+  dataset_type: qwen3_vl_iterable
   processor_config:
-    processor_name: "Qwen/Qwen3.5-0.8B"
+    processor_name: "Qwen/Qwen3.5-4B"
     processor_type: qwen3_vl       # qwen3_vl processor is reused for qwen3.5
   packing: true
-  packing_length: 16384
+  packing_length: 32768
 
 model_config:
-  load_from_pretrained_path: "Qwen/Qwen3.5-0.8B"
+  load_from_pretrained_path: "Qwen/Qwen3.5-4B"
   attn_implementation: flash_attention_2
+  model_general_type: image_text_to_text   # force the VL stack
+  monkey_patch_kwargs:
+    patch_type: ["liger"]          # add "vit_frame_parallel" if frame counts are skewed
 
 trainer_args:
   use_rmpad: true
