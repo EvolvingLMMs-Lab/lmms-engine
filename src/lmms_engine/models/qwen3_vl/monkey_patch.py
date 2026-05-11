@@ -18,7 +18,10 @@ try:
         _patch_swiglu_module,
     )
     from liger_kernel.transformers.rms_norm import LigerRMSNorm
-    from liger_kernel.transformers.rope import liger_rotary_pos_emb
+    from liger_kernel.transformers.rope import (
+        liger_rotary_pos_emb,
+        liger_rotary_pos_emb_vision,
+    )
     from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 except:
     print("liger kernel not installed, please install it with `pip install liger-kernel`")
@@ -76,6 +79,7 @@ def apply_liger_kernel_to_qwen3_vl(
 
     if rope:
         modeling_qwen3_vl.apply_rotary_pos_emb = liger_rotary_pos_emb
+        modeling_qwen3_vl.apply_rotary_pos_emb_vision = liger_rotary_pos_emb_vision
     if rms_norm:
         modeling_qwen3_vl.Qwen3VLTextRMSNorm = LigerRMSNorm
     if cross_entropy:
@@ -122,7 +126,8 @@ def apply_liger_kernel_to_qwen3_vl(
         _patch_qwen3_vl_rms_norm = partial(_patch_rms_norm_module, offset=0.0, casting_mode="llama")
 
         if text_model is not None:
-            _patch_qwen3_vl_rms_norm(text_model.norm)
+            if rms_norm:
+                _patch_qwen3_vl_rms_norm(text_model.norm)
             for decoder_layer in text_model.layers:
                 if rms_norm:
                     _patch_qwen3_vl_rms_norm(decoder_layer.input_layernorm)
