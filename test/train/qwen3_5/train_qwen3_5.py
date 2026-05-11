@@ -45,6 +45,7 @@ def main():
         "model_config": {
             "load_from_pretrained_path": "Qwen/Qwen3.5-0.8B",
             "attn_implementation": "flash_attention_2",
+            "model_general_type": "image_text_to_text",
         },
         "trainer_args": {
             "per_device_train_batch_size": 1,

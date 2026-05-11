@@ -1,27 +1,38 @@
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
 from transformers.cache_utils import Cache, DynamicCache
+from transformers.modeling_outputs import BaseModelOutputWithPooling
 from transformers.models.qwen3_5.modeling_qwen3_5 import (
     Qwen3_5Attention,
     Qwen3_5DecoderLayer,
     Qwen3_5GatedDeltaNet,
+    Qwen3_5Model,
+)
+from transformers.models.qwen3_5.modeling_qwen3_5 import (
+    Qwen3_5ModelOutputWithPast as HFQwen3_5ModelOutputWithPast,
+)
+from transformers.models.qwen3_5.modeling_qwen3_5 import (
     Qwen3_5TextModel,
+    Qwen3_5VisionPatchEmbed,
     apply_mask_to_padding_states,
     apply_rotary_pos_emb,
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
-from lmms_engine.parallel.sequence_parallel.ulysses import (
-    gather_heads_scatter_seq,
-    gather_seq_scatter_heads,
-    get_ulysses_sequence_parallel_world_size,
-    repeat_kv,
-    slice_input_tensor,
-    ulysses_pad,
-    ulysses_pad_and_slice_inputs,
-)
+from ..common_ops.rope import qwen3_vl_get_rope_index
+
+
+@dataclass
+class Qwen3_5ModelOutputWithPast(HFQwen3_5ModelOutputWithPast):
+    """Extends the upstream output with packed-mode bookkeeping fields used by
+    the patched LCE forward (``seq_lens`` and ``word_idx``)."""
+
+    seq_lens: Optional[torch.IntTensor] = None
+    word_idx: Optional[torch.IntTensor] = None
+
 
 from ..sequence_packing_utils import BaseModelOutputWithPastAndRmpad, _unpad_input
 
@@ -47,6 +58,28 @@ try:
 except ImportError:
     chunk_gated_delta_rule = None
     _HAS_FLA = False
+
+
+def patch_embed_forward(
+    self: Qwen3_5VisionPatchEmbed,
+    hidden_states: torch.Tensor,
+) -> torch.Tensor:
+    """Replacement for ``Qwen3_5VisionPatchEmbed.forward``.
+
+    Mathematically equivalent to the upstream ``Conv3d`` (kernel == stride), but
+    avoids cudnn occasionally falling back to a very slow Conv3d kernel on
+    packed varlen ViT inputs. Done in fp32 for numerical stability, then cast
+    back to the proj weight dtype.
+    """
+    target_dtype = self.proj.weight.dtype
+    proj_weight = self.proj.weight
+    proj_bias = self.proj.bias
+    with torch.amp.autocast(device_type="cuda", enabled=False):
+        hidden_states_fp32 = hidden_states.float()
+        weight_fp32 = proj_weight.view(self.embed_dim, -1).float()
+        bias_fp32 = proj_bias.float() if proj_bias is not None else None
+        hidden_states = F.linear(hidden_states_fp32, weight_fp32, bias_fp32)
+    return hidden_states.to(dtype=target_dtype)
 
 
 def _seq_idx_from_cu_seqlens(cu_seqlens: torch.Tensor, total_tokens: int) -> torch.Tensor:
@@ -172,12 +205,12 @@ def linear_attn_forward(
     return self.out_proj(core_attn_out)
 
 
-def model_forward(
+def text_model_forward(
     self: Qwen3_5TextModel,
-    input_ids: torch.LongTensor = None,
+    input_ids: Optional[torch.LongTensor] = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    past_key_values: Optional[Cache] = None,
     inputs_embeds: Optional[torch.FloatTensor] = None,
     use_cache: Optional[bool] = None,
     cache_position: Optional[torch.LongTensor] = None,
@@ -185,74 +218,59 @@ def model_forward(
     indices: Optional[torch.IntTensor] = None,
     **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPastAndRmpad]:
+    """Packed forward for ``Qwen3_5TextModel``.
+
+    Caller is expected to have already done un-padding (and any SP slicing)
+    upstream — this mirrors the Qwen3-VL design where the parent
+    ``Qwen3_5Model.forward`` does the un-pad and feeds packed tensors here.
+    ``position_ids`` is expected as ``(3, B, packed_seq)`` mrope.
+    """
     if (input_ids is None) ^ (inputs_embeds is not None):
         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-    if cu_seq_lens is None and input_ids is not None:
-        original_inputs = input_ids
-        input_ids, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(input_ids, attention_mask)
-        if get_ulysses_sequence_parallel_world_size() > 1:
-            input_ids_rmpad = input_ids.unsqueeze(0)
-            input_ids, _, pad_size = ulysses_pad_and_slice_inputs(
-                input_ids.unsqueeze(0),
-                sp_size=get_ulysses_sequence_parallel_world_size(),
-            )
-            input_ids = input_ids.squeeze(0)
-    elif cu_seq_lens is None and inputs_embeds is not None:
-        original_inputs = inputs_embeds
-        inputs_embeds, indices, cu_seq_lens, max_seqlen_in_batch = _unpad_input(inputs_embeds, attention_mask)
-        if get_ulysses_sequence_parallel_world_size() > 1:
-            input_ids_rmpad = torch.zeros(1, inputs_embeds.shape[0], dtype=torch.long, device=inputs_embeds.device)
-            inputs_embeds = slice_input_tensor(inputs_embeds, dim=0, padding=True)
-    bs, seqlen = original_inputs.shape[:2]
+    if use_cache and past_key_values is None and not torch.jit.is_tracing():
+        past_key_values = DynamicCache(config=self.config)
 
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
 
-    if use_cache and past_key_values is None:
-        past_key_values = DynamicCache(config=self.config)
-
     if cache_position is None:
         past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+        # inputs_embeds is packed 2D ``(total_tokens, hidden)`` here, so use
+        # ``shape[0]`` (NOT ``shape[1]`` — that's hidden_size).
         cache_position = torch.arange(
             past_seen_tokens,
-            past_seen_tokens + seqlen,
+            past_seen_tokens + inputs_embeds.shape[0],
             device=inputs_embeds.device,
         )
 
+    # Qwen3.5 expects 4-component position_ids ``(text, t, h, w)``. Build the
+    # 4-dim layout (mirrors upstream ``Qwen3_5TextModel.forward``):
+    #   * None -> arange expanded to (4, B, S)
+    #   * 2D   -> expand to (4, B, S)
+    #   * 3D shape[0]==3 (true 3-axis mrope) -> prepend a text axis (cumulative
+    #     ``arange`` along packed seq) and stack to (4, B, S)
     if position_ids is None:
-        position_ids = cache_position.unsqueeze(0)
-    position_ids = position_ids.repeat_interleave(bs, dim=0)
-
-    position_ids = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices).transpose(
-        0, 1
-    )
-    original_position_ids = position_ids
-
-    if get_ulysses_sequence_parallel_world_size() > 1:
-        _, position_ids, pad_size = ulysses_pad(
-            input_ids_rmpad,
-            original_position_ids,
-            sp_size=get_ulysses_sequence_parallel_world_size(),
-        )
-
-    # Qwen3.5 uses 4-component position IDs: text + temporal + height + width
-    # For text-only: expand 1D position_ids to 4 components
-    if position_ids.ndim == 2 and position_ids.shape[0] == 1:
-        position_ids = position_ids.expand(4, -1)
+        position_ids = cache_position.view(1, 1, -1).expand(4, 1, -1)
     elif position_ids.ndim == 2:
         position_ids = position_ids[None, ...].expand(4, position_ids.shape[0], -1)
+    elif position_ids.ndim == 3 and position_ids.shape[0] == 3:
+        text_axis = (
+            torch.arange(position_ids.shape[-1], device=position_ids.device, dtype=position_ids.dtype)
+            .view(1, 1, -1)
+            .expand(1, position_ids.shape[1], -1)
+        )
+        position_ids = torch.cat([text_axis, position_ids], dim=0)
 
     if position_ids.ndim == 3 and position_ids.shape[0] == 4:
         text_position_ids = position_ids[0]
-        mrope_position_ids = position_ids[1:]
+        position_ids = position_ids[1:]
     else:
-        text_position_ids = position_ids[0] if position_ids.ndim == 3 else position_ids
-        mrope_position_ids = position_ids
+        text_position_ids = position_ids[0]
 
     hidden_states = inputs_embeds
 
-    position_embeddings = self.rotary_emb(hidden_states, mrope_position_ids)
+    position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
     for layer_idx, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
         hidden_states = decoder_layer(
@@ -355,28 +373,6 @@ def attn_forward(
     value_states = self.v_proj(hidden_states).view(hidden_shape)
     cos, sin = position_embeddings
 
-    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
-    if ulysses_sp_size > 1:
-        assert position_ids is not None, "position_ids is required for Ulysses sequence parallelism"
-
-        repeats = max(ulysses_sp_size // key_states.size(1), 1)
-        key_states = repeat_kv(key_states, repeats)
-        value_states = repeat_kv(value_states, repeats)
-
-        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
-        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
-        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
-
-        if cu_seq_lens is not None:
-            seq_len_tensor = torch.tensor(
-                query_states.shape[0],
-                device=cu_seq_lens.device,
-                dtype=cu_seq_lens.dtype,
-            )
-            needs_append = (cu_seq_lens.max() < seq_len_tensor).item()
-            if needs_append:
-                cu_seq_lens = torch.cat([cu_seq_lens, seq_len_tensor.unsqueeze(0)])
-
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
 
@@ -406,12 +402,120 @@ def attn_forward(
         dropout_p=0.0,
     )
 
-    if ulysses_sp_size > 1:
-        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
-
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     # Apply the gated attention mechanism
     attn_output = attn_output * torch.sigmoid(gate)
     attn_output = self.o_proj(attn_output)
 
     return attn_output, None
+
+
+def model_forward(
+    self: Qwen3_5Model,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[Cache] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    pixel_values: Optional[torch.Tensor] = None,
+    pixel_values_videos: Optional[torch.FloatTensor] = None,
+    image_grid_thw: Optional[torch.LongTensor] = None,
+    video_grid_thw: Optional[torch.LongTensor] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    **kwargs,
+) -> Union[tuple, Qwen3_5ModelOutputWithPast]:
+    """Replacement for ``Qwen3_5Model.forward``.
+
+    Differences from upstream:
+      * Uses ``qwen3_vl_get_rope_index`` instead of
+        ``self.compute_3d_position_ids(..., mm_token_type_ids=...)``, so we
+        don't need the processor to emit ``mm_token_type_ids``.
+      * Does the rmpad un-pad here and feeds packed tensors (with
+        ``cu_seq_lens`` / ``indices``) to the patched
+        ``Qwen3_5TextModel.forward``. Mirrors the Qwen3-VL ops layout.
+    """
+    if (input_ids is None) ^ (inputs_embeds is not None):
+        raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+
+    # ---- un-pad input_ids / inputs_embeds ----
+    if input_ids is not None:
+        original_input_ids = input_ids
+        input_ids, indices, cu_seq_lens, _ = _unpad_input(input_ids, attention_mask=attention_mask)
+        batch_size, seq_length = original_input_ids.shape
+    else:
+        original_input_ids = None
+        original_inputs_embeds = inputs_embeds
+        inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(inputs_embeds, attention_mask=attention_mask)
+        batch_size, seq_length, _ = original_inputs_embeds.shape
+
+    # ---- compute 3D position ids from padded layout, then gather to packed ----
+    if position_ids is None:
+        attention_mask_tensor = (
+            attention_mask if not isinstance(attention_mask, dict) else attention_mask["full_attention"]
+        )
+        if attention_mask_tensor is not None and attention_mask_tensor.ndim == 4:
+            attention_mask_tensor = torch.diagonal(attention_mask_tensor[:, 0], dim1=1, dim2=2)
+            if attention_mask_tensor.dtype.is_floating_point:
+                attention_mask_tensor = attention_mask_tensor / torch.finfo(attention_mask_tensor.dtype).min
+                attention_mask_tensor = (1.0 - attention_mask_tensor).int()
+
+        position_ids, rope_deltas = qwen3_vl_get_rope_index(
+            self,
+            original_input_ids,
+            image_grid_thw,
+            video_grid_thw,
+            attention_mask=attention_mask_tensor,
+        )
+        self.rope_deltas = rope_deltas
+
+    # position_ids: (c, B, S) -> packed (c, 1, total_tokens)
+    position_ids = (
+        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
+    )
+
+    if inputs_embeds is None:
+        inputs_embeds = self.get_input_embeddings()(input_ids)
+
+    # ---- visual feature injection (still on packed inputs_embeds) ----
+    if pixel_values is not None:
+        image_outputs: BaseModelOutputWithPooling = self.get_image_features(
+            pixel_values, image_grid_thw, return_dict=True
+        )
+        image_embeds = image_outputs.pooler_output
+        image_embeds = torch.cat(image_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+        image_mask, _ = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, image_features=image_embeds)
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask, image_embeds)
+
+    if pixel_values_videos is not None:
+        video_outputs: BaseModelOutputWithPooling = self.get_video_features(
+            pixel_values_videos, video_grid_thw, return_dict=True
+        )
+        video_embeds = video_outputs.pooler_output
+        video_embeds = torch.cat(video_embeds, dim=0).to(inputs_embeds.device, inputs_embeds.dtype)
+        _, video_mask = self.get_placeholder_mask(input_ids, inputs_embeds=inputs_embeds, video_features=video_embeds)
+        inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
+
+    # `cu_seq_lens` / `indices` may already be in **kwargs from the collator
+    # (we compute fresh ones from attention_mask); drop them to avoid duplicate kwargs.
+    kwargs.pop("cu_seq_lens", None)
+    kwargs.pop("indices", None)
+
+    outputs = self.language_model(
+        input_ids=None,
+        position_ids=position_ids,
+        attention_mask=attention_mask,
+        past_key_values=past_key_values,
+        inputs_embeds=inputs_embeds,
+        cache_position=cache_position,
+        indices=indices,
+        cu_seq_lens=cu_seq_lens,
+        **kwargs,
+    )
+
+    return Qwen3_5ModelOutputWithPast(
+        last_hidden_state=outputs.last_hidden_state,
+        past_key_values=outputs.past_key_values,
+        rope_deltas=self.rope_deltas,
+        seq_lens=cu_seq_lens,
+        word_idx=indices,
+    )

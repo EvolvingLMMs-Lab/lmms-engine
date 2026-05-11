@@ -48,6 +48,11 @@ def qwen3_5_lce_forward(
     )
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+    # When loaded as the VL stack (`Qwen3_5ForConditionalGeneration`) ``self.config``
+    # is the top-level ``Qwen3_5Config`` which doesn't expose ``hidden_size`` /
+    # ``vocab_size`` directly — those live on ``text_config``. Resolve once up front.
+    text_cfg = getattr(self.config, "text_config", None) or self.config
+
     outputs = self.model(
         input_ids=input_ids,
         attention_mask=attention_mask,
@@ -93,7 +98,7 @@ def qwen3_5_lce_forward(
             shift_hidden_states = hidden_states[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
 
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_hidden_states = shift_hidden_states.view(-1, text_cfg.hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in loss_kwargs else "mean"
@@ -119,7 +124,7 @@ def qwen3_5_lce_forward(
             loss = self.loss_function(
                 logits=logits,
                 labels=labels,
-                vocab_size=self.config.vocab_size,
+                vocab_size=text_cfg.vocab_size,
                 **loss_kwargs,
             )
 
