@@ -67,7 +67,10 @@ class TrainRunner:
         load_from_config = self.model_config.load_from_config
         model_kwargs = self.model_config.extra_kwargs
         if load_from_pretrained_path is not None:
-            model_class = create_model_from_pretrained(load_from_pretrained_path)
+            model_class = create_model_from_pretrained(
+                load_from_pretrained_path,
+                model_general_type=self.model_config.model_general_type,
+            )
             model = model_class.from_pretrained(
                 load_from_pretrained_path,
                 attn_implementation=self.model_config.attn_implementation,

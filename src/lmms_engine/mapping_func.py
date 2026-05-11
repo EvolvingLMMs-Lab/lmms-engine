@@ -61,9 +61,28 @@ def register_model(
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
 
-def create_model_from_pretrained(load_from_pretrained_path):
+def create_model_from_pretrained(load_from_pretrained_path, model_general_type: str | None = None):
+    """Pick an HF Auto* class for ``load_from_pretrained_path``.
+
+    Args:
+        load_from_pretrained_path: HF hub id or local path.
+        model_general_type: Optional override; one of the keys in
+            ``AUTO_REGISTER_MODEL_MAPPING`` (``"causal_lm"``,
+            ``"image_text_to_text"``, ``"masked_lm"``, ``"general"``). Use it
+            to disambiguate when the same config is registered under multiple
+            AutoModel mappings (e.g. Qwen3.5 registers under both
+            ``causal_lm`` and ``image_text_to_text``).
+    """
     # Handle both config object and model name/path
     config = AutoConfig.from_pretrained(load_from_pretrained_path)
+
+    if model_general_type is not None:
+        if model_general_type not in AUTO_REGISTER_MODEL_MAPPING:
+            raise ValueError(
+                f"Unknown model_general_type={model_general_type!r}; "
+                f"choose one of {list(AUTO_REGISTER_MODEL_MAPPING)}"
+            )
+        return AUTO_REGISTER_MODEL_MAPPING[model_general_type]
 
     if type(config) in AutoModelForCausalLM._model_mapping.keys():
         model_class = AutoModelForCausalLM
