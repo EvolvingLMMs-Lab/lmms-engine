@@ -40,6 +40,12 @@ class MonkeyPatcher:
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
             )
             return
+        if patch_type not in self._dict[model_type]:
+            logger.info(
+                f"Patch type {patch_type!r} not registered for model type {model_type!r}; skipping. "
+                f"Available patch types: {list(self._dict[model_type].keys())}"
+            )
+            return
 
         apply_fn = self._dict[model_type][patch_type]
         apply_fn_signature = inspect.signature(apply_fn)
@@ -66,6 +72,12 @@ class MonkeyPatcher:
         if model_type not in self._dict.keys():
             logger.info(
                 f"There are currently no patches supported for model type: {model_type} with patch type: {patch_type}. Available model types: {self._dict.keys()}"
+            )
+            return
+        if patch_type not in self._dict[model_type]:
+            logger.info(
+                f"Patch type {patch_type!r} not registered for model type {model_type!r}; skipping. "
+                f"Available patch types: {list(self._dict[model_type].keys())}"
             )
             return
 
