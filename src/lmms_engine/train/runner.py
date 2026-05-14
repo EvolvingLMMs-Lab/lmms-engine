@@ -70,6 +70,7 @@ class TrainRunner:
             model_class = create_model_from_pretrained(
                 load_from_pretrained_path,
                 model_general_type=self.model_config.model_general_type,
+                trust_remote_code=bool(model_kwargs.get("trust_remote_code", False)),
             )
             model = model_class.from_pretrained(
                 load_from_pretrained_path,

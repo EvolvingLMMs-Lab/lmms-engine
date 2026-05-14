@@ -61,7 +61,11 @@ def register_model(
     AUTO_REGISTER_MODEL_MAPPING[model_general_type].register(model_config, model_class)
 
 
-def create_model_from_pretrained(load_from_pretrained_path, model_general_type: str | None = None):
+def create_model_from_pretrained(
+    load_from_pretrained_path,
+    model_general_type: str | None = None,
+    trust_remote_code: bool = False,
+):
     """Pick an HF Auto* class for ``load_from_pretrained_path``.
 
     Args:
@@ -72,9 +76,11 @@ def create_model_from_pretrained(load_from_pretrained_path, model_general_type: 
             to disambiguate when the same config is registered under multiple
             AutoModel mappings (e.g. Qwen3.5 registers under both
             ``causal_lm`` and ``image_text_to_text``).
+        trust_remote_code: forwarded to ``AutoConfig.from_pretrained``; needed
+            for checkpoints that ship custom modeling code via ``auto_map``.
     """
     # Handle both config object and model name/path
-    config = AutoConfig.from_pretrained(load_from_pretrained_path)
+    config = AutoConfig.from_pretrained(load_from_pretrained_path, trust_remote_code=trust_remote_code)
 
     if model_general_type is not None:
         if model_general_type not in AUTO_REGISTER_MODEL_MAPPING:
@@ -93,7 +99,22 @@ def create_model_from_pretrained(load_from_pretrained_path, model_general_type: 
     elif type(config) in AutoModel._model_mapping.keys():
         model_class = AutoModel
     else:
-        raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
+        # Fallback for trust_remote_code checkpoints: the config class is loaded
+        # dynamically via auto_map and won't be in any HF model mapping. Pick
+        # the AutoModelFor* class declared in the config's auto_map; that class
+        # will resolve the remote modeling code itself when from_pretrained
+        # is called with trust_remote_code=True.
+        auto_map = getattr(config, "auto_map", None) or {}
+        if "AutoModelForImageTextToText" in auto_map:
+            model_class = AutoModelForImageTextToText
+        elif "AutoModelForCausalLM" in auto_map:
+            model_class = AutoModelForCausalLM
+        elif "AutoModelForMaskedLM" in auto_map:
+            model_class = AutoModelForMaskedLM
+        elif "AutoModel" in auto_map:
+            model_class = AutoModel
+        else:
+            raise ValueError(f"Model {load_from_pretrained_path} is not supported.")
     return model_class
 
 
