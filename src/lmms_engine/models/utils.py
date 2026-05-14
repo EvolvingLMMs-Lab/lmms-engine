@@ -40,6 +40,7 @@ VALID_CONFIG_TYPE = {
     "minicpmv",
     "minicpmo",
     "llava_onevision",
+    "llava_onevision2",
 }
 
 
@@ -78,10 +79,12 @@ class FlopsCounter:
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
             "llava_onevision": self._estimate_qwen2_flops,
+            "llava_onevision2": self._estimate_qwen2_flops,
             "bagel": self._estimate_qwen2_flops,
         }
         if config.model_type in [
             "llava_onevision",
+            "llava_onevision2",
             "qwen2_5_vl",
             "qwen3_5",
             "qwen3_vl",

@@ -109,6 +109,9 @@ class TrainRunner:
             # Overwrite the use_liger_kernel to False as we already apply the liger kernel by ourselves
             self.config.trainer_args.use_liger_kernel = False
 
+        if self.config.trainer_args.use_rmpad:
+            kwargs["patch_type"].append("rmpad")
+
         if self.model_config.monkey_patch_kwargs:
             patch_type = getattr(self.model_config.monkey_patch_kwargs, "patch_type", [])
             kwargs["patch_type"].extend(patch_type)

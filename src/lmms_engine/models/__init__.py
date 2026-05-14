@@ -6,6 +6,7 @@ from .aero import AeroConfig, AeroForConditionalGeneration, AeroProcessor
 from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
+from .llava_onevision2 import apply_liger_kernel_to_llava_onevision2
 from .monkey_patch import MONKEY_PATCHER
 from .nanovlm import NanovlmConfig, NanovlmForConditionalGeneration
 from .qwen2 import apply_liger_kernel_to_qwen2
@@ -42,6 +43,7 @@ __all__ = [
     "ModelConfig",
     "AeroProcessor",
     "apply_liger_kernel_to_llava_onevision",
+    "apply_liger_kernel_to_llava_onevision2",
     "apply_liger_kernel_to_qwen2",
     "apply_liger_kernel_to_qwen3",
     "Qwen2_5OmniThinkerConfig",
