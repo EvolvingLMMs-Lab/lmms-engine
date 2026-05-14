@@ -20,3 +20,5 @@ Documentation for available models and model architectures.
    dllm
    rae_siglip
    sit
+   llava_onevision1_5
+   llava_onevision2

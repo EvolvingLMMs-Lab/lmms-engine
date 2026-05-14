@@ -1,0 +1,90 @@
+# LLaVA-OneVision2 (8B-Instruct) training example.
+#
+# This config drives the LMMs-Lab LLaVA-OneVision2 checkpoint, which ships
+# its modeling and processor code via ``auto_map`` (trust_remote_code).
+# The model_config.extra_kwargs.trust_remote_code flag is required so the
+# runner forwards it through AutoConfig / AutoModelFor*ImageTextToText.
+
+trainer_type: fsdp2_trainer
+
+dataset_config:
+  dataset_type: qwen3_vl_iterable
+  dataset_format: yaml
+  datasets:
+    - path: data/LLaVA-Video-178K/llava_video_0_30_s_cap_oe.parquet
+      data_folder: /path/to/LLaVA-Video-178K
+      data_type: parquet
+  processor_config:
+    processor_name: lmms-lab-ov2/LLaVA-OneVision2-8B-Instruct
+    processor_type: llava_onevision2
+    extra_kwargs:
+      image_max_pixels: 360448
+      image_min_pixels: 28800
+      video_max_pixels: 360448
+      video_min_pixels: 28800
+  packing: true
+  packing_strategy: balanced
+  packing_length: 8192
+  shuffle: true
+  filter_overlong: true
+  filter_overlong_workers: 8
+  video_sampling_strategy: fps
+  video_max_pixels: 360448
+  video_max_frames: 64
+  frame_num: 32
+  fps: 1
+  video_backend: qwen_vl_utils
+  extra_kwargs:
+    packing_kwargs:
+      num_buckets: 2
+
+model_config:
+  load_from_pretrained_path: lmms-lab-ov2/LLaVA-OneVision2-8B-Instruct
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  model_type: llava_onevision2
+  extra_kwargs:
+    trust_remote_code: true
+
+trainer_args:
+  output_dir: ./output/llava_onevision2_training
+  do_train: true
+  do_eval: false
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-05
+  num_train_epochs: 1
+  max_steps: 1000
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_strategy: steps
+  save_steps: 500
+  save_total_limit: 2
+  bf16: true
+  tf32: true
+  dataloader_drop_last: true
+  dataloader_num_workers: 4
+  dataloader_prefetch_factor: 2
+  remove_unused_columns: false
+  gradient_checkpointing: true
+  # Liger kernel + sequence packing (rmpad). The OV2 monkey patch registers
+  # 'liger' and 'rmpad' patch_types independently; the runner stacks them
+  # so the final causal_lm_forward runs with loss_fn=lce + use_rmpad=True.
+  use_liger_kernel: true
+  use_rmpad: true
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+      # Inner LM is stock Qwen3; OV2 ships its own vision encoder block.
+      - Qwen3DecoderLayer
+      - OneVisionEncoderEncoderLayer
+    reshard_after_forward: false
+    min_num_params: 0
+  sp_ulysses_degree: 1
+  reduce_dtype: bfloat16
+  output_dtype: bfloat16
+  report_to: none
+  seed: 42
+  optim: adamw_torch_fused
+  run_name: llava_onevision2_training
