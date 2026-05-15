@@ -48,7 +48,6 @@ def decoder_layer_forward(
     indices: Optional[torch.IntTensor] = None,
     position_embeddings: tuple[torch.Tensor, torch.Tensor] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    output_router_logits: bool = True,
     **kwargs,
 ) -> torch.Tensor:
     residual = hidden_states
@@ -93,9 +92,13 @@ def decoder_layer_forward(
     hidden_states = self.post_attention_layernorm(hidden_states)
     mlp_output = self.mlp(hidden_states)
 
-    router_logits = None
+    # Qwen3_5MoeSparseMoeBlock returns either Tensor or (Tensor, router_logits)
+    # depending on whether output_router_logits is requested at the model level.
+    # For now we drop router_logits — aux loss is computed via the model's
+    # standard output_router_logits=True branch in the upstream wrapper, not
+    # here. Matches upstream Qwen3_5MoeDecoderLayer.forward behavior.
     if isinstance(mlp_output, tuple):
-        hidden_states, router_logits = mlp_output
+        hidden_states = mlp_output[0]
     else:
         hidden_states = mlp_output
 
@@ -103,8 +106,6 @@ def decoder_layer_forward(
         hidden_states = hidden_states.squeeze(0)
     hidden_states = residual + hidden_states
 
-    if output_router_logits and router_logits is not None:
-        return hidden_states, router_logits
     return hidden_states
 
 
