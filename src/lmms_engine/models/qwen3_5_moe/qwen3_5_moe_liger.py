@@ -113,12 +113,12 @@ def lce_forward(
         aux_loss_mask = None if use_rmpad else attention_mask
         aux_loss = load_balancing_loss_func(
             router_logits,
-            self.num_experts,
-            self.num_experts_per_tok,
+            text_cfg.num_experts,
+            text_cfg.num_experts_per_tok,
             aux_loss_mask,
         )
         if labels is not None:
-            loss += self.router_aux_loss_coef * aux_loss.to(loss.device)
+            loss += text_cfg.router_aux_loss_coef * aux_loss.to(loss.device)
 
     return MoeCausalLMOutputWithPast(
         loss=loss,
