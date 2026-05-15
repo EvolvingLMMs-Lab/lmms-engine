@@ -85,7 +85,11 @@ class TrainRunner:
             if init_config is None:
                 # If no nested config, use the load_from_config dict directly (excluding model_type)
                 init_config = {k: v for k, v in load_from_config.items() if k != "model_type"}
-            model_class, m_config = create_model_from_config(model_type, init_config)
+            model_class, m_config = create_model_from_config(
+                model_type,
+                init_config,
+                model_general_type=self.model_config.model_general_type,
+            )
             model = model_class.from_config(m_config, **model_kwargs)
         else:
             raise ValueError("No model name or pretrained path provided. Please provide one of them.")

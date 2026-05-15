@@ -118,20 +118,42 @@ def create_model_from_pretrained(
     return model_class
 
 
-def create_model_from_config(model_type, config):
+def create_model_from_config(model_type, config, model_general_type: str | None = None):
+    """Build a model class + config from a model_type string and a config dict.
+
+    Args:
+        model_type: HF model_type string (e.g. ``"qwen3_5_moe"``).
+        config: dict of kwargs forwarded to the corresponding config class.
+        model_general_type: Optional override; one of the keys in
+            ``AUTO_REGISTER_MODEL_MAPPING``. Use it to disambiguate when the
+            same config is registered under multiple AutoModel mappings (e.g.
+            ``Qwen3_5MoeConfig`` is in both ``causal_lm`` and
+            ``image_text_to_text``; without the override we'd silently pick
+            the wrong wrapper).
+    """
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-    if model_type in CONFIG_MAPPING:
-        config_class = CONFIG_MAPPING[model_type]
-        m_config = config_class(**config)
-        if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
-            model_class = AutoModelForCausalLM
-        elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
-            model_class = AutoModelForImageTextToText
-        elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
-            model_class = AutoModelForMaskedLM
-        elif type(m_config) in AutoModel._model_mapping.keys():
-            model_class = AutoModel
-    else:
+    if model_type not in CONFIG_MAPPING:
         raise ValueError(f"Model type '{model_type}' is not found in CONFIG_MAPPING.")
+    config_class = CONFIG_MAPPING[model_type]
+    m_config = config_class(**config)
+
+    if model_general_type is not None:
+        if model_general_type not in AUTO_REGISTER_MODEL_MAPPING:
+            raise ValueError(
+                f"Unknown model_general_type={model_general_type!r}; "
+                f"choose one of {list(AUTO_REGISTER_MODEL_MAPPING)}"
+            )
+        return AUTO_REGISTER_MODEL_MAPPING[model_general_type], m_config
+
+    if type(m_config) in AutoModelForCausalLM._model_mapping.keys():
+        model_class = AutoModelForCausalLM
+    elif type(m_config) in AutoModelForImageTextToText._model_mapping.keys():
+        model_class = AutoModelForImageTextToText
+    elif type(m_config) in AutoModelForMaskedLM._model_mapping.keys():
+        model_class = AutoModelForMaskedLM
+    elif type(m_config) in AutoModel._model_mapping.keys():
+        model_class = AutoModel
+    else:
+        raise ValueError(f"Model type '{model_type}' is not in any AutoModel mapping.")
     return model_class, m_config
