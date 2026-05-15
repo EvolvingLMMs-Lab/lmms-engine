@@ -16,12 +16,18 @@ from lmms_engine.launch.cli import create_train_task
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--ep_degree", type=int, default=2, choices=[2, 4, 8])
-    parser.add_argument("--max_steps", type=int, default=10)
+    parser = argparse.ArgumentParser(description="Train Qwen3.5 MoE model with Expert Parallelism")
+    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for training")
+    parser.add_argument("--ep_degree", type=int, default=2, choices=[2, 4, 8], help="Expert parallelism degree")
+    parser.add_argument("--max_steps", type=int, default=10, help="Maximum number of training steps")
     parser.add_argument("--processor_name", default="Qwen/Qwen3.6-35B-A3B")
-    args = parser.parse_args()
+    parser.add_argument("--nproc_per_node", type=int, default=None)
+    parser.add_argument("--nnodes", type=int, default=1)
+    parser.add_argument("--node_rank", type=int, default=0)
+    parser.add_argument("--master_addr", type=str, default="127.0.0.1")
+    parser.add_argument("--master_port", type=str, default="8000")
+
+    args, unknown = parser.parse_known_args()
 
     text_hidden_size = 256
 
