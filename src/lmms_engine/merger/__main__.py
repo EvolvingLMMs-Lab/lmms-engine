@@ -38,6 +38,19 @@ def parse_args() -> argparse.Namespace:
         help="Type of checkpoint to merge: 'regular' for main model weights, 'ema' for EMA weights",
     )
 
+    parser.add_argument(
+        "--model_general_type",
+        type=str,
+        default=None,
+        choices=["causal_lm", "masked_lm", "image_text_to_text", "general"],
+        help=(
+            "Override AutoModel class used to instantiate the merged model. "
+            "Needed when the same config is registered under multiple AutoModel "
+            "mappings (e.g. Qwen3_5MoeConfig is in both causal_lm and "
+            "image_text_to_text). If unset, falls back to auto-detection."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -53,7 +66,11 @@ def main() -> None:
 
     print(f"Merging {args.checkpoint_type} checkpoint from {checkpoint_path}")
     merger = FSDP2Merger(checkpoint_type=args.checkpoint_type)
-    result_path = merger.merge(checkpoint_path, output_path=output_path)
+    result_path = merger.merge(
+        checkpoint_path,
+        output_path=output_path,
+        model_general_type=args.model_general_type,
+    )
 
     print(f"Merged checkpoint saved to: {result_path}")
 
