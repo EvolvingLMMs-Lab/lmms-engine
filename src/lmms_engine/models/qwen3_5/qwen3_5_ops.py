@@ -20,6 +20,12 @@ from transformers.models.qwen3_5.modeling_qwen3_5 import (
     apply_mask_to_padding_states,
     apply_rotary_pos_emb,
 )
+from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
+    Qwen3_5MoeAttention,
+    Qwen3_5MoeGatedDeltaNet,
+    Qwen3_5MoeModel,
+    Qwen3_5MoeTextModel,
+)
 from transformers.utils import is_flash_attn_2_available, logging
 
 from ..common_ops.rope import qwen3_vl_get_rope_index
@@ -106,7 +112,7 @@ def _seq_idx_from_cu_seqlens(cu_seqlens: torch.Tensor, total_tokens: int) -> tor
 
 
 def linear_attn_forward(
-    self: Qwen3_5GatedDeltaNet,
+    self: Union[Qwen3_5GatedDeltaNet, Qwen3_5MoeGatedDeltaNet],
     hidden_states: torch.Tensor,
     cache_params: Optional[Cache] = None,
     attention_mask: Optional[torch.Tensor] = None,
@@ -206,7 +212,7 @@ def linear_attn_forward(
 
 
 def text_model_forward(
-    self: Qwen3_5TextModel,
+    self: Union[Qwen3_5TextModel, Qwen3_5MoeTextModel],
     input_ids: Optional[torch.LongTensor] = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
@@ -350,7 +356,7 @@ def decoder_layer_forward(
 
 
 def attn_forward(
-    self: Qwen3_5Attention,
+    self: Union[Qwen3_5Attention, Qwen3_5MoeAttention],
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
@@ -411,7 +417,7 @@ def attn_forward(
 
 
 def model_forward(
-    self: Qwen3_5Model,
+    self: Union[Qwen3_5Model, Qwen3_5MoeModel],
     input_ids: torch.LongTensor = None,
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
