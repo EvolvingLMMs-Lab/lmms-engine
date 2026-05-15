@@ -18,15 +18,16 @@ from lmms_engine.utils.import_utils import is_transformers_version_greater_or_eq
 _IS_TRANSFORMERS_5 = is_transformers_version_greater_or_equal_to("5.0")
 if _IS_TRANSFORMERS_5:
     from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
+
 from transformers.utils import is_flash_attn_2_available
 
+from lmms_engine.kernels.attention import varlen_attn
 from lmms_engine.models.sequence_packing_utils import (
     BaseModelOutputWithPastAndRmpad,
     _unpad_input,
 )
 
 if is_flash_attn_2_available():
-    from flash_attn import flash_attn_func, flash_attn_varlen_func
     from flash_attn.bert_padding import (
         index_first_axis,
         pad_input,
@@ -234,7 +235,7 @@ def attn_forward(
     max_seqlen = torch.diff(cu_seq_lens).max().item() if cu_seq_lens is not None else None
     window_size = (-1, -1)
 
-    attn_output = flash_attn_varlen_func(
+    attn_output = varlen_attn(
         q=query_states,
         k=key_states,
         v=value_states,
@@ -246,6 +247,7 @@ def attn_forward(
         window_size=window_size,
         softmax_scale=self.head_dim**-0.5,
         dropout_p=0.0,
+        backend=self.config._attn_implementation,
     )
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     attn_output = self.o_proj(attn_output)
