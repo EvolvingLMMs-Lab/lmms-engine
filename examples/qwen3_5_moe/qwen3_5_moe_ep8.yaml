@@ -1,0 +1,89 @@
+# Unified LMMs Engine Training Configuration for Qwen3.5-MoE (Qwen3.6-35B-A3B)
+#
+# Multimodal MoE model with hybrid attention (linear / full per layer) and
+# shared_expert + routed experts. Expert Parallelism (EP) is supported; sequence
+# parallelism (Ulysses) is NOT supported on this model (the gated-delta linear
+# attention path is not SP-safe).
+#
+# For smaller boxes, `ep_degree=4` works on 4 GPUs (verified by cicd
+# `cicd/run_traincicd.sh --model-name qwen3_5_moe --gpu-count 4`).
+
+
+trainer_type: fsdp2_trainer
+
+# Dataset configuration - inline dataset definitions
+dataset_config:
+  dataset_type: vision_iterable
+  dataset_format: yaml
+
+  datasets:
+    - path: data/lmms_engine_test/text_example/open_thoughts_5k_parquet
+      data_folder: ""
+      data_type: parquet
+
+  # Processor configuration - qwen3_5_moe uses the qwen3_vl processor
+  processor_config:
+    processor_name: "Qwen/Qwen3.6-35B-A3B"
+    processor_type: "qwen3_vl"
+
+  packing: false
+  packing_strategy: first_fit
+  packing_length: 10240
+  video_backend: qwen_vl_utils
+  filter_overlong: true
+
+# Model configuration
+model_config:
+  load_from_pretrained_path: "Qwen/Qwen3.6-35B-A3B"
+  # Qwen3_5MoeConfig is registered in both causal_lm and image_text_to_text
+  # auto-mappings; pin to image_text_to_text so we get the multimodal
+  # Qwen3_5MoeForConditionalGeneration wrapper (vision tower + LM), not the
+  # text-only Qwen3_5MoeForCausalLM.
+  model_general_type: image_text_to_text
+  attn_implementation: "flash_attention_2"
+  # Two independent patches registered under qwen3_5_moe: "liger" and "rmpad".
+  # The trainer runner applies them in order ["liger", "rmpad"].
+  # Only liger accepts kwargs; rmpad takes none.
+  monkey_patch_kwargs:
+    patch_type: ["liger", "rmpad"]
+    fused_linear_cross_entropy: true
+    rms_norm: true
+    swiglu: true
+
+# Training arguments, mostly compatible with HuggingFace Trainer
+trainer_args:
+  per_device_train_batch_size: 1
+  learning_rate: 1.0e-06
+  weight_decay: 0.0
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  max_steps: 500
+  num_train_epochs: 1
+  save_steps: 100
+  save_total_limit: 1
+  report_to: "none"
+  output_dir: "./output/qwen3_5_moe_a3b_ep8"
+  warmup_ratio: 0.0
+  warmup_steps: 100
+  run_name: "qwen3_5_moe_a3b_ep8"
+  eval_strategy: "no"
+  logging_steps: 1
+  group_by_length: false
+  dataloader_num_workers: 0
+  bf16: true
+  lr_scheduler_type: "constant"
+  use_liger_kernel: true
+  use_rmpad: true
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap: ["Qwen3_5MoeDecoderLayer"]
+    reshard_after_forward: false
+  # Sequence parallelism is not supported for qwen3_5_moe (linear-attention
+  # path is not SP-safe). Keep sp_ulysses_degree=1.
+  sp_ulysses_degree: 1
+  # Expert Parallelism degree. 8 for an 8-GPU node; use 4 on a 4-GPU box.
+  ep_degree: 8
+  enable_profiler: false
+  profiler_config:
+    start_step: 1
+    end_step: 3
