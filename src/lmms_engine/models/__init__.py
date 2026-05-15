@@ -19,6 +19,7 @@ from .qwen2_5_vl import apply_liger_kernel_to_qwen2_5_vl
 from .qwen2_audio import apply_liger_kernel_to_qwen2_audio
 from .qwen3 import apply_liger_kernel_to_qwen3
 from .qwen3_5 import apply_liger_kernel_to_qwen3_5
+from .qwen3_5_moe import apply_liger_kernel_to_qwen3_5_moe
 from .qwen3_moe import apply_liger_kernel_to_qwen3_moe
 from .qwen3_omni_moe import (
     Qwen3OmniMoeThinkerConfig,
@@ -52,6 +53,7 @@ __all__ = [
     "apply_liger_kernel_to_qwen2_5_vl",
     "apply_liger_kernel_to_qwen2_audio",
     "apply_liger_kernel_to_qwen3_5",
+    "apply_liger_kernel_to_qwen3_5_moe",
     "apply_liger_kernel_to_qwen3_vl",
     "apply_liger_kernel_to_qwen3_vl_moe",
     "apply_liger_kernel_to_qwen3_moe",
