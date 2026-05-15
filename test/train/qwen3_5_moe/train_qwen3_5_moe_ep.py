@@ -69,7 +69,8 @@ def main():
                         "full_attention",
                     ],
                     "head_dim": 32,
-                    "vocab_size": 151936,
+                    # match Qwen/Qwen3.6-35B-A3B tokenizer vocab (incl. image/video special tokens)
+                    "vocab_size": 248320,
                 },
                 "vision_config": {
                     "depth": 2,

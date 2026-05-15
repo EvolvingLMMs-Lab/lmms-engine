@@ -33,12 +33,20 @@ def lce_forward(
     use_rmpad: bool = False,
     **kwargs,
 ) -> MoeCausalLMOutputWithPast:
-    output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    # Top-level config may be Qwen3_5MoeConfig (multimodal wrapper) or
+    # Qwen3_5MoeTextConfig (text-only ForCausalLM). Pull text-side fields
+    # from text_config when present.
+    text_cfg = getattr(self.config, "text_config", self.config)
+    output_attentions = (
+        output_attentions if output_attentions is not None else getattr(self.config, "output_attentions", False)
+    )
     output_router_logits = (
-        output_router_logits if output_router_logits is not None else getattr(self.config, "output_router_logits", True)
+        output_router_logits if output_router_logits is not None else getattr(text_cfg, "output_router_logits", False)
     )
     output_hidden_states = (
-        output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_hidden_states
+        if output_hidden_states is not None
+        else getattr(self.config, "output_hidden_states", False)
     )
 
     outputs = self.model(
@@ -85,7 +93,7 @@ def lce_forward(
             shift_hidden_states = hidden_states[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
 
-        shift_hidden_states = shift_hidden_states.view(-1, self.config.hidden_size)
+        shift_hidden_states = shift_hidden_states.view(-1, text_cfg.hidden_size)
         shift_labels = shift_labels.view(-1)
 
         reduction = "sum" if "num_items_in_batch" in kwargs else "mean"
@@ -97,7 +105,7 @@ def lce_forward(
     else:
         logits = self.lm_head(hidden_states)
         if labels is not None:
-            loss = self.loss_function(logits, labels, self.vocab_size, **kwargs)
+            loss = self.loss_function(logits, labels, text_cfg.vocab_size, **kwargs)
 
     aux_loss = None
     router_logits = getattr(outputs, "router_logits", None)
