@@ -1,4 +1,11 @@
-"""FSDP2 + Expert Parallel wiring for qwen3_5_moe."""
+"""FSDP2 + Expert Parallel wiring for qwen3_5_moe.
+
+qwen3_5_moe is multimodal: the top-level model class is
+``Qwen3_5MoeForConditionalGeneration``, whose ``.model`` is the multimodal
+wrapper ``Qwen3_5MoeModel`` (containing ``visual`` + ``language_model``).
+Decoder layers live at ``model.model.language_model.layers`` (same shape as
+qwen3_vl_moe — there is no ``.layers`` attribute on the outer wrapper).
+"""
 
 from typing import TYPE_CHECKING
 
@@ -8,7 +15,7 @@ from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.distributed.tensor import Shard
 from torch.distributed.tensor.parallel import parallelize_module
-from transformers.models.qwen3_5_moe import Qwen3_5MoeForCausalLM
+from transformers.models.qwen3_5_moe import Qwen3_5MoeForConditionalGeneration
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.utils.fsdp2_utils import fsdp2_load_full_state_dict
@@ -20,14 +27,14 @@ if TYPE_CHECKING:
 
 
 def apply_qwen3_5_moe_parallel(
-    model: Qwen3_5MoeForCausalLM,
+    model: Qwen3_5MoeForConditionalGeneration,
     ep_mesh: DeviceMesh,
     tp_mesh: DeviceMesh = None,
     **kwargs,
 ):
     assert tp_mesh is None, "Tensor Parallelism is not supported yet for Qwen3_5Moe"
 
-    for decoder_layer in model.model.layers:
+    for decoder_layer in model.model.language_model.layers:
         module = decoder_layer.mlp
         ep_plan = Qwen3_5MoeParallelStyle()
         parallelize_module(
@@ -36,11 +43,11 @@ def apply_qwen3_5_moe_parallel(
             parallelize_plan=ep_plan,
         )
 
-    logger.info(f"Applied Qwen3_5MoeParallelStyle to {len(model.model.layers)} layers")
+    logger.info(f"Applied Qwen3_5MoeParallelStyle to {len(model.model.language_model.layers)} layers")
 
 
 def apply_qwen3_5_moe_fsdp2(
-    model: Qwen3_5MoeForCausalLM,
+    model: Qwen3_5MoeForConditionalGeneration,
     train_args: "TrainingArguments",
     **kwargs,
 ):
@@ -79,7 +86,11 @@ def apply_qwen3_5_moe_fsdp2(
         expert_fsdp_kwargs["mesh"] = pgm.process_group_manager.device_mesh["dp_shard_mod_ep"]
         expert_fsdp_kwargs["shard_placement_fn"] = _experts_shard_placement_fn
 
-    for decoder_layer in model.model.layers:
+    # Wrap vision tower (same pattern as qwen3_vl_moe)
+    if hasattr(model.model, "visual") and model.model.visual is not None:
+        fully_shard(model.model.visual, **fsdp_kwargs)
+
+    for decoder_layer in model.model.language_model.layers:
         # MoE block
         if ep_size > 1:
             fully_shard(decoder_layer.mlp, **expert_fsdp_kwargs)
@@ -90,12 +101,12 @@ def apply_qwen3_5_moe_fsdp2(
         else:  # "full_attention"
             fully_shard(decoder_layer.self_attn, **fsdp_kwargs)
 
-    fully_shard(model.model.embed_tokens, **fsdp_kwargs)
+    fully_shard(model.model.language_model.embed_tokens, **fsdp_kwargs)
     fully_shard(model, **fsdp_kwargs)
 
 
 def apply_qwen3_5_moe_parallelize_fn(
-    model: Qwen3_5MoeForCausalLM,
+    model: Qwen3_5MoeForConditionalGeneration,
     train_args: "TrainingArguments",
     **kwargs,
 ):
