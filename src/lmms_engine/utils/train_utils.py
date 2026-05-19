@@ -91,14 +91,20 @@ class TrainUtilities:
         hf_messages = []
         for message in messages:
             new_message = {"role": message["role"], "content": []}
+            if "time" in message:
+                new_message["time"] = message["time"]
             for content in message["content"]:
-                if content["type"] == "image_url":
+                content_type = content.get("type")
+                if content_type == "image_url":
                     new_message["content"].append({"type": "image"})
-                elif content["type"] == "audio_url":
+                elif content_type == "audio_url":
                     new_message["content"].append({"type": "audio", "audio_url": content["audio_url"]["url"]})
-                elif content["type"] == "video_url":
+                elif content_type == "video_url":
                     new_message["content"].append({"type": "video", "video_url": content["video_url"]["url"]})
-                else:
+                elif content_type == "realtime_text":
+                    # Pass through realtime_text content for aero_realtime
+                    new_message["content"].append(content)
+                elif content.get("text") is not None:
                     new_content = {"type": "text", "text": content["text"]}
                     if "audio_text" in content:
                         new_content["audio_text"] = content["audio_text"]

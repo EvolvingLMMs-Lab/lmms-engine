@@ -1,11 +1,16 @@
 import os
 import random
+import warnings
 from copy import deepcopy
 from io import BytesIO
 from multiprocessing import cpu_count
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import librosa
+
+warnings.filterwarnings("ignore", message=".*PySoundFile.*")
+warnings.filterwarnings("ignore", message=".*__audioread_load.*", category=FutureWarning)
+
 import numpy as np
 import soundfile as sf
 import torch

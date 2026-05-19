@@ -3,6 +3,12 @@ from lmms_engine.utils.import_utils import is_transformers_version_greater_or_eq
 is_transformers_5 = is_transformers_version_greater_or_equal_to("5.0.0")
 
 from .aero import AeroConfig, AeroForConditionalGeneration, AeroProcessor
+from .aero_realtime import (
+    AeroRealtimeConfig,
+    AeroRealtimeForConditionalGeneration,
+    AeroRealtimeProcessor,
+    apply_liger_kernel_to_aero_realtime,
+)
 from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
@@ -39,6 +45,10 @@ from .wanvideo import (
 __all__ = [
     "AeroForConditionalGeneration",
     "AeroConfig",
+    "AeroRealtimeConfig",
+    "AeroRealtimeForConditionalGeneration",
+    "AeroRealtimeProcessor",
+    "apply_liger_kernel_to_aero_realtime",
     "Bagel",
     "BagelConfig",
     "ModelConfig",

@@ -1,3 +1,4 @@
+from .aero_realtime_iterable_dataset import AeroRealtimeIterableDataset
 from .bagel_iterable_dataset import BagelIterableDataset
 from .base_iterable_dataset import BaseIterableDataset
 from .fineweb_edu_dataset import FinewebEduDataset
@@ -8,6 +9,7 @@ from .qwen_omni_iterable_dataset import QwenOmniIterableDataset
 from .vision_iterable_dataset import VisionSFTIterableDataset
 
 __all__ = [
+    "AeroRealtimeIterableDataset",
     "BaseIterableDataset",
     "FinewebEduDataset",
     "MultiModalIterableDataset",
