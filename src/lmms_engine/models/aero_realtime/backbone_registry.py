@@ -203,3 +203,30 @@ def family_rmpad_fn(family: str):
     if family not in RMPAD_FN:
         raise ValueError(f"no rmpad entry for backbone_family={family}")
     return RMPAD_FN[family]
+
+
+# ---------------------------------------------------------------------------
+# ViT frame-parallel dispatch (optional per family).
+#
+# Only ``qwen3_5`` exposes a frame-parallel ViT wrap today; the other three
+# families fall back to no-op. The wrap is a *class-level* monkey-patch
+# on the family's VisionModel class, so it works for aero out of the box
+# once the right family fn is called.
+# ---------------------------------------------------------------------------
+
+
+def _build_family_vit_frame_parallel_dispatch():
+    from lmms_engine.models.qwen3_5.monkey_patch import (
+        apply_vit_frame_parallel_to_qwen3_5,
+    )
+
+    return {
+        "qwen3_5": apply_vit_frame_parallel_to_qwen3_5,
+    }
+
+
+def family_vit_frame_parallel_fn(family: str):
+    """Return the family's frame-parallel ViT wrap fn, or ``None`` if the
+    family doesn't support frame-parallel ViT."""
+    table = _build_family_vit_frame_parallel_dispatch()
+    return table.get(family)

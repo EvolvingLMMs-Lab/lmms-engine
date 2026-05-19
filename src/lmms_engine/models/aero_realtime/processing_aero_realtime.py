@@ -103,6 +103,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
     valid_kwargs = [
         "chat_template",
         "downsample_factor",
+        "audio_length_per_tok",
         "image_token",
         "video_token",
         "audio_token",
@@ -128,6 +129,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
         tokenizer=None,
         chat_template=None,
         downsample_factor: int = 4,
+        audio_length_per_tok: int = 8,
         image_token: str = "<|image_pad|>",
         video_token: str = "<|video_pad|>",
         audio_token: str = "<|audio_pad|>",
@@ -171,6 +173,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
 
         # Model config parameters needed for timestep computation
         self.downsample_factor = downsample_factor
+        self.audio_length_per_tok = audio_length_per_tok
 
         if chat_template is None:
             chat_template = self.default_chat_template
@@ -285,7 +288,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
                 audio,
                 sampling_rate=sampling_rate,
                 return_attention_mask=True,
-                padding="max_length",
+                padding="longest",
                 **fe_kwargs,
             )
             # Rename keys to avoid conflicts with text attention_mask
@@ -309,10 +312,18 @@ class AeroRealtimeProcessor(ProcessorMixin):
             has_video = video_grid_thw is not None
             has_audio = bool(audio_inputs)
 
-            # Pre-compute audio token counts per sample (mel-frame-derived)
+            # Pre-compute audio token counts per sample (mel-frame-derived).
+            # ``feature_extractor.attention_mask`` lags ``input_features`` by
+            # a small constant (reflection-pad frames at the mel boundary),
+            # so we add ``pad_offset`` to each sample's mel length before the
+            # ceil-div, matching what the post-conv2 mask emission does at
+            # the end of ``__call__``.
             num_audio_tokens_list = None
             if has_audio:
-                mel_lengths = audio_inputs["audio_attention_mask"].sum(-1)
+                mel_mask = audio_inputs["audio_attention_mask"]
+                T_mel = audio_inputs["input_features"].shape[-1]
+                pad_offset = T_mel - mel_mask.shape[-1]
+                mel_lengths = mel_mask.sum(-1).to(torch.long) + pad_offset
                 num_audio_tokens_list = [self._get_num_audio_tokens(int(m.item())) for m in mel_lengths]
 
             # 5b. Video + Audio -> separated per-chunk vision/audio envelopes
@@ -462,6 +473,46 @@ class AeroRealtimeProcessor(ProcessorMixin):
         # ==============================================================
         # 8. Assemble output
         # ==============================================================
+        # Convert audio_attention_mask from mel-level (T_mel) to
+        # post-conv2 encoder length (T_enc = T_mel // 2) —
+        # this is what VoxtralRealtimeEncoder.forward expects as
+        # ``attention_mask``. Internal helpers above operated on the
+        # mel-level mask; downstream model code consumes the encoder-level mask.
+        if audio_inputs and "audio_attention_mask" in audio_inputs:
+            mel_mask = audio_inputs["audio_attention_mask"]
+            if not isinstance(mel_mask, torch.Tensor):
+                mel_mask = torch.as_tensor(mel_mask)
+            # Canonical T_mel comes from the mel feature tensor itself, not
+            # the FE attention_mask (which may be sample-grid-aligned and a
+            # few frames shorter than input_features due to reflection
+            # padding inside the FE).
+            input_features = audio_inputs.get("input_features", None)
+            if input_features is None:
+                T_mel = mel_mask.shape[-1]
+            else:
+                if not isinstance(input_features, torch.Tensor):
+                    input_features = torch.as_tensor(input_features)
+                T_mel = input_features.shape[-1]
+            mel_mask_len = mel_mask.shape[-1]
+            # Per-sample valid frame count in the mel feature. Add the
+            # constant pad offset (T_mel - mel_mask_len) to map valid
+            # FE-mask frames onto the mel grid.
+            pad_offset = max(0, T_mel - mel_mask_len)
+            mel_lengths_t = mel_mask.sum(-1).to(torch.long) + pad_offset
+            B = mel_mask.shape[0]
+            # Voxtral conv2: kernel=3, stride=2, left_pad=1 →
+            #   T_enc = (T_mel + left_pad - kernel) / stride + 1 = T_mel // 2
+            T_enc = T_mel // 2
+            enc_mask = torch.zeros(B, T_enc, dtype=torch.long)
+            for i in range(B):
+                m = int(mel_lengths_t[i].item())
+                # Clamp to T_mel (a sample's valid mel can't exceed full grid)
+                m = min(m, T_mel)
+                enc_m = m // 2 if m > 0 else 0
+                if enc_m > 0:
+                    enc_mask[i, :enc_m] = 1
+            audio_inputs["audio_attention_mask"] = enc_mask
+
         return BatchFeature(
             data={
                 **text_inputs,
@@ -540,22 +591,17 @@ class AeroRealtimeProcessor(ProcessorMixin):
         return counts
 
     def _get_num_audio_tokens(self, mel_frames: int) -> int:
-        """Compute the number of projected audio tokens from mel frame count.
+        """LM audio token count for a given mel-frame count.
 
-        Applies the audio encoder's internal downsampling (conv2 stride=2 +
-        avg_pool stride=2 for Qwen2Audio) and then the projector's
-        ``downsample_factor``.
-
-        Args:
-            mel_frames: Number of mel spectrogram frames (after feature
-                extraction, before audio encoder).
-
-        Returns:
-            Number of audio tokens after full downsampling + projection.
+        Voxtral encoder pipeline:
+          - conv2 (kernel=3, stride=2, left_pad=1): mel → ``T_enc = mel // 2``
+          - downsample_factor concat: ``T_enc // df`` LM tokens
+        Combined: ``mel // (2 * df) = mel // audio_length_per_tok``.
+        With ``audio_length_per_tok = 8`` this is 80ms per LM token.
+        Uses floor (not ceil) to match the modeling-side truncation
+        ``usable_len = (T_enc // df) * df``.
         """
-        encoder_tokens = self._get_audio_encoder_output_length(mel_frames)
-        projected_tokens = encoder_tokens // self.downsample_factor
-        return projected_tokens
+        return mel_frames // self.audio_length_per_tok
 
     @staticmethod
     def _get_audio_encoder_output_length(mel_frames: int) -> int:

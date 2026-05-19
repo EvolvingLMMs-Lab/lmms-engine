@@ -192,9 +192,6 @@ class AeroRealtimeForConditionalGeneration(AeroRealtimePreTrainedModel, Generati
         self.lm_head = nn.Linear(config.text_config.hidden_size, config.text_config.vocab_size, bias=False)
         self.multi_modal_projector = AeroRealtimeMultiModalProjector(config)
 
-        # Cache audio tower type for dispatch
-        self.audio_tower_type = config.audio_config.model_type
-
         self.post_init()
 
         # Cached rope deltas for incremental position_ids during generation
@@ -359,59 +356,47 @@ class AeroRealtimeForConditionalGeneration(AeroRealtimePreTrainedModel, Generati
         self,
         input_features: torch.FloatTensor,
         audio_attention_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Extract audio features via the audio tower, downsample, and project.
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """Extract audio features via the Voxtral encoder, then reshape and project.
 
-        Following VoxtralRealtime's approach:
-        1. Run audio through the audio encoder tower.
-        2. Reshape by concatenating ``downsample_factor`` consecutive frames.
-        3. Project through the 2-layer MLP (``multi_modal_projector``).
+        Voxtral's audio encoder is run on a padded batch with the post-conv2
+        attention mask passed through. Transformers' FA2 integration auto-
+        unpads on a 2D mask (see ``modeling_flash_attention_utils._upad_input``),
+        so padding-region tokens cost nothing in attention/MLP under
+        ``flash_attention_2``. The mask is ALSO used downstream to derive
+        per-sample valid LM-token lengths via ``audio_output_lengths``.
 
         Args:
-            input_features: Mel spectrogram features.
-                Shape ``[batch_size, num_mel_bins, mel_seq_len]`` or as
-                expected by the audio tower.
-            audio_attention_mask: Attention mask at mel-frame level.
-                Shape ``[batch_size, mel_seq_len]``.
+            input_features: Mel spectrogram features, shape ``(B, n_mels=128, T_mel)``.
+            audio_attention_mask: **Post-conv2** attention mask, shape
+                ``(B, T_enc)`` where ``T_enc = T_mel // 2``. The
+                processor is responsible for emitting this at the correct
+                length (Voxtral's conv2 with stride=2 reduces mel_len // 2;
+                a mel-level mask will trigger a runtime size mismatch).
+                ``1 = valid``, ``0 = padding``.
 
         Returns:
             Tuple of:
-            - Projected audio features of shape
-              ``[batch_size, num_audio_tokens, hidden_dim]``
-              where ``num_audio_tokens = encoder_seq_len / downsample_factor``
-              and ``hidden_dim = text_config.hidden_size``.
-            - ``audio_output_lengths`` of shape ``[batch_size]``, the number
-              of valid (unpadded) encoder output tokens per sample.
+              - audio_features: shape ``(B, T_enc // downsample_factor, text_hidden)``
+              - audio_output_lengths: shape ``(B,)``; number of valid LM
+                audio tokens per sample, or ``None`` if no mask was given.
         """
-        # Compute audio feature/output lengths via encoder's own method
-        audio_output_lengths = None
-        encoder_kwargs = {}
-
-        if audio_attention_mask is not None and hasattr(self.audio_tower, "_get_feat_extract_output_lengths"):
-            mel_lengths = audio_attention_mask.sum(-1)
-            audio_feat_lengths, audio_output_lengths = self.audio_tower._get_feat_extract_output_lengths(mel_lengths)
-
-            # Qwen2Audio encoder needs a custom 4D attention mask
-            if self.audio_tower_type == "qwen2_audio_encoder":
-                encoder_kwargs["attention_mask"] = self._build_qwen2_audio_attention_mask(
-                    input_features, audio_feat_lengths
-                )
-
-        audio_outputs = self.audio_tower(input_features=input_features, **encoder_kwargs)
-
+        audio_outputs = self.audio_tower(
+            input_features=input_features,
+            attention_mask=audio_attention_mask,
+        )
         if isinstance(audio_outputs, torch.Tensor):
             audio_hidden_states = audio_outputs
         else:
             audio_hidden_states = audio_outputs.last_hidden_state
 
-        # Downsample: concatenate `downsample_factor` consecutive frames
-        # [B, seq_len, audio_hidden] -> [B, seq_len/df, audio_hidden * df]
-        # Truncate seq_len to nearest multiple of downsample_factor
+        # Reshape: concat downsample_factor consecutive encoder frames into one
+        # LM-bound audio frame. Truncate to a multiple of downsample_factor
+        # along seq dim. (B, T_enc, hidden) -> (B, T_enc // df, hidden * df)
         df = self.config.downsample_factor
         seq_len = audio_hidden_states.shape[1]
         usable_len = (seq_len // df) * df
         audio_hidden_states = audio_hidden_states[:, :usable_len, :]
-
         audio_hidden_states = audio_hidden_states.reshape(
             audio_hidden_states.shape[0],
             -1,
@@ -421,54 +406,12 @@ class AeroRealtimeForConditionalGeneration(AeroRealtimePreTrainedModel, Generati
         # Project to text hidden dim
         audio_features = self.multi_modal_projector(audio_hidden_states)
 
-        # Adjust output lengths for downsample factor
-        if audio_output_lengths is not None:
-            audio_output_lengths = audio_output_lengths // self.config.downsample_factor
+        # Derive LM-token-level valid lengths from the post-conv2 mask
+        audio_output_lengths = None
+        if audio_attention_mask is not None:
+            audio_output_lengths = audio_attention_mask.sum(-1) // df
 
         return audio_features, audio_output_lengths
-
-    def _build_qwen2_audio_attention_mask(
-        self,
-        input_features: torch.Tensor,
-        audio_feat_lengths: torch.Tensor,
-    ) -> torch.Tensor:
-        """Build the 4D attention mask expected by the Qwen2Audio encoder.
-
-        The encoder applies two downsampling stages (conv2 stride=2, avg_pool
-        stride=2), so the mask is built at the post-conv2 sequence length.
-
-        Args:
-            input_features: ``[batch_size, num_mel_bins, mel_seq_len]``
-            audio_feat_lengths: ``[batch_size]`` -- number of valid tokens
-                after the first conv2 downsampling.
-
-        Returns:
-            4D float attention mask of shape
-            ``[batch_size, 1, max_seq_len, max_seq_len]`` with ``-inf``
-            at padding positions.
-        """
-        batch_size = input_features.shape[0]
-        max_mel_seq_len = input_features.shape[-1]
-        max_seq_len = (max_mel_seq_len - 2) // 2 + 1
-
-        seq_range = (
-            torch.arange(0, max_seq_len, dtype=audio_feat_lengths.dtype, device=audio_feat_lengths.device)
-            .unsqueeze(0)
-            .expand(batch_size, max_seq_len)
-        )
-        lengths_expand = audio_feat_lengths.unsqueeze(1).expand(batch_size, max_seq_len)
-        padding_mask = seq_range >= lengths_expand
-
-        attention_mask = padding_mask.view(batch_size, 1, 1, max_seq_len).expand(
-            batch_size, 1, max_seq_len, max_seq_len
-        )
-        attention_mask = attention_mask.to(
-            dtype=self.audio_tower.conv1.weight.dtype,
-            device=self.audio_tower.conv1.weight.device,
-        )
-        attention_mask = attention_mask.clone()
-        attention_mask[padding_mask.view(batch_size, 1, 1, max_seq_len).expand_as(attention_mask)] = float("-inf")
-        return attention_mask
 
     @staticmethod
     def _unpad_audio_features(
