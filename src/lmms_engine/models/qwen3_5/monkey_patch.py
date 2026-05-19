@@ -79,6 +79,17 @@ def apply_liger_kernel_to_qwen3_5(
         modeling_qwen3_5.Qwen3_5Attention.forward = qwen3_5_ops_attn_forward
         modeling_qwen3_5.Qwen3_5GatedDeltaNet.forward = qwen3_5_ops_linear_attn_forward
 
+        # Ulysses SP: slice `inputs_embeds` along the packed seq dim on entry
+        # to the text model so each rank holds `total_tokens / sp_size`
+        # contiguous tokens. The full-attention layer all-to-alls back to a
+        # full seq inside `attn_forward`; the linear-attention layer keeps the
+        # shard and runs fla's CP path with `build_cp_context`.
+        from ...parallel.sequence_parallel.ulysses import (
+            patch_vlm_for_ulysses_input_slicing,
+        )
+
+        patch_vlm_for_ulysses_input_slicing(modeling_qwen3_5.Qwen3_5TextModel)
+
     # Replace VisionPatchEmbed.forward with a Linear path. Mathematically
     # equivalent to the upstream Conv3d (kernel == stride), but avoids cudnn
     # falling back to a slow Conv3d kernel on packed varlen ViT inputs.

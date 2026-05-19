@@ -28,6 +28,16 @@ from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
 )
 from transformers.utils import is_flash_attn_2_available, logging
 
+from ...parallel.sequence_parallel.ulysses import (
+    gather_heads_scatter_seq,
+    gather_seq_scatter_heads,
+    get_ulysses_sequence_parallel_group,
+    get_ulysses_sequence_parallel_rank,
+    get_ulysses_sequence_parallel_world_size,
+    repeat_kv,
+    ulysses_pad,
+    validate_ulysses_config,
+)
 from ..common_ops.rope import qwen3_vl_get_rope_index
 
 
@@ -64,6 +74,16 @@ try:
 except ImportError:
     chunk_gated_delta_rule = None
     _HAS_FLA = False
+
+try:
+    from fla.modules.conv.cp.ops import causal_conv1d_cp
+    from fla.ops.cp.context import build_cp_context
+
+    _HAS_FLA_CP = True
+except ImportError:
+    causal_conv1d_cp = None
+    build_cp_context = None
+    _HAS_FLA_CP = False
 
 
 def patch_embed_forward(
@@ -129,6 +149,18 @@ def linear_attn_forward(
       across sample boundaries — accepted as a soft compromise).
     * ``fla.ops.gated_delta_rule.chunk_gated_delta_rule(..., cu_seqlens=...)``
       so the recurrent state resets per sample. fla is required.
+
+    Sequence parallel (Ulysses SP world size > 1):
+
+    * Linear attention can **not** use the Ulysses all-to-all trick (the
+      recurrent state runs sequentially along the seq dim, so swapping
+      heads <-> seq would collapse all tokens onto a single rank). Instead
+      we use fla's Context Parallel: each rank keeps its local seq shard,
+      builds an ``FLACPContext`` from the *global* ``cu_seq_lens`` so the
+      kernel knows where the sample boundaries fall on every rank, and we
+      manually do the causal-conv1d halo exchange (``conv_kernel_size - 1``
+      tokens from the previous rank are prepended before the conv and
+      stripped off afterwards).
     """
     assert cu_seq_lens is not None, "linear_attn_forward requires cu_seq_lens (rmpad must be on)"
     if not _HAS_FLA:
@@ -144,10 +176,26 @@ def linear_attn_forward(
         "Caller must squeeze rmpad inputs to (1, total_tokens, hidden)."
     )
 
-    seq_idx = _seq_idx_from_cu_seqlens(cu_seq_lens, total_tokens=seq_len)
+    # ---- (optional) FLA context-parallel setup ----
+    # Under SP, build an ``FLACPContext`` from the *global* ``cu_seq_lens``.
+    # The context carries local cu_seqlens, sample-boundary-aware conv-halo
+    # metadata, and the SP process group. Both ``causal_conv1d_cp`` and
+    # ``chunk_gated_delta_rule`` consume the context directly.
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        if not _HAS_FLA_CP:
+            raise RuntimeError(
+                "Sequence parallel for Qwen3.5 linear attention requires fla>=0.4 "
+                "with `fla.ops.cp` / `fla.modules.conv.cp`. Please upgrade fla."
+            )
+        cp_ctx = build_cp_context(
+            cu_seqlens=cu_seq_lens.to(torch.long),
+            group=get_ulysses_sequence_parallel_group(),
+            conv1d_kernel_size=self.conv_kernel_size,
+        )
+    else:
+        cp_ctx = None
 
     mixed_qkv = self.in_proj_qkv(hidden_states)
-    mixed_qkv = mixed_qkv.transpose(1, 2)  # (B, conv_dim, T)
 
     z = self.in_proj_z(hidden_states)
     z = z.reshape(batch_size, seq_len, -1, self.head_v_dim)
@@ -155,7 +203,25 @@ def linear_attn_forward(
     b = self.in_proj_b(hidden_states)
     a = self.in_proj_a(hidden_states)
 
-    if _HAS_CAUSAL_CONV1D:
+    # ---- causal conv1d ----
+    # Under SP: use fla's CP-aware conv (it talks to the previous rank to set
+    # up the conv1d ``initial_state`` and handles backward gradient sync).
+    # Without SP: keep the fast Tri Dao ``causal_conv1d_fn`` (with ``seq_idx``
+    # to respect packed sample boundaries).
+    if cp_ctx is not None:
+        # fla wants (B, T, D); Tri Dao wants (B, D, T). We never did the
+        # transpose, so just pass mixed_qkv straight through.
+        mixed_qkv = causal_conv1d_cp(
+            x=mixed_qkv,
+            weight=self.conv1d.weight.squeeze(1),
+            bias=self.conv1d.bias,
+            activation=self.activation,
+            cp_context=cp_ctx,
+        )
+    elif _HAS_CAUSAL_CONV1D:
+        # Tri Dao kernel: needs channel-last (B, D, T)
+        mixed_qkv = mixed_qkv.transpose(1, 2)
+        seq_idx = _seq_idx_from_cu_seqlens(cu_seq_lens, total_tokens=seq_len)
         mixed_qkv = causal_conv1d_fn(
             x=mixed_qkv,
             weight=self.conv1d.weight.squeeze(1),
@@ -163,6 +229,7 @@ def linear_attn_forward(
             activation=self.activation,
             seq_idx=seq_idx,
         )
+        mixed_qkv = mixed_qkv.transpose(1, 2)
     else:
         # Fallback: plain nn.Conv1d. Leaks up to (kernel-1) tokens across
         # sample boundaries. Accepted to avoid the causal_conv1d build dep.
@@ -171,9 +238,10 @@ def linear_attn_forward(
             f"{self.conv_kernel_size - 1} tokens will leak across sample "
             f"boundaries in the input conv. Install causal_conv1d to avoid."
         )
+        mixed_qkv = mixed_qkv.transpose(1, 2)
         mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
+        mixed_qkv = mixed_qkv.transpose(1, 2)
 
-    mixed_qkv = mixed_qkv.transpose(1, 2)
     query, key, value = torch.split(
         mixed_qkv,
         [self.key_dim, self.key_dim, self.value_dim],
@@ -191,17 +259,32 @@ def linear_attn_forward(
         query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
         key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
 
-    core_attn_out, _ = chunk_gated_delta_rule(
-        query,
-        key,
-        value,
-        g=g,
-        beta=beta,
-        initial_state=None,
-        output_final_state=False,
-        use_qk_l2norm_in_kernel=True,
-        cu_seqlens=cu_seq_lens.to(torch.long),
-    )
+    if cp_ctx is not None:
+        # When `cp_context` is given, fla overrides `cu_seqlens` internally
+        # with `cp_context.cu_seqlens` -- do NOT pass cu_seqlens again.
+        core_attn_out, _ = chunk_gated_delta_rule(
+            query,
+            key,
+            value,
+            g=g,
+            beta=beta,
+            initial_state=None,
+            output_final_state=False,
+            use_qk_l2norm_in_kernel=True,
+            cp_context=cp_ctx,
+        )
+    else:
+        core_attn_out, _ = chunk_gated_delta_rule(
+            query,
+            key,
+            value,
+            g=g,
+            beta=beta,
+            initial_state=None,
+            output_final_state=False,
+            use_qk_l2norm_in_kernel=True,
+            cu_seqlens=cu_seq_lens.to(torch.long),
+        )
 
     core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
     z = z.reshape(-1, self.head_v_dim)
@@ -367,10 +450,13 @@ def attn_forward(
     position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
     **kwargs,
 ):
+    ulysses_sp_size = get_ulysses_sequence_parallel_world_size()
     input_shape = hidden_states.shape[:-1]
     hidden_shape = (*input_shape, -1, self.head_dim)
 
-    # Qwen3.5 uses gated attention: q_proj outputs query + gate (2x size)
+    # Qwen3.5 uses gated attention: q_proj outputs query + gate (2x size).
+    # The gate is per-token and stays seq-sharded -- it is *not* part of the
+    # Ulysses all-to-all dance (which only swaps seq <-> head on Q/K/V).
     query_states, gate = torch.chunk(self.q_proj(hidden_states).view(*input_shape, -1, self.head_dim * 2), 2, dim=-1)
     gate = gate.reshape(*input_shape, -1)
 
@@ -378,6 +464,24 @@ def attn_forward(
     key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape))
     value_states = self.v_proj(hidden_states).view(hidden_shape)
     cos, sin = position_embeddings
+
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        validate_ulysses_config(query_states.size(-2), ulysses_sp_size)
+        # Repeat KV heads so they divide sp_size (flash-attn handles MQA/GQA
+        # in the kernel; we just need n_heads % sp_size == 0 after this).
+        repeats = max(ulysses_sp_size // key_states.size(-2), 1)
+        if repeats > 1:
+            key_states = key_states.repeat_interleave(repeats, dim=-2)
+            value_states = value_states.repeat_interleave(repeats, dim=-2)
+
+        # (seq/sp, n_head, head_dim) -> (seq, n_head/sp, head_dim)
+        query_states = gather_seq_scatter_heads(query_states, seq_dim=0, head_dim=1)
+        key_states = gather_seq_scatter_heads(key_states, seq_dim=0, head_dim=1)
+        value_states = gather_seq_scatter_heads(value_states, seq_dim=0, head_dim=1)
+
+        # `cu_seq_lens` here is the *global* (already-ulysses-padded) one,
+        # so it lines up with the gathered seq. Nothing to fix.
 
     query_states = query_states.unsqueeze(0).transpose(1, 2)
     key_states = key_states.unsqueeze(0).transpose(1, 2)
@@ -408,8 +512,13 @@ def attn_forward(
         dropout_p=0.0,
     )
 
+    ########## AlltoAll for Ulysses ##########
+    if ulysses_sp_size > 1:
+        # (seq, n_head/sp, head_dim) -> (seq/sp, n_head, head_dim)
+        attn_output = gather_heads_scatter_seq(attn_output, seq_dim=0, head_dim=1)
+
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()
-    # Apply the gated attention mechanism
+    # Apply the gated attention mechanism (gate stays seq-sharded throughout).
     attn_output = attn_output * torch.sigmoid(gate)
     attn_output = self.o_proj(attn_output)
 
@@ -478,6 +587,20 @@ def model_forward(
     position_ids = (
         index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices).transpose(0, 1).unsqueeze(1)
     )
+    if get_ulysses_sequence_parallel_world_size() > 1:
+        # Pad packed seq to a multiple of sp_size. Both Ulysses (full-attn)
+        # and FLA CP (linear-attn) assume each rank holds the same number of
+        # contiguous tokens, so we apply the same padding for both paths.
+        input_ids, position_ids, pad_size = ulysses_pad(
+            input_ids.unsqueeze(0),
+            position_ids,
+            sp_size=get_ulysses_sequence_parallel_world_size(),
+        )
+        input_ids = input_ids.squeeze(0)
+        if pad_size > 0:
+            # Mark the pad span as its own sample so linear-attn / causal-conv
+            # don't leak the pad region back into real samples.
+            cu_seq_lens = torch.cat([cu_seq_lens, cu_seq_lens.new_tensor([cu_seq_lens[-1].item() + pad_size])])
 
     if inputs_embeds is None:
         inputs_embeds = self.get_input_embeddings()(input_ids)
