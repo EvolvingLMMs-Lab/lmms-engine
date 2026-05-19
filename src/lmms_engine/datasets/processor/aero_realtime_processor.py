@@ -213,7 +213,7 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
                 audios,
                 sampling_rate=sampling_rate or self.sampling_rate,
                 return_attention_mask=True,
-                padding="max_length",
+                padding="longest",
                 return_tensors="pt",
                 **fe_kwargs,
             )
@@ -242,7 +242,13 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         # present (the inner ``<|audio_pad|>`` count of each per-chunk envelope).
         audio_per_chunk_per_video = None
         if has_video and has_audio:
-            mel_lengths = audio_inputs["audio_attention_mask"].sum(-1)
+            # FE attention_mask lags ``input_features`` by a small constant
+            # (reflection-pad frames at the mel boundary); add ``pad_offset``
+            # to recover the per-sample mel length before computing tokens.
+            mel_mask = audio_inputs["audio_attention_mask"]
+            T_mel = audio_inputs["input_features"].shape[-1]
+            pad_offset = max(0, T_mel - mel_mask.shape[-1])
+            mel_lengths = mel_mask.sum(-1).to(torch.long) + pad_offset
             num_audio_tokens_list = [self.processor._get_num_audio_tokens(int(m.item())) for m in mel_lengths]
             temporal_patch_size = getattr(self.processor.video_processor, "temporal_patch_size", 2)
             audio_per_chunk_per_video = []
@@ -311,7 +317,28 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         if audios is not None:
             # Model expects `input_features` for audio
             inputs["input_features"] = audio_inputs["input_features"]
-            inputs["audio_attention_mask"] = audio_inputs["audio_attention_mask"]
+            # Convert audio_attention_mask from mel-level (T_mel) to
+            # post-conv2 encoder length (T_enc = T_mel // 2) — what
+            # VoxtralRealtimeEncoder.forward expects. ``mel_mask`` from the
+            # FE lags ``input_features`` by ``pad_offset`` frames.
+            mel_mask = audio_inputs["audio_attention_mask"]
+            if not isinstance(mel_mask, torch.Tensor):
+                mel_mask = torch.as_tensor(mel_mask)
+            input_features = audio_inputs["input_features"]
+            if not isinstance(input_features, torch.Tensor):
+                input_features = torch.as_tensor(input_features)
+            T_mel = input_features.shape[-1]
+            pad_offset = max(0, T_mel - mel_mask.shape[-1])
+            mel_lengths_t = mel_mask.sum(-1).to(torch.long) + pad_offset
+            B = mel_mask.shape[0]
+            T_enc = T_mel // 2
+            enc_mask = torch.zeros(B, T_enc, dtype=torch.long)
+            for i in range(B):
+                m = min(int(mel_lengths_t[i].item()), T_mel)
+                enc_m = m // 2 if m > 0 else 0
+                if enc_m > 0:
+                    enc_mask[i, :enc_m] = 1
+            inputs["audio_attention_mask"] = enc_mask
 
         return inputs
 

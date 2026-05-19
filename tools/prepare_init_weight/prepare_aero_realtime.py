@@ -15,16 +15,17 @@
 """Prepare initial weights for AeroRealtime model.
 
 Initialises the AeroRealtime model from:
-- Vision tower: Qwen3-VL (e.g. Qwen/Qwen3-VL-4B-Instruct)
-- Audio tower: Qwen2Audio encoder (from Qwen/Qwen2-Audio-7B-Instruct)
-- Language model: Qwen3-VL text backbone (shared with vision model)
+- Vision tower: Qwen3 VL / Qwen3.5 (selected via --backbone_family)
+- Audio tower: VoxtralRealtimeEncoder (from mistralai/Voxtral-Mini-4B-Realtime-2602)
+- Language model: from the same vision+text source
 - Audio projector: randomly initialised
 
 Usage:
-    python tools/prepare_init_weight/prepare_aero_realtime.py \
-        --vision_model_id Qwen/Qwen3-VL-4B-Instruct \
-        --audio_model_id Qwen/Qwen2-Audio-7B-Instruct \
-        --output_dir ./data/aero_realtime_init
+    python tools/prepare_init_weight/prepare_aero_realtime.py \\
+        --backbone_family qwen3_5 \\
+        --vision_model_id Qwen/Qwen3.5-4B \\
+        --audio_model_id mistralai/Voxtral-Mini-4B-Realtime-2602 \\
+        --output_dir /path/to/aero_init
 """
 
 import argparse
@@ -38,8 +39,12 @@ from transformers import (
     AutoModelForImageTextToText,
     AutoProcessor,
     AutoTokenizer,
-    Qwen2AudioForConditionalGeneration,
-    WhisperFeatureExtractor,
+)
+from transformers.models.voxtral_realtime.feature_extraction_voxtral_realtime import (
+    VoxtralRealtimeFeatureExtractor,
+)
+from transformers.models.voxtral_realtime.modeling_voxtral_realtime import (
+    VoxtralRealtimeForConditionalGeneration,
 )
 
 from lmms_engine.models.aero_realtime.configuration_aero_realtime import (
@@ -74,7 +79,7 @@ def main(args):
         )
 
         print(f"Loading audio model from {args.audio_model_id}...")
-        audio_model = Qwen2AudioForConditionalGeneration.from_pretrained(
+        audio_model = VoxtralRealtimeForConditionalGeneration.from_pretrained(
             args.audio_model_id,
             torch_dtype="auto",
             device_map="cpu",
@@ -165,7 +170,7 @@ def main(args):
         print("Loading lm_head weights...")
         model.lm_head = vision_text_model.lm_head
 
-        # Load audio tower from Qwen2Audio
+        # Load audio tower from Voxtral
         print("Loading audio tower weights...")
         model.audio_tower = audio_model.audio_tower
 
@@ -219,11 +224,9 @@ def main(args):
     print("Building processor...")
     vision_processor = AutoProcessor.from_pretrained(args.vision_model_id)
 
-    # WhisperFeatureExtractor with 128 mel bins for Qwen2Audio compatibility
-    feature_extractor = WhisperFeatureExtractor(
-        feature_size=128,
-        sampling_rate=16000,
-    )
+    # Voxtral feature extractor — Whisper-style mel (128 bins, 10ms hop)
+    # with Voxtral-specific global_log_mel_max normalization.
+    feature_extractor = VoxtralRealtimeFeatureExtractor()
 
     processor = AeroRealtimeProcessor(
         image_processor=vision_processor.image_processor,
@@ -290,8 +293,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--audio_model_id",
         type=str,
-        default="Qwen/Qwen2-Audio-7B-Instruct",
-        help="HuggingFace model ID for the audio encoder (Qwen2Audio).",
+        default="mistralai/Voxtral-Mini-4B-Realtime-2602",
+        help="HuggingFace model ID for the audio encoder (Voxtral Realtime).",
     )
     parser.add_argument(
         "--output_dir",

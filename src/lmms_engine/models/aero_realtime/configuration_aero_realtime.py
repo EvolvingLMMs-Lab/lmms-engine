@@ -184,22 +184,15 @@ class AeroRealtimeConfig(PretrainedConfig):
             text_config = text_cfg_cls()
         self.text_config = text_config
 
-        # --- Resolve audio_config (unchanged — AutoConfig works for it) ---
+        # --- Resolve audio_config ---
+        # Defaults to voxtral_realtime_encoder. When audio_config is None we
+        # let the Voxtral encoder config supply its own defaults — do not
+        # duplicate kwargs here (keeps us in sync with upstream).
         if isinstance(audio_config, dict):
-            audio_config["model_type"] = audio_config.get("model_type", "qwen2_audio_encoder")
+            audio_config["model_type"] = audio_config.get("model_type", "voxtral_realtime_encoder")
             audio_config = CONFIG_MAPPING[audio_config["model_type"]](**audio_config)
         elif audio_config is None:
-            audio_config = CONFIG_MAPPING["qwen2_audio_encoder"](
-                d_model=1280,
-                encoder_attention_heads=20,
-                encoder_ffn_dim=5120,
-                encoder_layerdrop=0.0,
-                encoder_layers=32,
-                num_mel_bins=128,
-                max_source_positions=1500,
-                scale_embedding=False,
-                activation_function="gelu",
-            )
+            audio_config = CONFIG_MAPPING["voxtral_realtime_encoder"]()
         self.audio_config = audio_config
 
         # --- Resolve vision_config (registry-driven) ---

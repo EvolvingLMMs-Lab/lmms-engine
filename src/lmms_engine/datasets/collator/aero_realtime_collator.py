@@ -64,5 +64,27 @@ class AeroRealtimeCollator(VisionCollator):
             else:
                 # Convert numpy arrays to tensors if needed
                 values = [torch.from_numpy(v) if isinstance(v, np.ndarray) else v for v in values]
-                batched_inputs[key] = torch.concatenate(values, dim=0)
+                # Audio tensors from different samples may have different
+                # padded mel time lengths (variable across the outer batch).
+                # Right-pad along the last dim before concatenating on dim 0.
+                if key == "input_features":
+                    batched_inputs[key] = self._concat_pad_last_dim(values, pad_value=0.0)
+                elif key == "audio_attention_mask":
+                    batched_inputs[key] = self._concat_pad_last_dim(values, pad_value=0)
+                else:
+                    batched_inputs[key] = torch.concatenate(values, dim=0)
         return batched_inputs
+
+    @staticmethod
+    def _concat_pad_last_dim(tensors, pad_value):
+        """Right-pad each tensor's last dim to the batch max, then concat on dim 0."""
+        max_len = max(t.shape[-1] for t in tensors)
+        padded = []
+        for t in tensors:
+            if t.shape[-1] < max_len:
+                pad_shape = list(t.shape)
+                pad_shape[-1] = max_len - t.shape[-1]
+                pad = torch.full(pad_shape, pad_value, dtype=t.dtype, device=t.device)
+                t = torch.cat([t, pad], dim=-1)
+            padded.append(t)
+        return torch.cat(padded, dim=0)
