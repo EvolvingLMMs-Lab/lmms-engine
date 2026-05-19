@@ -1,4 +1,5 @@
 from .aero_processor import AeroDataProcessor
+from .aero_realtime_processor import AeroRealtimeDataProcessor
 from .bagel_processor import BagelDataProcessor
 from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
@@ -20,6 +21,7 @@ from .wanvideo_processor import WanVideoDataProcessor
 __all__ = [
     "ProcessorConfig",
     "AeroDataProcessor",
+    "AeroRealtimeDataProcessor",
     "BaseQwen2_5_DataProcessor",
     "LLaVADataProcessor",
     "LLaVAVideoDataProcessor",

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from lmms_engine.train.config import TrainingArguments
 
+from .aero_realtime.parallelize import apply_aero_realtime_parallelize_fn
 from .qwen3_5_moe.parallelize import apply_qwen3_5_moe_parallelize_fn
 from .qwen3_moe.parallelize import apply_qwen3_moe_parallelize_fn
 from .qwen3_omni_moe.parallelize import apply_qwen3_omni_moe_parallelize_fn
@@ -16,6 +17,7 @@ MODEL_TO_PARALLEL_METHOD = {
     "qwen3_omni_moe_thinker": apply_qwen3_omni_moe_parallelize_fn,
     "qwen3_vl": apply_qwen3_vl_parallelize_fn,
     "qwen3_vl_moe": apply_qwen3_vl_moe_parallelize_fn,
+    "aero_realtime": apply_aero_realtime_parallelize_fn,
 }
 
 
