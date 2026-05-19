@@ -82,3 +82,100 @@ class StepProfiler:
         if self.check():
             logger.info(f"[Profiler] Trace stopped for rank {self.rank}")
             self.skip_prof = True
+
+
+class MemorySnapshotProfiler:
+    """CUDA memory snapshot profiler with automatic OOM capture.
+
+    When enabled, records every CUDA alloc/free event (with Python stack
+    traces) into an in-memory ring buffer via
+    ``torch.cuda.memory._record_memory_history``. On a ``CUDA OOM``, an
+    out-of-memory observer dumps the buffer to a ``.pickle`` file that can
+    be loaded into https://pytorch.org/memory_viz for visualization.
+
+    Independent of ``StepProfiler`` — both can be enabled together.
+
+    Config keys (under ``memory_snapshot_config``):
+        - ``max_entries`` (int, default 100000): ring buffer size. One alloc
+          or free event = one entry. 100k covers ~a few training steps.
+        - ``stop_step`` (int, optional): if set, stop recording and dump a
+          final snapshot at this global step (useful for inspecting steady
+          state without OOM).
+    """
+
+    def __init__(
+        self,
+        enable: bool,
+        directory: str,
+        rank: int = 0,
+        memory_snapshot_config: Optional[Dict[str, Any]] = None,
+    ):
+        self.enable = enable and torch.cuda.is_available()
+        self.rank = rank
+        self.directory = directory
+        self.config = memory_snapshot_config or {}
+        self.max_entries = int(self.config.get("max_entries", 100000))
+        self.stop_step = self.config.get("stop_step", None)
+        self.started = False
+        self.stopped = False
+
+    def _dump(self, filename: str):
+        if not self.enable or self.stopped:
+            return
+        os.makedirs(self.directory, exist_ok=True)
+        path = os.path.join(self.directory, filename)
+        try:
+            torch.cuda.memory._dump_snapshot(path)
+            logger.info(f"[MemSnapshot] dumped snapshot to {path} (rank {self.rank})")
+        except Exception as e:
+            logger.error(f"[MemSnapshot] failed to dump snapshot: {e}")
+
+    def _oom_observer(self, device, alloc, device_alloc, device_free):
+        # Called by PyTorch BEFORE raising CUDA OOM. Dump current snapshot.
+        logger.error(
+            f"[MemSnapshot] CUDA OOM on rank {self.rank} device {device}: "
+            f"attempted to alloc {alloc} bytes "
+            f"(device_alloc={device_alloc}, device_free={device_free})"
+        )
+        self._dump(f"oom_rank{self.rank}.pickle")
+        # Mark stopped so we don't try to dump again on re-raise paths.
+        self.stopped = True
+
+    def start(self):
+        if not self.enable or self.started:
+            return
+        os.makedirs(self.directory, exist_ok=True)
+        torch.cuda.memory._record_memory_history(max_entries=self.max_entries)
+        try:
+            torch._C._cuda_attach_out_of_memory_observer(self._oom_observer)
+        except AttributeError:
+            logger.warning(
+                "[MemSnapshot] OOM observer API not available in this torch version; "
+                "snapshot will only dump on explicit stop_and_save()."
+            )
+        self.started = True
+        logger.info(
+            f"[MemSnapshot] recording started on rank {self.rank} "
+            f"(max_entries={self.max_entries}, dir={self.directory})"
+        )
+
+    def step(self, global_step: int):
+        """Mark step boundary in the snapshot timeline; optionally auto-stop."""
+        if not self.enable or self.stopped:
+            return
+        # NVTX marker → shows up as a vertical line in memory_viz timeline.
+        torch.cuda.nvtx.range_push(f"step_{global_step}")
+        torch.cuda.nvtx.range_pop()
+        if self.stop_step is not None and global_step >= self.stop_step:
+            self.stop_and_save(reason="stop_step")
+
+    def stop_and_save(self, reason: str = "manual"):
+        if not self.enable or self.stopped:
+            return
+        self._dump(f"snapshot_{reason}_rank{self.rank}.pickle")
+        try:
+            torch.cuda.memory._record_memory_history(enabled=None)
+        except Exception:
+            pass
+        self.stopped = True
+        logger.info(f"[MemSnapshot] recording stopped (reason={reason}, rank {self.rank})")

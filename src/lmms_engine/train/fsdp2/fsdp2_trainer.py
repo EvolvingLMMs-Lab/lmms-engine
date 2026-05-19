@@ -35,7 +35,7 @@ from lmms_engine.utils.fsdp2_utils import (
     get_cosine_schedule_with_warmup,
     get_wsd_schedule_with_warmup,
 )
-from lmms_engine.utils.profiler import StepProfiler
+from lmms_engine.utils.profiler import MemorySnapshotProfiler, StepProfiler
 from lmms_engine.utils.tracking import Tracking
 
 DatasetType = Union[Dataset, IterableDataset]
@@ -72,6 +72,13 @@ class FSDP2SFTTrainer:
             directory=self.profiler_dir,
             profiler_config=self.profiler_config,
             rank=dist.get_rank(),
+        )
+        # CUDA memory snapshot profiler (auto-dumps on OOM)
+        self.memory_snapshot_profiler = MemorySnapshotProfiler(
+            enable=getattr(self.args, "enable_memory_snapshot", False),
+            directory=os.path.join(self.args.output_dir, "memory_snapshot"),
+            rank=dist.get_rank(),
+            memory_snapshot_config=getattr(self.args, "memory_snapshot_config", None),
         )
         self.accumulated_grad_steps = 0
 
@@ -337,6 +344,7 @@ class FSDP2SFTTrainer:
 
         logger.info(f"Training with {self.args.num_train_epochs} epochs with {self.total_steps} steps")
         self.step_profiler.start()
+        self.memory_snapshot_profiler.start()
 
         curr_epoch = start_epoch
 
@@ -357,6 +365,7 @@ class FSDP2SFTTrainer:
                     break
                 # send batch to device
                 batch = send_to_device(batch, self.fsdp2_model.device)
+                self.memory_snapshot_profiler.step(self.global_step)
                 start_time = time.perf_counter()
                 train_metrics = self.training_step(batch)
                 self.step_profiler.step()
@@ -418,6 +427,7 @@ class FSDP2SFTTrainer:
             curr_epoch += 1
 
         pbar.close()
+        self.memory_snapshot_profiler.stop_and_save(reason="train_end")
         # Save the final checkpoint
         output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
         self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
