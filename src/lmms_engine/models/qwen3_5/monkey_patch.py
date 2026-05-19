@@ -134,27 +134,40 @@ def apply_liger_kernel_to_qwen3_5(
 def apply_vit_frame_parallel_to_qwen3_5(model: PreTrainedModel = None, **kwargs) -> None:
     """Wrap ``Qwen3_5VisionModel.forward`` with frame-parallel dispatch.
 
-    Frames are redistributed across the DP group via LPT so each rank handles
-    a balanced number of ViT patches. ``pgm.process_group_manager.dp_group``
-    must be initialized before this runs.
+    Frames are redistributed across the flat ``dp_cp_group`` (dp × cp) via
+    LPT so each rank handles a balanced number of ViT patches. Under SP
+    (cp_size > 1) only ``cp_rank == 0`` contributes frames to the pool — the
+    other cp ranks see duplicated dataloader input and would otherwise
+    double-count. After the ViT forward, features flow back to ``cp_rank ==
+    0`` via reverse all_to_all, then broadcast inside the cp group so every
+    rank can do ``masked_scatter`` *before* the LM applies SP slicing.
+
+    ``pgm.process_group_manager`` must be initialized before this runs.
     """
     from transformers.models.qwen3_5 import modeling_qwen3_5
 
     from .qwen3_5_vit_ops import input_dispatch, output_dispatch
 
-    if pgm.process_group_manager is None or pgm.process_group_manager.dp_world_size <= 1:
-        logger.info("vit_frame_parallel: dp_world_size <= 1, skipping ViT wrap")
+    if pgm.process_group_manager is None:
+        logger.info("vit_frame_parallel: process_group_manager not initialized, skipping ViT wrap")
         return
 
-    dp_group = pgm.process_group_manager.dp_group
+    dp_cp_world_size = pgm.process_group_manager.dp_cp_world_size
+    if dp_cp_world_size <= 1:
+        logger.info("vit_frame_parallel: dp_cp_world_size <= 1, skipping ViT wrap")
+        return
+
+    dp_cp_group = pgm.process_group_manager.dp_cp_group
+    cp_group = pgm.process_group_manager.cp_group if pgm.process_group_manager.cp_world_size > 1 else None
     orig_forward = modeling_qwen3_5.Qwen3_5VisionModel.forward
 
     wrapped = wrap_vit_forward(
-        input_dispatch=partial(input_dispatch, group=dp_group),
+        input_dispatch=partial(input_dispatch, group=dp_cp_group, cp_group=cp_group),
         orig_forward=orig_forward,
         output_dispatch=output_dispatch,
     )
     modeling_qwen3_5.Qwen3_5VisionModel.forward = wrapped
     logger.info(
-        f"vit_frame_parallel: wrapped Qwen3_5VisionModel.forward (dp_size={pgm.process_group_manager.dp_world_size})"
+        f"vit_frame_parallel: wrapped Qwen3_5VisionModel.forward "
+        f"(dp_cp_size={dp_cp_world_size}, cp_size={pgm.process_group_manager.cp_world_size})"
     )

@@ -86,6 +86,14 @@ class ProcessGroupManager:
         self.dp_group = dist.new_subgroups_by_enumeration(
             [self.grid[:, p, c, t].tolist() for p in range(pp_size) for c in range(cp_size) for t in range(tp_size)]
         )[0]
+        # Flatten dp & cp axes into a single group. Used by ViT frame parallel
+        # so frames can be balanced across both data-parallel and seq-parallel
+        # ranks at once (ViT inputs are duplicated across cp ranks since the
+        # dataloader only shards on dp, so we must split frames at the
+        # (dp x cp) granularity to actually reduce ViT memory under SP).
+        self.dp_cp_group = dist.new_subgroups_by_enumeration(
+            [self.grid[:, p, :, t].flatten().tolist() for p in range(pp_size) for t in range(tp_size)]
+        )[0]
 
         if ep_size > 1:
             self.ep_grid = torch.arange(dp_size).view(dp_shard_mod_ep, dp_shard_in_ep)
@@ -109,6 +117,8 @@ class ProcessGroupManager:
         self.cp_world_size = dist.get_world_size(group=self.cp_group)
         self.cp_first_rank = self.cp_group_ids[0]
         self.cp_last_rank = self.cp_group_ids[-1]
+
+        self.dp_cp_world_size = dist.get_world_size(group=self.dp_cp_group)
 
         self.pp_world_size = dist.get_world_size(group=self.pp_group)
         self.pp_first_rank = self.pp_group_ids[0]
