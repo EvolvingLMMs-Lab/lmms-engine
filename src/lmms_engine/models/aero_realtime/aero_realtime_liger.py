@@ -43,6 +43,51 @@ except Exception:
     _HAS_LIGER = False
 
 
+def _get_audio_features_rmpad(self, input_features: torch.Tensor, audio_attention_mask: Optional[torch.Tensor]):
+    audio_outputs = self.audio_tower(
+        input_features=input_features,
+        attention_mask=audio_attention_mask,
+    )
+    if isinstance(audio_outputs, torch.Tensor):
+        audio_hidden_states = audio_outputs
+    else:
+        audio_hidden_states = audio_outputs.last_hidden_state
+
+    df = self.config.downsample_factor
+    audio_output_lengths = None
+    if audio_attention_mask is not None:
+        audio_output_lengths = audio_attention_mask.sum(-1) // df
+
+    if audio_hidden_states.dim() == 2:
+        if audio_attention_mask is None:
+            raise ValueError("Packed audio hidden states require audio_attention_mask.")
+
+        chunks = []
+        offset = 0
+        for length in audio_attention_mask.sum(-1).tolist():
+            usable_len = (length // df) * df
+            if usable_len > 0:
+                chunk = audio_hidden_states[offset : offset + usable_len]
+                chunks.append(chunk.reshape(-1, self.config.audio_hidden_size * df))
+            offset += length
+
+        if chunks:
+            audio_hidden_states = torch.cat(chunks, dim=0)
+        else:
+            audio_hidden_states = audio_hidden_states.new_empty((0, self.config.audio_hidden_size * df))
+    else:
+        seq_len = audio_hidden_states.shape[1]
+        usable_len = (seq_len // df) * df
+        audio_hidden_states = audio_hidden_states[:, :usable_len, :]
+        audio_hidden_states = audio_hidden_states.reshape(
+            audio_hidden_states.shape[0],
+            -1,
+            self.config.audio_hidden_size * df,
+        )
+
+    return self.multi_modal_projector(audio_hidden_states), audio_output_lengths
+
+
 def aero_realtime_lce_forward(
     self,  # AeroRealtimeForConditionalGeneration
     input_ids: Optional[torch.LongTensor] = None,
@@ -172,10 +217,10 @@ def aero_realtime_lce_forward(
     # ---- 5. Audio features — add into packed embeddings ----
     audio_features_flat = None
     if input_features is not None:
-        audio_features, audio_output_lengths = self.get_audio_features(
-            input_features, audio_attention_mask=audio_attention_mask
-        )
-        if audio_output_lengths is not None:
+        audio_features, audio_output_lengths = _get_audio_features_rmpad(self, input_features, audio_attention_mask)
+        if audio_features.dim() == 2:
+            audio_features_flat = audio_features
+        elif audio_output_lengths is not None:
             audio_features_flat = self._unpad_audio_features(audio_features, audio_output_lengths)
         else:
             audio_features_flat = audio_features.reshape(-1, audio_features.shape[-1])

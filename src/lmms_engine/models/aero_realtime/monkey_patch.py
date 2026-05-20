@@ -71,11 +71,7 @@ def apply_liger_kernel_to_aero_realtime(
 
 @MONKEY_PATCHER.register("aero_realtime", "rmpad")
 def apply_rmpad_to_aero_realtime(model: PreTrainedModel = None) -> None:
-    """Apply rmpad ops to AeroRealtime's language sub-model + bind aero's
-    rmpad-flavoured lce forward.
-
-    VoxtralRealtimeEncoder runs its own native forward — no rmpad patches
-    applied to the audio tower (future optimization PR)."""
+    """Apply rmpad ops to AeroRealtime's language and audio towers."""
     from .modeling_aero_realtime import AeroRealtimeForConditionalGeneration
 
     if model is None:
@@ -88,6 +84,12 @@ def apply_rmpad_to_aero_realtime(model: PreTrainedModel = None) -> None:
 
     # 1. Patch language sub-model — rmpad-only
     rmpad_fn(model=model.language_model)
+
+    from lmms_engine.models.voxtral_realtime.monkey_patch import (
+        apply_rmpad_to_voxtral_realtime,
+    )
+
+    apply_rmpad_to_voxtral_realtime(model=model.audio_tower)
 
     # 2. Bind aero's rmpad forward (same lce forward — already rmpad-aware)
     from .aero_realtime_liger import aero_realtime_lce_forward
