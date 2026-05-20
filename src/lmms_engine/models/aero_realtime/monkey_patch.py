@@ -47,6 +47,12 @@ def apply_liger_kernel_to_aero_realtime(
     family = model.config.backbone_family
     liger_fn = family_liger_fn(family)
 
+    # qwen3_5 / qwen3_5_moe use hybrid attention (Gated DeltaNet + Gated
+    # Attention), incompatible with liger_rotary_pos_emb — force rope off
+    # for these families.
+    if family in ("qwen3_5", "qwen3_5_moe"):
+        rope = False
+
     # 1. Patch language sub-model
     liger_fn(
         model=model.language_model,
