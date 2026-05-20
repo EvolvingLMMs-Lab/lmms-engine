@@ -83,84 +83,12 @@ def aero_realtime_lce_forward(
     return_dict = return_dict if return_dict is not None else self.config.use_return_dict
     sp_size = get_ulysses_sequence_parallel_world_size()
 
-    # ---- 1. Embedding (same as original) ----
-    embed_ids = text_stream_ids if text_stream_ids is not None else input_ids
-
-    if inputs_embeds is None:
-        inputs_embeds = self.get_input_embeddings()(embed_ids)
-
-    # Keep original input_ids for mask computation (before unpadding)
+    # Keep original input_ids for mrope + modality placeholder masks.
     original_input_ids = input_ids
     batch_size, seq_length = original_input_ids.shape
 
-    # ---- 2. Image features — scatter (same as original) ----
-    if pixel_values is not None:
-        image_features = self.get_vision_features(pixel_values, grid_thw=image_grid_thw)
-        image_mask = original_input_ids == self.config.image_token_index
-        n_image_tokens = image_mask.sum().item()
-        n_image_features = image_features.shape[0]
-        if n_image_tokens != n_image_features:
-            raise ValueError(
-                f"Image token count ({n_image_tokens}) does not match " f"image feature count ({n_image_features})."
-            )
-        image_mask_expanded = image_mask.unsqueeze(-1).expand_as(inputs_embeds)
-        inputs_embeds = inputs_embeds.masked_scatter(
-            image_mask_expanded,
-            image_features.to(inputs_embeds.dtype),
-        )
-
-    # ---- 3. Video features ----
-    video_features = None
-    if pixel_values_videos is not None:
-        video_features = self.get_vision_features(pixel_values_videos, grid_thw=video_grid_thw)
-
-    # ---- 4. Audio features ----
-    audio_features = None
-    audio_features_flat = None
-    if input_features is not None:
-        audio_features, audio_output_lengths = self.get_audio_features(
-            input_features, audio_attention_mask=audio_attention_mask
-        )
-        if audio_output_lengths is not None:
-            audio_features_flat = self._unpad_audio_features(audio_features, audio_output_lengths)
-        else:
-            audio_features_flat = audio_features.reshape(-1, audio_features.shape[-1])
-
-    # ---- 5. Scatter video features and add audio features ----
-
-    # 5a. Scatter video features at video_token_index positions
-    if video_features is not None:
-        video_mask = original_input_ids == self.config.video_token_index
-        n_video_tokens = video_mask.sum().item()
-        n_video_features = video_features.shape[0]
-        if n_video_tokens != n_video_features:
-            raise ValueError(
-                f"Video token count ({n_video_tokens}) does not match " f"video feature count ({n_video_features})."
-            )
-        video_mask_expanded = video_mask.unsqueeze(-1).expand_as(inputs_embeds)
-        inputs_embeds = inputs_embeds.masked_scatter(
-            video_mask_expanded,
-            video_features.to(inputs_embeds.dtype),
-        )
-
-    # 5b. Add audio features at audio_token_index positions
-    if audio_features_flat is not None:
-        audio_mask = original_input_ids == self.config.audio_token_index
-        n_audio_tokens = audio_mask.sum().item()
-        n_audio_features = audio_features_flat.shape[0]
-        if n_audio_tokens != n_audio_features:
-            raise ValueError(
-                f"Audio token count ({n_audio_tokens}) does not match " f"audio feature count ({n_audio_features})."
-            )
-        audio_mask_flat = audio_mask.reshape(-1)
-        inputs_embeds_flat = inputs_embeds.reshape(-1, inputs_embeds.shape[-1])
-        inputs_embeds_flat[audio_mask_flat] = inputs_embeds_flat[audio_mask_flat] + audio_features_flat.to(
-            inputs_embeds.dtype
-        )
-        inputs_embeds = inputs_embeds_flat.reshape(inputs_embeds.shape)
-
     # ==================================================================
-    # RMPad: unpad + position_ids (mirrors qwen3_vl_ops.model_forward)
+    # RMPad first, then modality injection (mirrors qwen3_5_ops.model_forward)
     # ==================================================================
 
     # 7a. Compute position_ids using qwen3_vl_get_rope_index
@@ -175,8 +103,14 @@ def aero_realtime_lce_forward(
             attention_mask=attention_mask,
         )
 
-    # 7b. Unpad inputs_embeds
-    inputs_embeds, indices, cu_seq_lens, _ = _unpad_input(inputs_embeds, attention_mask=attention_mask)
+    # 7b. Unpad input_ids and text_stream_ids. We scatter modalities on the
+    # packed layout, matching qwen3_5_ops.model_forward. This keeps the
+    # vit_frame_parallel autograd collective path identical to the base model.
+    input_ids, indices, cu_seq_lens, _ = _unpad_input(input_ids, attention_mask=attention_mask)
+    if text_stream_ids is not None:
+        embed_ids = text_stream_ids.reshape(-1)[indices]
+    else:
+        embed_ids = input_ids
 
     # 7c. Unpad position_ids: [3, B, S] -> index by valid positions -> [3, 1, total_tokens]
     position_ids = (
@@ -184,21 +118,81 @@ def aero_realtime_lce_forward(
     )
 
     # Qwen3VLTextModel's Ulysses wrapper pads/slices inputs_embeds before the
-    # text forward. Pad global position_ids to the same padded length so RoPE
-    # cos/sin length matches q/k after all-to-all when total tokens is odd.
+    # text forward. We mirror qwen3_5_ops.model_forward: pad the packed seq
+    # to a multiple of sp_size and mark the pad span as its own sample in
+    # ``cu_seq_lens`` so linear-attn / causal-conv don't leak the pad region
+    # back into the real tail sample (full-attn doesn't care because pad
+    # tokens are loss-masked anyway).
+    pad_size = 0
     if sp_size > 1:
-        dummy_ids = torch.zeros(
-            (1, inputs_embeds.shape[0]),
-            dtype=torch.long,
-            device=inputs_embeds.device,
+        input_ids, position_ids, pad_size = ulysses_pad(input_ids.unsqueeze(0), position_ids, sp_size=sp_size)
+        input_ids = input_ids.squeeze(0)
+        if pad_size > 0:
+            embed_ids = torch.nn.functional.pad(embed_ids, (0, pad_size), value=self.config.rt_pad_token_index)
+            # Mark pad span as its own sample so linear-attn / causal-conv
+            # don't see it as a continuation of the last real sample.
+            cu_seq_lens = torch.cat([cu_seq_lens, cu_seq_lens.new_tensor([cu_seq_lens[-1].item() + pad_size])])
+
+    # ---- 2. Embedding on packed ids ----
+    if inputs_embeds is None:
+        inputs_embeds = self.get_input_embeddings()(embed_ids)
+
+    # ---- 3. Image features — scatter into packed embeddings ----
+    image_features = None
+    if pixel_values is not None:
+        image_features = self.get_vision_features(pixel_values, grid_thw=image_grid_thw)
+        image_mask = input_ids == self.config.image_token_index
+        n_image_tokens = image_mask.sum().item()
+        n_image_features = image_features.shape[0]
+        if n_image_tokens != n_image_features:
+            raise ValueError(
+                f"Image token count ({n_image_tokens}) does not match " f"image feature count ({n_image_features})."
+            )
+        inputs_embeds = inputs_embeds.masked_scatter(
+            image_mask.unsqueeze(-1).expand_as(inputs_embeds),
+            image_features.to(inputs_embeds.dtype),
         )
-        _, position_ids, _ = ulysses_pad(dummy_ids, position_ids, sp_size=sp_size)
+
+    # ---- 4. Video features — scatter into packed embeddings ----
+    video_features = None
+    if pixel_values_videos is not None:
+        video_features = self.get_vision_features(pixel_values_videos, grid_thw=video_grid_thw)
+        video_mask = input_ids == self.config.video_token_index
+        n_video_tokens = video_mask.sum().item()
+        n_video_features = video_features.shape[0]
+        if n_video_tokens != n_video_features:
+            raise ValueError(
+                f"Video token count ({n_video_tokens}) does not match " f"video feature count ({n_video_features})."
+            )
+        inputs_embeds = inputs_embeds.masked_scatter(
+            video_mask.unsqueeze(-1).expand_as(inputs_embeds),
+            video_features.to(inputs_embeds.dtype),
+        )
+
+    # ---- 5. Audio features — add into packed embeddings ----
+    audio_features_flat = None
+    if input_features is not None:
+        audio_features, audio_output_lengths = self.get_audio_features(
+            input_features, audio_attention_mask=audio_attention_mask
+        )
+        if audio_output_lengths is not None:
+            audio_features_flat = self._unpad_audio_features(audio_features, audio_output_lengths)
+        else:
+            audio_features_flat = audio_features.reshape(-1, audio_features.shape[-1])
+        audio_mask = input_ids == self.config.audio_token_index
+        n_audio_tokens = audio_mask.sum().item()
+        n_audio_features = audio_features_flat.shape[0]
+        if n_audio_tokens != n_audio_features:
+            raise ValueError(
+                f"Audio token count ({n_audio_tokens}) does not match " f"audio feature count ({n_audio_features})."
+            )
+        inputs_embeds = inputs_embeds.clone()
+        inputs_embeds[audio_mask] = inputs_embeds[audio_mask] + audio_features_flat.to(inputs_embeds.dtype)
 
     # 7d. Unpad labels
     if labels is not None:
         labels_unpad = labels.view(-1)[indices]
         if sp_size > 1:
-            pad_size = (sp_size - labels_unpad.shape[0] % sp_size) % sp_size
             if pad_size > 0:
                 labels_unpad = torch.nn.functional.pad(labels_unpad, (0, pad_size), value=-100)
             labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=False)
