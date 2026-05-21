@@ -392,11 +392,13 @@ class FSDP2SFTTrainer:
                 device = self.fsdp2_model.device
                 flops_tensor = torch.tensor(flops, device=device)
                 sp_size = pgm.process_group_manager.cp_world_size
+                tp_size = pgm.process_group_manager.tp_world_size
+                parallel_size = sp_size * tp_size
 
                 # Calculate training metrics (MFU, token stats, throughput)
                 perf_metrics, self.total_tokens = self.calculate_training_metrics(
                     flops_tensor=flops_tensor,
-                    sp_size=sp_size,
+                    parallel_size=parallel_size,
                     promised_flops=promised_flops,
                     device=device,
                     seq_len=seq_len,
@@ -633,7 +635,7 @@ class FSDP2SFTTrainer:
     @staticmethod
     def calculate_training_metrics(
         flops_tensor: torch.Tensor,
-        sp_size: int,
+        parallel_size: int,
         promised_flops: float,
         device: torch.device,
         seq_len: list,
@@ -646,7 +648,7 @@ class FSDP2SFTTrainer:
 
         Args:
             flops_tensor: Tensor containing FLOPs count
-            sp_size: Sequence parallel size
+            parallel_size: Product of sequence and tensor parallel sizes
             promised_flops: Promised FLOPs capacity
             device: Device to perform computations on
             seq_len: List of sequence lengths per batch
@@ -660,16 +662,16 @@ class FSDP2SFTTrainer:
         metrics = {}
 
         # Calculate mfu per rank
-        # Divide by sp size because attention mask we use to calculate are unsplitted
-        mfu = flops_tensor.item() / sp_size / promised_flops
+        # Divide by parallel size because seq_len/flops are estimated before SP/TP sharding.
+        mfu = flops_tensor.item() / parallel_size / promised_flops
         mfu = torch.tensor(mfu, device=device)
         torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
         mfu = mfu.item()
 
         # Calculating token stats
         seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
-        # Divide total seq len by sp size if sp is enabled since we split the seq len
-        total_seq_len = seq_len.sum() / sp_size
+        # Divide by parallel size to avoid counting replicated SP/TP batches multiple times.
+        total_seq_len = seq_len.sum() / parallel_size
         torch.distributed.all_reduce(total_seq_len, op=torch.distributed.ReduceOp.SUM)
         # Avg seq len won't be effected by sp since we perform all reduce
         # across world size

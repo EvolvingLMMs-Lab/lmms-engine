@@ -55,11 +55,19 @@ def create_train_task(config):
 
     trainer_args = config.get("trainer_args")
     sp_degree = trainer_args.get("sp_ulysses_degree", 1)
+    tp_degree = trainer_args.get("tp_degree", 1)
     ep_degree = trainer_args.get("ep_degree", 1)
+    if tp_degree < 1:
+        raise ValueError(f"tp_degree must be >= 1, got {tp_degree}")
+    if world_size % (sp_degree * tp_degree) != 0:
+        raise ValueError(
+            f"World size ({world_size}) must be divisible by "
+            f"sp_ulysses_degree ({sp_degree}) * tp_degree ({tp_degree})"
+        )
     # DP size actually will not be affected by ep_degree, but kept for initialization here
-    dp_size = world_size // sp_degree
+    dp_size = world_size // (sp_degree * tp_degree)
 
-    # For now, we haven't implement the tp and pp
+    # For now, we haven't implemented pp.
     use_cpu = trainer_args.get("use_cpu", False)
     backend = "gloo" if use_cpu else "nccl"
     # If the process group is already initialized, don't initialize it again
@@ -80,7 +88,13 @@ def create_train_task(config):
             init_method=f"env://",
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
-    setup_process_group_manager(tp_size=1, cp_size=sp_degree, pp_size=1, dp_size=dp_size, ep_size=ep_degree)
+    setup_process_group_manager(
+        tp_size=tp_degree,
+        cp_size=sp_degree,
+        pp_size=1,
+        dp_size=dp_size,
+        ep_size=ep_degree,
+    )
 
     trainer_args = config.pop("trainer_args")
 

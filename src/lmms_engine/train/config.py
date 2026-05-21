@@ -27,6 +27,7 @@ class TrainingArguments(transformers.TrainingArguments):
     # Parallelism
     ep_degree: Optional[int] = 1
     sp_ulysses_degree: Optional[int] = 1
+    tp_degree: Optional[int] = 1
 
     # --- EMA (Exponential Moving Average) ---
     ema_enabled: Optional[bool] = False

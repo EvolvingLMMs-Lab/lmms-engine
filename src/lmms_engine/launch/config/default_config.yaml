@@ -184,6 +184,7 @@ trainer_args:
   profiler_config: null
   ep_degree: 1
   sp_ulysses_degree: 1
+  tp_degree: 1
   ema_enabled: false
   ema_decay: 0.9999
   ema_update_every: 1

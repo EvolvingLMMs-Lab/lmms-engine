@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 from .qwen3_5_moe.parallelize import apply_qwen3_5_moe_parallelize_fn
 from .qwen3_moe.parallelize import apply_qwen3_moe_parallelize_fn
 from .qwen3_omni_moe.parallelize import apply_qwen3_omni_moe_parallelize_fn
+from .qwen3_vl.parallelize import apply_qwen3_vl_parallelize_fn
 from .qwen3_vl_moe.parallelize import apply_qwen3_vl_moe_parallelize_fn
 
 MODEL_TO_PARALLEL_METHOD = {
@@ -13,6 +14,7 @@ MODEL_TO_PARALLEL_METHOD = {
     "qwen3_5_moe": apply_qwen3_5_moe_parallelize_fn,
     "qwen3_omni_moe": apply_qwen3_omni_moe_parallelize_fn,
     "qwen3_omni_moe_thinker": apply_qwen3_omni_moe_parallelize_fn,
+    "qwen3_vl": apply_qwen3_vl_parallelize_fn,
     "qwen3_vl_moe": apply_qwen3_vl_moe_parallelize_fn,
 }
 
