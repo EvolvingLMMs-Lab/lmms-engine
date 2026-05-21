@@ -181,6 +181,8 @@ def aero_realtime_lce_forward(
     # ---- 2. Embedding on packed ids ----
     if inputs_embeds is None:
         inputs_embeds = self.get_input_embeddings()(embed_ids)
+    elif pixel_values is not None or pixel_values_videos is not None or input_features is not None:
+        inputs_embeds = inputs_embeds.clone()
 
     # ---- 3. Image features — scatter into packed embeddings ----
     image_features = None
@@ -193,10 +195,7 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Image token count ({n_image_tokens}) does not match " f"image feature count ({n_image_features})."
             )
-        inputs_embeds = inputs_embeds.masked_scatter(
-            image_mask.unsqueeze(-1).expand_as(inputs_embeds),
-            image_features.to(inputs_embeds.dtype),
-        )
+        inputs_embeds[image_mask] = image_features.to(inputs_embeds.dtype)
 
     # ---- 4. Video features — scatter into packed embeddings ----
     video_features = None
@@ -209,10 +208,7 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Video token count ({n_video_tokens}) does not match " f"video feature count ({n_video_features})."
             )
-        inputs_embeds = inputs_embeds.masked_scatter(
-            video_mask.unsqueeze(-1).expand_as(inputs_embeds),
-            video_features.to(inputs_embeds.dtype),
-        )
+        inputs_embeds[video_mask] = video_features.to(inputs_embeds.dtype)
 
     # ---- 5. Audio features — add into packed embeddings ----
     audio_features_flat = None
@@ -231,7 +227,6 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Audio token count ({n_audio_tokens}) does not match " f"audio feature count ({n_audio_features})."
             )
-        inputs_embeds = inputs_embeds.clone()
         inputs_embeds[audio_mask] = inputs_embeds[audio_mask] + audio_features_flat.to(inputs_embeds.dtype)
 
     # 7d. Unpad labels
