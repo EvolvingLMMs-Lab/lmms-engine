@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import contextmanager, nullcontext
 from typing import Any, Dict, Optional
 
@@ -119,16 +120,20 @@ class MemorySnapshotProfiler:
         self.started = False
         self.stopped = False
 
-    def _dump(self, filename: str):
-        if not self.enable or self.stopped:
+    def _dump(self, filename: str, force: bool = False):
+        if not self.enable or (self.stopped and not force):
             return
         os.makedirs(self.directory, exist_ok=True)
         path = os.path.join(self.directory, filename)
         try:
             torch.cuda.memory._dump_snapshot(path)
             logger.info(f"[MemSnapshot] dumped snapshot to {path} (rank {self.rank})")
-        except Exception as e:
-            logger.error(f"[MemSnapshot] failed to dump snapshot: {e}")
+        except Exception:
+            logger.exception(f"[MemSnapshot] failed to dump snapshot to {path}")
+
+    def dump_on_exception(self, reason: str):
+        timestamp = int(time.time())
+        self._dump(f"snapshot_{reason}_rank{self.rank}_pid{os.getpid()}_{timestamp}.pickle", force=True)
 
     def _oom_observer(self, device, alloc, device_alloc, device_free):
         # Called by PyTorch BEFORE raising CUDA OOM. Dump current snapshot.
@@ -137,7 +142,7 @@ class MemorySnapshotProfiler:
             f"attempted to alloc {alloc} bytes "
             f"(device_alloc={device_alloc}, device_free={device_free})"
         )
-        self._dump(f"oom_rank{self.rank}.pickle")
+        self.dump_on_exception("oom_observer")
         # Mark stopped so we don't try to dump again on re-raise paths.
         self.stopped = True
 

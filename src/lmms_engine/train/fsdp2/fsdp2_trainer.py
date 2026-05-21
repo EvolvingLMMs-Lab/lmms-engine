@@ -367,7 +367,15 @@ class FSDP2SFTTrainer:
                 batch = send_to_device(batch, self.fsdp2_model.device)
                 self.memory_snapshot_profiler.step(self.global_step)
                 start_time = time.perf_counter()
-                train_metrics = self.training_step(batch)
+                try:
+                    train_metrics = self.training_step(batch)
+                except torch.OutOfMemoryError:
+                    self.memory_snapshot_profiler.dump_on_exception(f"oom_step{self.global_step}")
+                    raise
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        self.memory_snapshot_profiler.dump_on_exception(f"oom_step{self.global_step}")
+                    raise
                 self.step_profiler.step()
                 if self.step_profiler.should_save(self.global_step + 1):
                     self.step_profiler.stop_and_save()
