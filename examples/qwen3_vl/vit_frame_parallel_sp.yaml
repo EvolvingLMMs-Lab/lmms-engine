@@ -1,0 +1,77 @@
+# Qwen3-VL training example with ViT frame parallelism + Ulysses SP.
+#
+# ``vit_frame_parallel`` balances visual frames across the flattened DPxCP
+# group. With ``sp_ulysses_degree > 1``, each CP rank owns a shard of the local
+# duplicated frames for ViT, then gathers visual features back before LM SP
+# slicing.
+
+trainer_type: fsdp2_trainer
+
+dataset_config:
+  dataset_type: qwen3_vl_iterable
+  dataset_format: yaml
+  dataset_path: data/video/debug.yaml
+  processor_config:
+    processor_name: Qwen/Qwen3-VL-8B-Instruct
+    processor_type: qwen3_vl
+  shuffle: true
+  object_storage: none
+  packing: true
+  packing_strategy: balanced
+  packing_length: 51200
+  filter_overlong: true
+  filter_overlong_workers: 8
+  video_sampling_strategy: fps
+  video_max_pixels: 50176
+  video_max_frames: 512
+  frame_num: 64
+  fps: 1
+  video_backend: qwen_vl_utils
+  extra_kwargs:
+    packing_kwargs:
+      num_buckets: 2
+
+trainer_args:
+  output_dir: ./output/qwen3_vl_vit_fp_sp
+  do_train: true
+  do_eval: false
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 2.0e-04
+  weight_decay: 0.0
+  num_train_epochs: 1
+  max_steps: 1000
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  logging_steps: 1
+  save_strategy: steps
+  save_steps: 1000
+  save_total_limit: 1
+  bf16: true
+  tf32: true
+  dataloader_drop_last: true
+  dataloader_num_workers: 4
+  dataloader_prefetch_factor: 2
+  remove_unused_columns: false
+  gradient_checkpointing: true
+  use_liger_kernel: true
+  use_rmpad: true
+  fsdp2: true
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+      - Qwen3VLTextDecoderLayer
+    reshard_after_forward: false
+    min_num_params: 0
+  sp_ulysses_degree: 2
+  reduce_dtype: bfloat16
+  output_dtype: bfloat16
+  optim: adamw_torch_fused
+  seed: 42
+  run_name: qwen3_vl_vit_fp_sp
+
+model_config:
+  load_from_pretrained_path: Qwen/Qwen3-VL-8B-Instruct
+  attn_implementation: flash_attention_2
+  torch_dtype: bfloat16
+  monkey_patch_kwargs:
+    patch_type: ["liger", "vit_frame_parallel"]

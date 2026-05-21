@@ -2,13 +2,16 @@ import inspect
 from functools import partial, wraps
 from typing import Callable
 
+from loguru import logger
 from packaging import version
 from transformers import PreTrainedModel, Qwen3VLTextModel
 
+import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.parallel.sequence_parallel.ulysses import (
     get_ulysses_sequence_parallel_world_size,
     patch_vlm_for_ulysses_input_slicing,
 )
+from lmms_engine.parallel.vit_parallel.frame_parallel import wrap_vit_forward
 
 try:
     from liger_kernel.transformers.cross_entropy import LigerCrossEntropyLoss
@@ -145,3 +148,35 @@ def apply_liger_kernel_to_qwen3_vl(
             for vision_block in vision_model.blocks:
                 _patch_layer_norm_module(vision_block.norm1)
                 _patch_layer_norm_module(vision_block.norm2)
+
+
+@MONKEY_PATCHER.register("qwen3_vl", "vit_frame_parallel")
+def apply_vit_frame_parallel_to_qwen3_vl(model: PreTrainedModel = None, **kwargs) -> None:
+    """Wrap ``Qwen3VLVisionModel.forward`` with DPxCP frame-parallel dispatch."""
+    from transformers.models.qwen3_vl import modeling_qwen3_vl
+
+    from .qwen3_vl_vit_ops import input_dispatch, output_dispatch
+
+    if pgm.process_group_manager is None:
+        logger.info("vit_frame_parallel: process_group_manager not initialized, skipping ViT wrap")
+        return
+
+    dp_cp_world_size = pgm.process_group_manager.dp_cp_world_size
+    if dp_cp_world_size <= 1:
+        logger.info("vit_frame_parallel: dp_cp_world_size <= 1, skipping ViT wrap")
+        return
+
+    dp_cp_group = pgm.process_group_manager.dp_cp_group
+    cp_group = pgm.process_group_manager.cp_group if pgm.process_group_manager.cp_world_size > 1 else None
+    orig_forward = modeling_qwen3_vl.Qwen3VLVisionModel.forward
+
+    wrapped = wrap_vit_forward(
+        input_dispatch=partial(input_dispatch, group=dp_cp_group, cp_group=cp_group),
+        orig_forward=orig_forward,
+        output_dispatch=output_dispatch,
+    )
+    modeling_qwen3_vl.Qwen3VLVisionModel.forward = wrapped
+    logger.info(
+        f"vit_frame_parallel: wrapped Qwen3VLVisionModel.forward "
+        f"(dp_cp_size={dp_cp_world_size}, cp_size={pgm.process_group_manager.cp_world_size})"
+    )
