@@ -127,7 +127,7 @@ def input_dispatch(
     loads = [token for tokens in total_tokens for token in tokens]
 
     # ---- 2) LPT ----
-    assignment_list, _ = lpt_balance(loads, num_ranks=world_size)
+    assignment_list, _ = lpt_balance(loads, num_ranks=world_size, frames_per_rank=total_frames)
 
     # ---- 3) src-view input splits (what I send to each dst) ----
     # Slice out the segment of `assignment_list` corresponding to my local frames.

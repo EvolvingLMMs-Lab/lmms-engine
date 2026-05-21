@@ -75,7 +75,7 @@ def input_dispatch(
     dist.all_gather_object(total_frames, num_frames, group=group)
     loads = [token for tokens in total_tokens for token in tokens]
 
-    assignment_list, _ = lpt_balance(loads, num_ranks=world_size)
+    assignment_list, _ = lpt_balance(loads, num_ranks=world_size, frames_per_rank=total_frames)
 
     my_start = sum(total_frames[:my_rank])
     my_end = my_start + num_frames
