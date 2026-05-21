@@ -63,6 +63,7 @@ trainer_args:
     reshard_after_forward: false
     min_num_params: 0
   sp_ulysses_degree: 2
+  tp_degree: 1  # Can be combined with SP; world_size must be divisible by sp_ulysses_degree * tp_degree
   reduce_dtype: bfloat16
   output_dtype: bfloat16
   optim: adamw_torch_fused

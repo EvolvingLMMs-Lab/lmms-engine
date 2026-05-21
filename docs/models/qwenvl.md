@@ -17,7 +17,7 @@ Qwen-VL models are state-of-the-art multimodal models that support image and vid
 - **Unique Feature**: DeepStack - multi-layer visual embeddings fused into early language model layers
 - **Modalities**: Image and Video understanding (optimized for long videos)
 - **Context Length**: 256K tokens (native), extendable to 1M tokens
-- **Key Features**: DeepStack fusion, Interleaved 3D M-RoPE, Long video support (>1 hour), Flash Attention 2, Sequence Parallelism
+- **Key Features**: DeepStack fusion, Interleaved 3D M-RoPE, Long video support (>1 hour), Flash Attention 2, Sequence Parallelism, text-decoder Tensor Parallelism
 
 ## Prerequisites
 
@@ -217,6 +217,7 @@ Create a YAML configuration file for your model.
     
     # Optional: Sequence parallelism
     sp_ulysses_degree: 1
+    tp_degree: 1                                # Set to 2, 4, 8 for Qwen3-VL text decoder TP
 ```
 
 ## Key Configuration Parameters
@@ -273,6 +274,40 @@ trainer_args:
 - Flash Attention 2 must be installed
 - `use_rmpad: true` recommended
 - Number of attention heads must be divisible by `sp_ulysses_degree`
+
+### Tensor Parallelism
+
+Plain Qwen3-VL supports Tensor Parallelism (TP) for the text decoder. TP shards
+the attention projections (`q_proj`, `k_proj`, `v_proj`, `o_proj`) and MLP
+projections (`gate_proj`, `up_proj`, `down_proj`) across the TP mesh. The vision
+tower remains FSDP2-sharded and can still use ViT frame parallelism when enabled.
+
+```yaml
+trainer_args:
+  tp_degree: 2          # Text decoder tensor parallel degree
+  sp_ulysses_degree: 1  # Can be >1 when head divisibility requirements are met
+```
+
+Launch with a Hydra override:
+
+```bash
+torchrun --nproc_per_node=8 -m lmms_engine.launch.cli \
+  --config-path examples/qwen3_vl \
+  --config-name example_config \
+  trainer_args.tp_degree=2
+```
+
+Requirements and notes:
+
+- `world_size` must be divisible by `tp_degree * sp_ulysses_degree`.
+- `hidden_size`, `intermediate_size`, `num_attention_heads`, and
+  `num_key_value_heads` must be divisible by `tp_degree`.
+- When `sp_ulysses_degree > 1`, `num_attention_heads / tp_degree` must also be
+  divisible by `sp_ulysses_degree`.
+- `ep_degree > 1` is not used for plain Qwen3-VL; use Qwen3-VL MoE configs for
+  expert parallelism.
+- `lm_head`, vocabulary loss parallelism, and PyTorch DTensor SequenceParallel
+  are not enabled by this TP path.
 
 ### Liger Kernel
 
@@ -602,4 +637,3 @@ trainer_args:
 ### Community Resources
 - [LMMS Engine GitHub](https://github.com/EvolvingLMMs-Lab/lmms-engine)
 - [Qwen GitHub](https://github.com/QwenLM/Qwen2-VL)
-

@@ -174,6 +174,7 @@ trainer_args:
   use_rmpad: true
   fsdp2: true
   sp_ulysses_degree: 1
+  tp_degree: 1  # Set to 2, 4, 8 for Qwen3-VL text decoder Tensor Parallelism
   reduce_dtype: bfloat16
   output_dtype: bfloat16
   print_batch_input_steps: 5

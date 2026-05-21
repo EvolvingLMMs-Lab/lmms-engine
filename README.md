@@ -86,24 +86,25 @@ python -m lmms_engine.launch.cli config_yaml=examples/qwen3_vl/example_config.ya
 
 ## 🔥 Featured Examples
 
-| Model | Quick Start | FSDP2 | USP | Muon | Liger | Packing | NSA | EP | Highlights |
-|-------|-------------|-------|-----|------|-------|---------|-----|----|------------------|
-| **[BAGEL](src/lmms_engine/models/bagel)** | [run.sh](examples/bagel/run.sh) | ✅ | TBD | ✅ | ❌ | ✅ | ✅ | ❌ | Unified visual understanding & generation |
-| **[Qwen2.5](src/lmms_engine/models/qwen2)** | [run.sh](examples/qwen2_5_llm/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Large Language Model |
-| **[Qwen2.5-VL](src/lmms_engine/models/qwen2_5_vl/)** | [run.sh](examples/qwen2_5_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Multimodal Model |
-| **[Qwen2.5-Omni](examples/qwen2_5_omni)** | [run.sh](examples/qwen2_5_omni/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Unified multimodal (image, audio, text) |
-| **[Qwen3-VL](examples/qwen3_vl)** | [run.sh](examples/qwen3_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Native-resolution, long context (10K+ tokens) |
-| **[Qwen3-VL MoE](examples/qwen3_vl_moe)** | [run.sh](examples/qwen3_vl_moe/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | Vision-Language MoE with EP (image, video, text) |
-| **[Qwen3-MoE](examples/qwen3_moe)** | [run.sh](examples/qwen3_moe/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Mixture-of-Experts, Expert Parallelism |
-| **[Qwen3-Omni MoE](examples/qwen3_omni_moe)** | [config](examples/qwen3_omni_moe_ep2.yaml) | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Multimodal MoE with EP (image, audio, text) |
-| **[WanVideo](examples/wanvideo)** | [run.sh](examples/wanvideo/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) |
-| **[FLA models](examples/dgn)** | [run.sh](examples/dgn/run.sh) | ✅ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | Efficient architecture, FineWeb-Edu pretraining |
-| **[dLLM (Qwen3)](examples/diffusion_language_model)** | [run.sh](examples/diffusion_language_model/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Masked diffusion language model |
-| **[RAE-SigLip](examples/representation_autoencoder)** | [run.sh](examples/representation_autoencoder/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA |
-| **[SiT](examples/scalable_interpolant_transformer)** | [run.sh](examples/scalable_interpolant_transformer/run.sh) | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K |
+| Model | Quick Start | FSDP2 | TP | USP | Muon | Liger | Packing | NSA | EP | Highlights |
+|-------|-------------|-------|----|-----|------|-------|---------|-----|----|------------------|
+| **[BAGEL](src/lmms_engine/models/bagel)** | [run.sh](examples/bagel/run.sh) | ✅ | ❌ | TBD | ✅ | ❌ | ✅ | ✅ | ❌ | Unified visual understanding & generation |
+| **[Qwen2.5](src/lmms_engine/models/qwen2)** | [run.sh](examples/qwen2_5_llm/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Large Language Model |
+| **[Qwen2.5-VL](src/lmms_engine/models/qwen2_5_vl/)** | [run.sh](examples/qwen2_5_vl/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Multimodal Model |
+| **[Qwen2.5-Omni](examples/qwen2_5_omni)** | [run.sh](examples/qwen2_5_omni/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Unified multimodal (image, audio, text) |
+| **[Qwen3-VL](examples/qwen3_vl)** | [run.sh](examples/qwen3_vl/run.sh) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | Native-resolution, long context (10K+ tokens) |
+| **[Qwen3-VL MoE](examples/qwen3_vl_moe)** | [run.sh](examples/qwen3_vl_moe/run.sh) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | Vision-Language MoE with EP (image, video, text) |
+| **[Qwen3-MoE](examples/qwen3_moe)** | [run.sh](examples/qwen3_moe/run.sh) | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Mixture-of-Experts, Expert Parallelism |
+| **[Qwen3-Omni MoE](examples/qwen3_omni_moe)** | [config](examples/qwen3_omni_moe_ep2.yaml) | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | Multimodal MoE with EP (image, audio, text) |
+| **[WanVideo](examples/wanvideo)** | [run.sh](examples/wanvideo/run.sh) | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | T2V/I2V/V2V generation (1.3B/14B) |
+| **[FLA models](examples/dgn)** | [run.sh](examples/dgn/run.sh) | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | Efficient architecture, FineWeb-Edu pretraining |
+| **[dLLM (Qwen3)](examples/diffusion_language_model)** | [run.sh](examples/diffusion_language_model/run.sh) | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Masked diffusion language model |
+| **[RAE-SigLip](examples/representation_autoencoder)** | [run.sh](examples/representation_autoencoder/run.sh) | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Representation AutoEncoder, LPIPS, EMA |
+| **[SiT](examples/scalable_interpolant_transformer)** | [run.sh](examples/scalable_interpolant_transformer/run.sh) | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Interpolant Transformer, CFG, ImageNet-1K |
 
 **Optimization Legend:**
 - **FSDP2**: Fully Sharded Data Parallel v2 for distributed training
+- **TP**: Tensor Parallelism for sharding model compute across GPUs
 - **USP**: Ulysses Sequence Parallel for long contexts
 - **Muon**: Advanced optimizer with Newton-Schulz orthogonalization
 - **Liger**: Triton fused kernels (CrossEntropy, RMSNorm, RoPE, SwiGLU) for 30% memory reduction
@@ -148,7 +149,7 @@ Production-grade efficiency from distributed training to kernel fusion.
 
 - **Ulysses Sequence Parallel** - Splits sequence dimension across GPUs for ultra-long contexts. Critical for vision-language models like Qwen3-VL with 10K+ visual tokens.
 
-- **Multi-dimensional Parallelism** - Compose TP x PP × DP meshes for cluster-scale training.
+- **Multi-dimensional Parallelism** - Compose TP × Ulysses SP/CP × DP meshes for cluster-scale training.
 
 ### Memory & Compute Optimizations
 
