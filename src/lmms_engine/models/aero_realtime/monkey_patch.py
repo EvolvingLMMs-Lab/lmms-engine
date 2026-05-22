@@ -85,11 +85,21 @@ def apply_rmpad_to_aero_realtime(model: PreTrainedModel = None) -> None:
     # 1. Patch language sub-model — rmpad-only
     rmpad_fn(model=model.language_model)
 
-    from lmms_engine.models.voxtral_realtime.monkey_patch import (
-        apply_rmpad_to_voxtral_realtime,
+    from lmms_engine.models.aero_realtime.aero_realtime_audio_ops import (
+        aero_realtime_attention_forward,
+        aero_realtime_encoder_forward,
     )
 
-    apply_rmpad_to_voxtral_realtime(model=model.audio_tower)
+    from .modeling_aero_realtime import (
+        AeroRealtimeAudioAttention,
+        AeroRealtimeAudioEncoder,
+    )
+
+    if not isinstance(model.audio_tower, AeroRealtimeAudioEncoder):
+        raise TypeError(f"Expected AeroRealtimeAudioEncoder, got {type(model.audio_tower)}")
+
+    AeroRealtimeAudioEncoder.forward = aero_realtime_encoder_forward
+    AeroRealtimeAudioAttention.forward = aero_realtime_attention_forward
 
     # 2. Bind aero's rmpad forward (same lce forward — already rmpad-aware)
     from .aero_realtime_liger import aero_realtime_lce_forward
