@@ -32,6 +32,85 @@ from .backbone_registry import (
 )
 
 
+class AeroRealtimeAudioEncoderConfig(PretrainedConfig):
+    """Config for the Aero-owned realtime audio encoder.
+
+    Defaults mirror HuggingFace ``VoxtralRealtimeEncoderConfig`` so existing
+    Voxtral Realtime audio tower weights load without conversion. Adds:
+
+    - ``norm_type``: ``"rms_norm"`` (default, Voxtral-compat) or ``"layer_norm"``
+    - ``mlp_type``: ``"swiglu"`` (default, Voxtral-compat) or ``"gelu"``
+    - ``attention_window_left`` / ``attention_window_right``: explicit window
+      bounds; default is one-way local (right=0, left=sliding_window-1).
+    """
+
+    model_type = "aero_realtime_audio_encoder"
+
+    attribute_map = {
+        "d_model": "hidden_size",
+        "encoder_layers": "num_hidden_layers",
+        "encoder_attention_heads": "num_attention_heads",
+        "encoder_ffn_dim": "intermediate_size",
+        "encoder_layerdrop": "layerdrop",
+    }
+
+    def __init__(
+        self,
+        vocab_size: int = 131072,
+        hidden_size: int = 1280,
+        intermediate_size: int = 5120,
+        num_hidden_layers: int = 32,
+        num_attention_heads: int = 32,
+        num_key_value_heads: int | None = None,
+        head_dim: int = 64,
+        num_mel_bins: int = 128,
+        max_position_embeddings: int = 1500,
+        activation_function: str = "gelu",
+        hidden_act: str = "silu",
+        rms_norm_eps: float = 1e-5,
+        attention_dropout: float = 0.0,
+        initializer_range: float = 0.02,
+        sliding_window: int | None = 750,
+        attention_window_left: int | None = None,
+        attention_window_right: int = 0,
+        norm_type: str = "rms_norm",
+        mlp_type: str = "swiglu",
+        rope_parameters: dict | None = None,
+        **kwargs,
+    ):
+        self.vocab_size = vocab_size
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
+        self.num_hidden_layers = num_hidden_layers
+        self.num_attention_heads = num_attention_heads
+        self.num_key_value_heads = num_key_value_heads if num_key_value_heads is not None else num_attention_heads
+        self.head_dim = head_dim if head_dim is not None else hidden_size // num_attention_heads
+        self.num_mel_bins = num_mel_bins
+        self.max_position_embeddings = max_position_embeddings
+        self.activation_function = activation_function
+        self.hidden_act = hidden_act
+        self.rms_norm_eps = rms_norm_eps
+        self.attention_dropout = attention_dropout
+        self.initializer_range = initializer_range
+        self.sliding_window = sliding_window
+
+        if attention_window_left is None:
+            attention_window_left = (sliding_window - 1) if sliding_window is not None else -1
+        self.attention_window_left = attention_window_left
+        self.attention_window_right = attention_window_right
+
+        if norm_type not in ("rms_norm", "layer_norm"):
+            raise ValueError(f"norm_type must be 'rms_norm' or 'layer_norm', got {norm_type}")
+        if mlp_type not in ("swiglu", "gelu"):
+            raise ValueError(f"mlp_type must be 'swiglu' or 'gelu', got {mlp_type}")
+        self.norm_type = norm_type
+        self.mlp_type = mlp_type
+
+        self.rope_parameters = rope_parameters or {"rope_type": "default", "rope_theta": 1000000.0}
+
+        super().__init__(**kwargs)
+
+
 class AeroRealtimeConfig(PretrainedConfig):
     r"""
     Configuration class for AeroRealtime model.
