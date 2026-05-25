@@ -176,7 +176,7 @@ Here are frequently used parameters you can override:
 - `trainer_args.ema_param_filter`: Filter parameters by name (supports `mode`, `include`, `exclude`)
 - `trainer_args.ema_resume_from_ema`: Resume training from EMA weights (default: `false`)
 - `trainer_args.enable_cuda_event_profiler`: Enable lightweight CUDA event timing (default: `false`)
-- `trainer_args.cuda_event_profiler_config`: Optional profiler window and sampling config, e.g. `{start_step: 10, end_step: 1000, record_every_n_steps: 10, flush_every_n_steps: 10}`
+- `trainer_args.cuda_event_profiler_config`: Optional profiler window, rank filter, and sampling config, e.g. `{start_step: 100, end_step: 1000, record_every_n_steps: 10, flush_every_n_steps: 50, ranks: [0, 1, 7]}`
 
 ### Lightweight CUDA Event Profiling
 
@@ -186,13 +186,16 @@ For long-running distributed jobs, `torch.profiler` traces can be too heavy to k
 trainer_args:
   enable_cuda_event_profiler: true
   cuda_event_profiler_config:
-    start_step: 10
+    start_step: 100
     end_step: 1000
     record_every_n_steps: 10
-    flush_every_n_steps: 10
+    flush_every_n_steps: 50
+    ranks: [0, 1, 7]
 ```
 
-Each rank writes to `output_dir/cuda_event_profiler/cuda_events_rank_<rank>.jsonl`. These files can be aggregated into rank heatmaps or timeline views to diagnose stragglers without the synchronization overhead of full profiler traces.
+Selected ranks write to `output_dir/cuda_event_profiler/cuda_events_rank_<rank>.jsonl`. These files can be aggregated into rank heatmaps or timeline views to diagnose stragglers without the synchronization overhead of full profiler traces.
+
+The profiler is intended for diagnosis and remains disabled by default. For large jobs, prefer bounded windows, sampled steps, and rank filters instead of recording every rank on every step. If `record_every_n_steps` is omitted, it defaults to 10.
 
 ### Advanced Example
 
@@ -223,4 +226,3 @@ This loads all settings from `qwen2_5_vl_dp.yaml` in the specified directory and
 - Boolean values: `packing=true` or `packing=false`
 - For complex values (lists/arrays), use Hydra's syntax: `trainer_args.fsdp_config.transformer_layer_cls_to_wrap=["Qwen2_5_VLDecoderLayer"]`
 - Add new parameters with `+`: `+dataset_config.extra_kwargs.image_max_pixels=4194304`
-

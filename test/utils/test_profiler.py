@@ -41,7 +41,12 @@ class TestCudaEventProfiler(unittest.TestCase):
             with patch("torch.cuda.is_available", return_value=True), patch(
                 "torch.cuda.Event", side_effect=lambda enable_timing: FakeCudaEvent()
             ):
-                profiler = CudaEventProfiler(enable=True, directory=tmpdir, rank=3)
+                profiler = CudaEventProfiler(
+                    enable=True,
+                    directory=tmpdir,
+                    rank=3,
+                    profiler_config={"record_every_n_steps": 1},
+                )
                 with profiler.record("training_step", step=7, micro_step=2):
                     pass
                 profiler.flush()
@@ -81,6 +86,38 @@ class TestCudaEventProfiler(unittest.TestCase):
             output_file = Path(tmpdir) / "cuda_events_rank_0.jsonl"
             records = [json.loads(line) for line in output_file.read_text().splitlines()]
             self.assertEqual([record["step"] for record in records], [2, 4])
+
+    def test_defaults_to_sample_every_ten_steps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("torch.cuda.is_available", return_value=True), patch(
+                "torch.cuda.Event", side_effect=lambda enable_timing: FakeCudaEvent()
+            ):
+                profiler = CudaEventProfiler(enable=True, directory=tmpdir, rank=0)
+                for step in range(21):
+                    with profiler.record("training_step", step=step):
+                        pass
+                profiler.close()
+
+            output_file = Path(tmpdir) / "cuda_events_rank_0.jsonl"
+            records = [json.loads(line) for line in output_file.read_text().splitlines()]
+            self.assertEqual([record["step"] for record in records], [0, 10, 20])
+
+    def test_rank_filter_skips_unselected_ranks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("torch.cuda.is_available", return_value=True), patch(
+                "torch.cuda.Event", side_effect=lambda enable_timing: FakeCudaEvent()
+            ):
+                profiler = CudaEventProfiler(
+                    enable=True,
+                    directory=tmpdir,
+                    rank=3,
+                    profiler_config={"ranks": [0, 1]},
+                )
+                with profiler.record("training_step", step=0):
+                    pass
+                profiler.close()
+
+            self.assertEqual(list(Path(tmpdir).glob("*.jsonl")), [])
 
 
 if __name__ == "__main__":

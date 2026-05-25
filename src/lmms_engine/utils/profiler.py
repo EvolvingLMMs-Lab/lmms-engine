@@ -208,8 +208,11 @@ class CudaEventProfiler:
         self.profiler_config = profiler_config or {}
         self.start_step = self.profiler_config.get("start_step", 0)
         self.end_step = self.profiler_config.get("end_step")
-        self.record_every_n_steps = max(int(self.profiler_config.get("record_every_n_steps", 1)), 1)
+        self.record_every_n_steps = max(int(self.profiler_config.get("record_every_n_steps", 10)), 1)
         self.flush_every_n_steps = max(int(self.profiler_config.get("flush_every_n_steps", 10)), 1)
+        self.ranks = self.profiler_config.get("ranks")
+        if self.ranks is not None:
+            self.ranks = {int(rank) for rank in self.ranks}
         self.pending_events = []
         self._last_flush_step = -1
         self._file = None
@@ -217,6 +220,9 @@ class CudaEventProfiler:
         if not self.enable:
             if enable:
                 logger.warning("[CudaEventProfiler] CUDA is unavailable; profiler is disabled")
+            return
+        if self.ranks is not None and self.rank not in self.ranks:
+            self.enable = False
             return
 
         os.makedirs(self.directory, exist_ok=True)
@@ -226,6 +232,8 @@ class CudaEventProfiler:
 
     def should_record(self, step: int) -> bool:
         if not self.enable:
+            return False
+        if self.ranks is not None and self.rank not in self.ranks:
             return False
         if step < self.start_step:
             return False
