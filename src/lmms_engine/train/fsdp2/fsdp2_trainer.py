@@ -35,7 +35,11 @@ from lmms_engine.utils.fsdp2_utils import (
     get_cosine_schedule_with_warmup,
     get_wsd_schedule_with_warmup,
 )
-from lmms_engine.utils.profiler import CudaEventProfiler, MemorySnapshotProfiler, StepProfiler
+from lmms_engine.utils.profiler import (
+    CudaEventProfiler,
+    MemorySnapshotProfiler,
+    StepProfiler,
+)
 from lmms_engine.utils.tracking import Tracking
 
 DatasetType = Union[Dataset, IterableDataset]
