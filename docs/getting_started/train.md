@@ -77,6 +77,7 @@ You can visit the `config.py` file under each subfolder to see what parameters a
 - **freeze_modules**: List of submodules (e.g., `visual`) to freeze during training.
 - **use_liger_kernel/use_rmpad**: Performance optimizations. Keep enabled if supported on your stack.
 - **fsdp2/fsdp_config**: Enable FSDP2 sharding and wrap transformer layer classes via `transformer_layer_cls_to_wrap`. Tune `reshard_after_forward` for memory/perf trade-offs.
+- **enable_cuda_event_profiler**: Enable a low-overhead CUDA event profiler for FSDP2 training. It writes per-rank JSONL files under `output_dir/cuda_event_profiler` for phases such as `host_to_device`, `training_step`, and `training_metrics`.
 - **EMA (Exponential Moving Average)**: Enable EMA with `ema_enabled: true`. Configure `ema_decay` (default 0.9999), `ema_update_every`, `ema_start_step`, and optionally filter parameters via `ema_param_filter`. EMA checkpoints are saved alongside regular checkpoints and can be merged using `merge_fsdp.py` with `--state_dict_dirname pytorch_ema_model_fsdp_0`.
 
 ## Run
@@ -174,6 +175,24 @@ Here are frequently used parameters you can override:
 - `trainer_args.ema_requires_grad_only`: Only apply EMA to trainable parameters (default: `true`)
 - `trainer_args.ema_param_filter`: Filter parameters by name (supports `mode`, `include`, `exclude`)
 - `trainer_args.ema_resume_from_ema`: Resume training from EMA weights (default: `false`)
+- `trainer_args.enable_cuda_event_profiler`: Enable lightweight CUDA event timing (default: `false`)
+- `trainer_args.cuda_event_profiler_config`: Optional profiler window and sampling config, e.g. `{start_step: 10, end_step: 1000, record_every_n_steps: 10, flush_every_n_steps: 10}`
+
+### Lightweight CUDA Event Profiling
+
+For long-running distributed jobs, `torch.profiler` traces can be too heavy to keep enabled. The CUDA event profiler records only named phase durations and writes one JSON object per completed event:
+
+```yaml
+trainer_args:
+  enable_cuda_event_profiler: true
+  cuda_event_profiler_config:
+    start_step: 10
+    end_step: 1000
+    record_every_n_steps: 10
+    flush_every_n_steps: 10
+```
+
+Each rank writes to `output_dir/cuda_event_profiler/cuda_events_rank_<rank>.jsonl`. These files can be aggregated into rank heatmaps or timeline views to diagnose stragglers without the synchronization overhead of full profiler traces.
 
 ### Advanced Example
 
@@ -204,5 +223,4 @@ This loads all settings from `qwen2_5_vl_dp.yaml` in the specified directory and
 - Boolean values: `packing=true` or `packing=false`
 - For complex values (lists/arrays), use Hydra's syntax: `trainer_args.fsdp_config.transformer_layer_cls_to_wrap=["Qwen2_5_VLDecoderLayer"]`
 - Add new parameters with `+`: `+dataset_config.extra_kwargs.image_max_pixels=4194304`
-
 

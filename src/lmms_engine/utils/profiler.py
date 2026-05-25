@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from contextlib import contextmanager, nullcontext
@@ -184,3 +185,117 @@ class MemorySnapshotProfiler:
             pass
         self.stopped = True
         logger.info(f"[MemSnapshot] recording stopped (reason={reason}, rank {self.rank})")
+
+
+class CudaEventProfiler:
+    """Low-overhead CUDA event profiler for long-running distributed jobs.
+
+    Unlike torch.profiler, this profiler only records named CUDA event pairs and
+    writes completed durations to JSONL. Non-blocking flushes avoid introducing
+    synchronization into the training step.
+    """
+
+    def __init__(
+        self,
+        enable: bool,
+        directory: str,
+        rank: int = 0,
+        profiler_config: Optional[Dict[str, Any]] = None,
+    ):
+        self.enable = enable and torch.cuda.is_available()
+        self.rank = rank
+        self.directory = directory
+        self.profiler_config = profiler_config or {}
+        self.start_step = self.profiler_config.get("start_step", 0)
+        self.end_step = self.profiler_config.get("end_step")
+        self.record_every_n_steps = max(int(self.profiler_config.get("record_every_n_steps", 1)), 1)
+        self.flush_every_n_steps = max(int(self.profiler_config.get("flush_every_n_steps", 10)), 1)
+        self.pending_events = []
+        self._last_flush_step = -1
+        self._file = None
+
+        if not self.enable:
+            if enable:
+                logger.warning("[CudaEventProfiler] CUDA is unavailable; profiler is disabled")
+            return
+
+        os.makedirs(self.directory, exist_ok=True)
+        self.path = os.path.join(self.directory, f"cuda_events_rank_{self.rank}.jsonl")
+        self._file = open(self.path, "a", buffering=1)
+        logger.info(f"[CudaEventProfiler] Writing CUDA event timings to {self.path}")
+
+    def should_record(self, step: int) -> bool:
+        if not self.enable:
+            return False
+        if step < self.start_step:
+            return False
+        if self.end_step is not None and step > self.end_step:
+            return False
+        return (step - self.start_step) % self.record_every_n_steps == 0
+
+    @contextmanager
+    def record(self, name: str, step: int, **metadata):
+        if not self.should_record(step):
+            yield
+            return
+
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
+        try:
+            yield
+        finally:
+            end_event.record()
+            self.pending_events.append(
+                {
+                    "name": name,
+                    "step": step,
+                    "rank": self.rank,
+                    "start_event": start_event,
+                    "end_event": end_event,
+                    "metadata": metadata,
+                }
+            )
+
+    def maybe_flush(self, step: int):
+        if not self.enable:
+            return
+        if step == self._last_flush_step:
+            return
+        if step % self.flush_every_n_steps != 0:
+            return
+        self.flush(blocking=False)
+        self._last_flush_step = step
+
+    def flush(self, blocking: bool = False):
+        if not self.enable or self._file is None:
+            return
+
+        remaining_events = []
+        for event in self.pending_events:
+            end_event = event["end_event"]
+            if blocking:
+                end_event.synchronize()
+            elif not end_event.query():
+                remaining_events.append(event)
+                continue
+
+            record = {
+                "name": event["name"],
+                "step": event["step"],
+                "rank": event["rank"],
+                "duration_ms": event["start_event"].elapsed_time(end_event),
+            }
+            if event["metadata"]:
+                record.update(event["metadata"])
+            self._file.write(json.dumps(record, sort_keys=True) + "\n")
+
+        self.pending_events = remaining_events
+
+    def close(self):
+        if not self.enable:
+            return
+        self.flush(blocking=True)
+        if self._file is not None:
+            self._file.close()
+            self._file = None

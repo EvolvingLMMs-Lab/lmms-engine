@@ -35,7 +35,7 @@ from lmms_engine.utils.fsdp2_utils import (
     get_cosine_schedule_with_warmup,
     get_wsd_schedule_with_warmup,
 )
-from lmms_engine.utils.profiler import MemorySnapshotProfiler, StepProfiler
+from lmms_engine.utils.profiler import CudaEventProfiler, MemorySnapshotProfiler, StepProfiler
 from lmms_engine.utils.tracking import Tracking
 
 DatasetType = Union[Dataset, IterableDataset]
@@ -79,6 +79,12 @@ class FSDP2SFTTrainer:
             directory=os.path.join(self.args.output_dir, "memory_snapshot"),
             rank=dist.get_rank(),
             memory_snapshot_config=getattr(self.args, "memory_snapshot_config", None),
+        )
+        self.cuda_event_profiler = CudaEventProfiler(
+            enable=getattr(self.args, "enable_cuda_event_profiler", False),
+            directory=os.path.join(self.args.output_dir, "cuda_event_profiler"),
+            profiler_config=getattr(self.args, "cuda_event_profiler_config", None),
+            rank=dist.get_rank(),
         )
         self.accumulated_grad_steps = 0
 
@@ -364,11 +370,13 @@ class FSDP2SFTTrainer:
                 if self.should_stop():
                     break
                 # send batch to device
-                batch = send_to_device(batch, self.fsdp2_model.device)
+                with self.cuda_event_profiler.record("host_to_device", self.global_step):
+                    batch = send_to_device(batch, self.fsdp2_model.device)
                 self.memory_snapshot_profiler.step(self.global_step)
                 start_time = time.perf_counter()
                 try:
-                    train_metrics = self.training_step(batch)
+                    with self.cuda_event_profiler.record("training_step", self.global_step):
+                        train_metrics = self.training_step(batch)
                 except torch.OutOfMemoryError:
                     self.memory_snapshot_profiler.dump_on_exception(f"oom_step{self.global_step}")
                     raise
@@ -383,29 +391,31 @@ class FSDP2SFTTrainer:
                 end_time = time.perf_counter()
                 delta_time = end_time - start_time
 
-                # Calculate flops per rank
-                seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
-                flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(
-                    seq_len, delta_time=delta_time
-                )
-                self.compute_tracker.accumulate_flops(raw_flops)
-                device = self.fsdp2_model.device
-                flops_tensor = torch.tensor(flops, device=device)
-                sp_size = pgm.process_group_manager.cp_world_size
-                tp_size = pgm.process_group_manager.tp_world_size
-                parallel_size = sp_size * tp_size
+                with self.cuda_event_profiler.record("training_metrics", self.global_step):
+                    # Calculate flops per rank
+                    seq_len = batch.get("attention_mask", torch.zeros((1, 1))).sum(dim=1).detach().cpu().tolist()
+                    flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(
+                        seq_len, delta_time=delta_time
+                    )
+                    self.compute_tracker.accumulate_flops(raw_flops)
+                    device = self.fsdp2_model.device
+                    flops_tensor = torch.tensor(flops, device=device)
+                    sp_size = pgm.process_group_manager.cp_world_size
+                    tp_size = pgm.process_group_manager.tp_world_size
+                    parallel_size = sp_size * tp_size
 
-                # Calculate training metrics (MFU, token stats, throughput)
-                perf_metrics, self.total_tokens = self.calculate_training_metrics(
-                    flops_tensor=flops_tensor,
-                    parallel_size=parallel_size,
-                    promised_flops=promised_flops,
-                    device=device,
-                    seq_len=seq_len,
-                    total_tokens=self.total_tokens,
-                    delta_time=delta_time,
-                    world_size=world_size,
-                )
+                    # Calculate training metrics (MFU, token stats, throughput)
+                    perf_metrics, self.total_tokens = self.calculate_training_metrics(
+                        flops_tensor=flops_tensor,
+                        parallel_size=parallel_size,
+                        promised_flops=promised_flops,
+                        device=device,
+                        seq_len=seq_len,
+                        total_tokens=self.total_tokens,
+                        delta_time=delta_time,
+                        world_size=world_size,
+                    )
+                self.cuda_event_profiler.maybe_flush(self.global_step)
                 train_metrics.update(perf_metrics)
                 self.print_batch_input(batch)
 
@@ -463,6 +473,7 @@ class FSDP2SFTTrainer:
                     "compute/co2_kg": summary.co2_kg,
                 }
             )
+        self.cuda_event_profiler.close()
 
     def evaluate(self):
         raise NotImplementedError("Evaluation is not implemented")

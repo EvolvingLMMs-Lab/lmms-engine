@@ -23,6 +23,8 @@ class TrainingArguments(transformers.TrainingArguments):
     # and auto-dumps a .pickle on CUDA OOM. View at https://pytorch.org/memory_viz
     enable_memory_snapshot: Optional[bool] = False
     memory_snapshot_config: Optional[Dict[str, Any]] = None
+    enable_cuda_event_profiler: Optional[bool] = False
+    cuda_event_profiler_config: Optional[Dict[str, Any]] = None
 
     # Parallelism
     ep_degree: Optional[int] = 1

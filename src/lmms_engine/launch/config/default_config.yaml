@@ -182,6 +182,8 @@ trainer_args:
   print_batch_input_steps: -1
   enable_profiler: false
   profiler_config: null
+  enable_cuda_event_profiler: false
+  cuda_event_profiler_config: null
   ep_degree: 1
   sp_ulysses_degree: 1
   tp_degree: 1
