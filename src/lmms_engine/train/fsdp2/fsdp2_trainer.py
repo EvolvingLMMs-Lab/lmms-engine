@@ -136,6 +136,10 @@ class FSDP2SFTTrainer:
     def prepare_model(self):
         model_type = getattr(self.model.config, "model_type", None)
         if model_type in MODEL_TO_PARALLEL_METHOD and pgm.process_group_manager.enable_parallel:
+            assert not pgm.process_group_manager.enable_hsdp, (
+                "HSDP is not yet supported with the parallelize path "
+                "(TP/CP/EP). Set hsdp_shard_size=0 or disable parallelism."
+            )
             apply_parallelize(self.model, model_type, self.args)
             self.fsdp2_model = self.model
             return
@@ -159,6 +163,7 @@ class FSDP2SFTTrainer:
         fsdp_kwargs = {
             "reshard_after_forward": getattr(self.args, "fsdp_config", {}).get("reshard_after_forward", True),
             "mp_policy": mp_policy,
+            "mesh": pgm.process_group_manager.fsdp_mesh,
         }
 
         transformer_cls_names_to_wrap = self.args.fsdp_config.get("transformer_layer_cls_to_wrap", None)

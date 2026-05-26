@@ -111,6 +111,11 @@ trainer_args:
     transformer_layer_cls_to_wrap:
     - Qwen2_5_VLDecoderLayer
     reshard_after_forward: false
+    # HSDP (Hybrid Sharded Data Parallel): shard params within groups of
+    # ``hsdp_shard_size`` ranks, replicate across groups.
+    #   0 / unset -> disabled (default full-world FSDP)
+    #   >1        -> enabled (e.g. 8 = shard within each 8-GPU node)
+    hsdp_shard_size: 0
   fsdp_transformer_layer_cls_to_wrap: null
   accelerator_config:
     split_batches: false

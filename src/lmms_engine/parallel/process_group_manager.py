@@ -20,7 +20,7 @@ from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 
 class ProcessGroupManager:
-    def __init__(self, tp_size, cp_size, pp_size, dp_size, ep_size=1):
+    def __init__(self, tp_size, cp_size, pp_size, dp_size, ep_size=1, hsdp_shard_size=0):
         self.global_rank = dist.get_rank()
         self.world_size = dist.get_world_size()
         self.local_rank = int(os.environ.get("LOCAL_RANK", self.global_rank % self.world_size))
@@ -32,6 +32,26 @@ class ProcessGroupManager:
         assert pp_size == 1, "PP size must be 1 for now"
         if ep_size > 1:
             assert ep_size % (cp_size * tp_size) == 0 and (dp_size * cp_size * tp_size) % ep_size == 0
+
+        # HSDP (Hybrid Sharded Data Parallel): shard params within groups of
+        # ``hsdp_shard_size`` ranks, replicate params across groups.
+        #   - hsdp_shard_size = 0 / None  -> disabled (default full-world FSDP)
+        #   - hsdp_shard_size > 1         -> enabled
+        #   - hsdp_shard_size = 1         -> rejected (would be pure DDP)
+        hsdp_shard_size = hsdp_shard_size or 0
+        if hsdp_shard_size == 1:
+            raise ValueError(
+                "hsdp_shard_size=1 means pure DDP, which is not supported. "
+                "Use 0 (or omit the field) to disable HSDP, or >1 to enable it."
+            )
+        self.hsdp_shard_size = hsdp_shard_size
+        self.enable_hsdp = hsdp_shard_size > 1
+        if self.enable_hsdp:
+            assert ep_size == 1, "HSDP + EP is not supported in v1"
+            fsdp_total = dp_size * cp_size
+            assert fsdp_total % hsdp_shard_size == 0, (
+                f"dp_size * cp_size ({fsdp_total}) must be divisible by " f"hsdp_shard_size ({hsdp_shard_size})"
+            )
 
         self.tp_size = tp_size
         self.cp_size = cp_size
@@ -64,6 +84,20 @@ class ProcessGroupManager:
         else:
             self.device_mesh["dp", "cp"]._flatten(mesh_dim_name="fsdp")
             self.ep_world_size = 1
+
+        # Build an independent 2D mesh for HSDP. We do NOT touch the existing
+        # ``device_mesh["fsdp"]`` flatten so non-HSDP code paths keep working.
+        # ``fsdp_mesh`` (property) is the single entry point that callers
+        # should use when constructing ``fully_shard`` kwargs.
+        self.hsdp_mesh = None
+        if self.enable_hsdp:
+            fsdp_total = dp_size * cp_size
+            replicate_size = fsdp_total // self.hsdp_shard_size
+            self.hsdp_mesh = init_device_mesh(
+                "cuda",
+                (replicate_size, self.hsdp_shard_size),
+                mesh_dim_names=("hsdp_replicate", "hsdp_shard"),
+            )
 
         self.grid = torch.arange(self.world_size).view(
             dp_size, pp_size, cp_size, tp_size
@@ -154,7 +188,21 @@ class ProcessGroupManager:
     def enable_parallel(self):
         return self.enable_tp or self.enable_pp or self.enable_ep
 
+    @property
+    def fsdp_mesh(self):
+        """Mesh to pass to ``fully_shard``.
 
-def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size=1):
+        Returns a 2D mesh (replicate, shard) when HSDP is enabled, otherwise
+        the existing 1D ``device_mesh["fsdp"]``. FSDP2 dispatches on the mesh
+        rank: 1D -> plain FSDP, 2D -> HSDP automatically.
+        """
+        if self.enable_hsdp:
+            return self.hsdp_mesh
+        return self.device_mesh["fsdp"]
+
+
+def setup_process_group_manager(tp_size, cp_size, pp_size, dp_size, ep_size=1, hsdp_shard_size=0):
     global process_group_manager
-    process_group_manager = ProcessGroupManager(tp_size, cp_size, pp_size, dp_size, ep_size)
+    process_group_manager = ProcessGroupManager(
+        tp_size, cp_size, pp_size, dp_size, ep_size, hsdp_shard_size=hsdp_shard_size
+    )

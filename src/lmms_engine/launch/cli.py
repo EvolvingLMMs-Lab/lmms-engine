@@ -88,12 +88,15 @@ def create_train_task(config):
             init_method=f"env://",
             timeout=datetime.timedelta(seconds=ddp_timeout),
         )
+    fsdp_config = trainer_args.get("fsdp_config", {}) or {}
+    hsdp_shard_size = fsdp_config.get("hsdp_shard_size", 0) or 0
     setup_process_group_manager(
         tp_size=tp_degree,
         cp_size=sp_degree,
         pp_size=1,
         dp_size=dp_size,
         ep_size=ep_degree,
+        hsdp_shard_size=hsdp_shard_size,
     )
 
     trainer_args = config.pop("trainer_args")

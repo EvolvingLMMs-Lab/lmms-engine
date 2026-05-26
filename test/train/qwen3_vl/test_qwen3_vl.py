@@ -66,6 +66,42 @@ class TestQwen3_VL(TestCase):
         if result.stderr:
             print("Training stderr:", result.stderr)
 
+    @with_temp_dir
+    @with_multi_gpu_training
+    def test_text_train_fsdp2_hsdp(self, temp_dir, nproc_per_node):
+        """Test Qwen3-VL training with FSDP2 + HSDP (hsdp_shard_size=2)."""
+
+        if nproc_per_node < 4:
+            self.skipTest(
+                f"HSDP test requires >=4 GPUs (got {nproc_per_node}); "
+                "with fewer ranks hsdp_shard_size=2 degenerates."
+            )
+
+        # Path to the training script
+        script_path = os.path.join(os.path.dirname(__file__), "train_qwen3_vl_hsdp.py")
+
+        # Launch training using torchrun
+        result = launch_torchrun_training(
+            script_path=script_path,
+            output_dir=temp_dir,
+            nproc_per_node=nproc_per_node,
+            timeout=600,  # 10 minutes timeout
+        )
+
+        # Assert training completed successfully
+        self.assertIsNotNone(result, "Training process should not be None")
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"Training failed with return code {result.returncode}",
+        )
+
+        # Print training output for debugging
+        if result.stdout:
+            print("Training stdout:", result.stdout)
+        if result.stderr:
+            print("Training stderr:", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
