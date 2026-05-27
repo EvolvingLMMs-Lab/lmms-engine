@@ -805,7 +805,7 @@ class AeroRealtimeAudioRotaryEmbedding(nn.Module):
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
 
-class AeroRealtimeAudioCausalConv1d(nn.Conv1d):
+class AeroRealtimeAudioConv1d(nn.Conv1d):
     def __init__(
         self,
         in_channels: int,
@@ -815,9 +815,13 @@ class AeroRealtimeAudioCausalConv1d(nn.Conv1d):
         stride: int = 1,
         dilation: int = 1,
         bias: bool = True,
+        padding_mode: str = "causal",
     ):
         super().__init__(in_channels, out_channels, kernel_size, stride=stride, dilation=dilation, bias=bias)
         self.cache_key = cache_key
+        if padding_mode not in ("causal", "symmetric"):
+            raise ValueError(f"padding_mode must be 'causal' or 'symmetric', got {padding_mode}")
+        self.padding_mode_ = padding_mode
 
     @cached_property
     def left_pad(self):
@@ -829,7 +833,11 @@ class AeroRealtimeAudioCausalConv1d(nn.Conv1d):
         x: torch.Tensor,
         padding_cache: AeroRealtimeAudioConv1dPaddingCache | None = None,
     ) -> torch.Tensor:
-        if padding_cache is not None:
+        if self.padding_mode_ == "symmetric":
+            # Symmetric padding ignores padding_cache (chunks are independent).
+            pad = self.left_pad // 2
+            x = nn.functional.pad(x, (pad, self.left_pad - pad))
+        elif padding_cache is not None:
             x = padding_cache.update(x, self.cache_key, self)
         else:
             x = nn.functional.pad(x, (self.left_pad, 0))
@@ -1080,8 +1088,11 @@ class AeroRealtimeAudioAttention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
         self.q_proj = nn.Linear(config.hidden_size, config.num_attention_heads * self.head_dim, bias=True)
-        # similar to Whisper's original implementation the k projection does **not** have a bias
-        self.k_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(
+            config.hidden_size,
+            config.num_key_value_heads * self.head_dim,
+            bias=bool(getattr(config, "k_proj_bias", False)),
+        )
         self.v_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * self.head_dim, bias=True)
         self.o_proj = nn.Linear(config.num_attention_heads * self.head_dim, config.hidden_size, bias=True)
 
@@ -1178,11 +1189,20 @@ class AeroRealtimeAudioEmbedder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.conv1 = AeroRealtimeAudioCausalConv1d(
-            config.num_mel_bins, config.hidden_size, kernel_size=3, cache_key="conv1"
+        self.conv1 = AeroRealtimeAudioConv1d(
+            config.num_mel_bins,
+            config.hidden_size,
+            kernel_size=3,
+            cache_key="conv1",
+            padding_mode=config.conv_padding,
         )
-        self.conv2 = AeroRealtimeAudioCausalConv1d(
-            config.hidden_size, config.hidden_size, kernel_size=3, stride=2, cache_key="conv2"
+        self.conv2 = AeroRealtimeAudioConv1d(
+            config.hidden_size,
+            config.hidden_size,
+            kernel_size=3,
+            stride=2,
+            cache_key="conv2",
+            padding_mode=config.conv_padding,
         )
 
     def forward(self, input_features, padding_cache=None):

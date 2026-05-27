@@ -75,6 +75,8 @@ class AeroRealtimeAudioEncoderConfig(PretrainedConfig):
         attention_window_right: int = 0,
         norm_type: str = "rms_norm",
         mlp_type: str = "swiglu",
+        conv_padding: str = "causal",
+        k_proj_bias: bool = False,
         rope_parameters: dict | None = None,
         **kwargs,
     ):
@@ -103,8 +105,12 @@ class AeroRealtimeAudioEncoderConfig(PretrainedConfig):
             raise ValueError(f"norm_type must be 'rms_norm' or 'layer_norm', got {norm_type}")
         if mlp_type not in ("swiglu", "gelu"):
             raise ValueError(f"mlp_type must be 'swiglu' or 'gelu', got {mlp_type}")
+        if conv_padding not in ("causal", "symmetric"):
+            raise ValueError(f"conv_padding must be 'causal' or 'symmetric', got {conv_padding}")
         self.norm_type = norm_type
         self.mlp_type = mlp_type
+        self.conv_padding = conv_padding
+        self.k_proj_bias = bool(k_proj_bias)
 
         self.rope_parameters = rope_parameters or {"rope_type": "default", "rope_theta": 1000000.0}
 

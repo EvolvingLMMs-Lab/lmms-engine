@@ -315,29 +315,31 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
                 inputs[key] = value
 
         if audios is not None:
-            # Model expects `input_features` for audio
-            inputs["input_features"] = audio_inputs["input_features"]
-            # Convert audio_attention_mask from mel-level (T_mel) to
-            # post-conv2 encoder length (T_enc = T_mel // 2) — what
-            # VoxtralRealtimeEncoder.forward expects. ``mel_mask`` from the
-            # FE lags ``input_features`` by ``pad_offset`` frames.
-            mel_mask = audio_inputs["audio_attention_mask"]
-            if not isinstance(mel_mask, torch.Tensor):
-                mel_mask = torch.as_tensor(mel_mask)
-            input_features = audio_inputs["input_features"]
-            if not isinstance(input_features, torch.Tensor):
-                input_features = torch.as_tensor(input_features)
-            T_mel = input_features.shape[-1]
-            pad_offset = max(0, T_mel - mel_mask.shape[-1])
-            mel_lengths_t = mel_mask.sum(-1).to(torch.long) + pad_offset
-            B = mel_mask.shape[0]
-            T_enc = T_mel // 2
-            enc_mask = torch.zeros(B, T_enc, dtype=torch.long)
-            for i in range(B):
-                m = min(int(mel_lengths_t[i].item()), T_mel)
-                enc_m = m // 2 if m > 0 else 0
-                if enc_m > 0:
-                    enc_mask[i, :enc_m] = 1
+            # Emit audio features + post-conv2 encoder mask. Mirrors
+            # ``AeroRealtimeProcessor.__call__`` section 8:
+            #   - chunk_audio (default): reshape into [B*N, F, chunk_mel] rows,
+            #     one per LM audio token; mask [B*N, chunk_enc].
+            #   - flat: keep [B, F, T_mel]; downsample mel_mask by 2 → [B, T_enc].
+            feats = torch.as_tensor(audio_inputs["input_features"])
+            mel_mask = torch.as_tensor(audio_inputs["audio_attention_mask"])
+            mel_mask = torch.nn.functional.pad(mel_mask, (0, feats.shape[-1] - mel_mask.shape[-1]), value=1)
+
+            if self.processor.chunk_audio:
+                chunk_mel = self.processor.audio_length_per_tok
+                chunk_enc = chunk_mel // 2
+                pad = (-feats.shape[-1]) % chunk_mel
+                feats = torch.nn.functional.pad(feats, (0, pad))
+                mel_mask = torch.nn.functional.pad(mel_mask, (0, pad))
+                B, F, T_mel = feats.shape
+                N = T_mel // chunk_mel
+                feats = feats.view(B, F, N, chunk_mel).permute(0, 2, 1, 3).reshape(B * N, F, chunk_mel)
+                chunk_valid = mel_mask.view(B, N, chunk_mel).all(-1)  # [B, N]
+                enc_mask = chunk_valid.unsqueeze(-1).expand(B, N, chunk_enc).reshape(B * N, chunk_enc).long()
+            else:
+                T_enc = mel_mask.shape[-1] // 2
+                enc_mask = mel_mask[:, : T_enc * 2].view(mel_mask.shape[0], T_enc, 2).all(-1).long()
+
+            inputs["input_features"] = feats
             inputs["audio_attention_mask"] = enc_mask
 
         return inputs

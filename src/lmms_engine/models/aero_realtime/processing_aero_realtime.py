@@ -104,6 +104,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
         "chat_template",
         "downsample_factor",
         "audio_length_per_tok",
+        "chunk_audio",
         "image_token",
         "video_token",
         "audio_token",
@@ -130,6 +131,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
         chat_template=None,
         downsample_factor: int = 4,
         audio_length_per_tok: int = 8,
+        chunk_audio: bool = True,
         image_token: str = "<|image_pad|>",
         video_token: str = "<|video_pad|>",
         audio_token: str = "<|audio_pad|>",
@@ -174,6 +176,7 @@ class AeroRealtimeProcessor(ProcessorMixin):
         # Model config parameters needed for timestep computation
         self.downsample_factor = downsample_factor
         self.audio_length_per_tok = audio_length_per_tok
+        self.chunk_audio = bool(chunk_audio)
 
         if chat_template is None:
             chat_template = self.default_chat_template
@@ -473,45 +476,39 @@ class AeroRealtimeProcessor(ProcessorMixin):
         # ==============================================================
         # 8. Assemble output
         # ==============================================================
-        # Convert audio_attention_mask from mel-level (T_mel) to
-        # post-conv2 encoder length (T_enc = T_mel // 2) —
-        # this is what VoxtralRealtimeEncoder.forward expects as
-        # ``attention_mask``. Internal helpers above operated on the
-        # mel-level mask; downstream model code consumes the encoder-level mask.
+        # Emit audio features + post-conv2 encoder mask. Two modes:
+        #   - chunk_audio (default): pad T_mel to audio_length_per_tok, reshape
+        #     input_features into [B*N, F, chunk_mel] (one row per LM audio
+        #     token) and emit [B*N, chunk_enc] mask. With symmetric conv the
+        #     chunks are encoded independently.
+        #   - flat: keep [B, F, T_mel] and downsample mel_mask by 2 → [B, T_enc].
         if audio_inputs and "audio_attention_mask" in audio_inputs:
-            mel_mask = audio_inputs["audio_attention_mask"]
-            if not isinstance(mel_mask, torch.Tensor):
-                mel_mask = torch.as_tensor(mel_mask)
-            # Canonical T_mel comes from the mel feature tensor itself, not
-            # the FE attention_mask (which may be sample-grid-aligned and a
-            # few frames shorter than input_features due to reflection
-            # padding inside the FE).
-            input_features = audio_inputs.get("input_features", None)
-            if input_features is None:
-                T_mel = mel_mask.shape[-1]
+            feats = torch.as_tensor(audio_inputs["input_features"])
+            mel_mask = torch.as_tensor(audio_inputs["audio_attention_mask"])
+            # FE mask may lag input_features by a few reflection-pad frames; treat them as valid.
+            mel_mask = torch.nn.functional.pad(mel_mask, (0, feats.shape[-1] - mel_mask.shape[-1]), value=1)
+
+            if self.chunk_audio:
+                chunk_mel = self.audio_length_per_tok
+                chunk_enc = chunk_mel // 2
+                pad = (-feats.shape[-1]) % chunk_mel
+                feats = torch.nn.functional.pad(feats, (0, pad))
+                mel_mask = torch.nn.functional.pad(mel_mask, (0, pad))
+                B, F, T_mel = feats.shape
+                N = T_mel // chunk_mel
+                audio_inputs["input_features"] = (
+                    feats.view(B, F, N, chunk_mel).permute(0, 2, 1, 3).reshape(B * N, F, chunk_mel)
+                )
+                # A chunk is valid iff every mel frame in it is valid (matches floor div semantics).
+                chunk_valid = mel_mask.view(B, N, chunk_mel).all(-1)  # [B, N]
+                audio_inputs["audio_attention_mask"] = (
+                    chunk_valid.unsqueeze(-1).expand(B, N, chunk_enc).reshape(B * N, chunk_enc).long()
+                )
             else:
-                if not isinstance(input_features, torch.Tensor):
-                    input_features = torch.as_tensor(input_features)
-                T_mel = input_features.shape[-1]
-            mel_mask_len = mel_mask.shape[-1]
-            # Per-sample valid frame count in the mel feature. Add the
-            # constant pad offset (T_mel - mel_mask_len) to map valid
-            # FE-mask frames onto the mel grid.
-            pad_offset = max(0, T_mel - mel_mask_len)
-            mel_lengths_t = mel_mask.sum(-1).to(torch.long) + pad_offset
-            B = mel_mask.shape[0]
-            # Voxtral conv2: kernel=3, stride=2, left_pad=1 →
-            #   T_enc = (T_mel + left_pad - kernel) / stride + 1 = T_mel // 2
-            T_enc = T_mel // 2
-            enc_mask = torch.zeros(B, T_enc, dtype=torch.long)
-            for i in range(B):
-                m = int(mel_lengths_t[i].item())
-                # Clamp to T_mel (a sample's valid mel can't exceed full grid)
-                m = min(m, T_mel)
-                enc_m = m // 2 if m > 0 else 0
-                if enc_m > 0:
-                    enc_mask[i, :enc_m] = 1
-            audio_inputs["audio_attention_mask"] = enc_mask
+                T_enc = mel_mask.shape[-1] // 2
+                audio_inputs["audio_attention_mask"] = (
+                    mel_mask[:, : T_enc * 2].view(mel_mask.shape[0], T_enc, 2).all(-1).long()
+                )
 
         return BatchFeature(
             data={
