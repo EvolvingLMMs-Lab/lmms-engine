@@ -95,6 +95,16 @@ class FSDP2SFTTrainer:
         # Optional EMA (fully opt-in)
         self.ema = EMAHelper(self.args)
 
+        # send_to_device uses non_blocking=True to overlap H2D with the next
+        # training step. This requires pinned memory; pageable memory falls
+        # back to a synchronous copy and the flag becomes a no-op.
+        if not self.args.dataloader_pin_memory:
+            logger.warning(
+                "send_to_device uses non_blocking=True but dataloader_pin_memory "
+                "is False; H2D copies will fall back to synchronous. Enable "
+                "dataloader_pin_memory for best throughput."
+            )
+
         # Optional Eval Server Backend (only on rank 0)
         self.eval_backend = None
         if dist.get_rank() == 0 and self.args.eval_config is not None and self.args.eval_strategy != "no":
@@ -380,7 +390,7 @@ class FSDP2SFTTrainer:
                     break
                 # send batch to device
                 with self.cuda_event_profiler.record("host_to_device", self.global_step):
-                    batch = send_to_device(batch, self.fsdp2_model.device)
+                    batch = send_to_device(batch, self.fsdp2_model.device, non_blocking=True)
                 self.memory_snapshot_profiler.step(self.global_step)
                 start_time = time.perf_counter()
                 try:
