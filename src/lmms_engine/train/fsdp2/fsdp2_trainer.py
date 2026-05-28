@@ -418,14 +418,13 @@ class FSDP2SFTTrainer:
                     )
                     self.compute_tracker.accumulate_flops(raw_flops)
                     device = self.fsdp2_model.device
-                    flops_tensor = torch.tensor(flops, device=device)
                     sp_size = pgm.process_group_manager.cp_world_size
                     tp_size = pgm.process_group_manager.tp_world_size
                     parallel_size = sp_size * tp_size
 
                     # Calculate training metrics (MFU, token stats, throughput)
                     perf_metrics, self.total_tokens = self.calculate_training_metrics(
-                        flops_tensor=flops_tensor,
+                        flops=flops,
                         parallel_size=parallel_size,
                         promised_flops=promised_flops,
                         device=device,
@@ -664,7 +663,7 @@ class FSDP2SFTTrainer:
 
     @staticmethod
     def calculate_training_metrics(
-        flops_tensor: torch.Tensor,
+        flops: float,
         parallel_size: int,
         promised_flops: float,
         device: torch.device,
@@ -676,54 +675,61 @@ class FSDP2SFTTrainer:
         """
         Calculate training performance metrics including MFU, token statistics, and throughput.
 
+        Uses a single ``all_gather`` over a 2-element per-rank tensor
+        ``[mfu_local, seq_len_sum_local]`` and reduces (mean/sum/min/max)
+        locally, replacing five independent ``all_reduce`` calls.
+
         Args:
-            flops_tensor: Tensor containing FLOPs count
-            parallel_size: Product of sequence and tensor parallel sizes
-            promised_flops: Promised FLOPs capacity
-            device: Device to perform computations on
-            seq_len: List of sequence lengths per batch
-            total_tokens: Current total token count
-            delta_time: Time taken for the training step
-            world_size: Distributed training world size
+            flops: Per-rank FLOPs count (Python float from ``estimate_flops``).
+            parallel_size: Product of sequence and tensor parallel sizes.
+            promised_flops: Promised FLOPs capacity.
+            device: Device to perform computations on.
+            seq_len: List of sequence lengths per batch (one entry per local sample).
+            total_tokens: Current total token count.
+            delta_time: Time taken for the training step.
+            world_size: Distributed training world size.
 
         Returns:
             tuple: (metrics_dict, updated_total_tokens)
         """
-        metrics = {}
+        # Divide mfu by parallel size because seq_len/flops are estimated
+        # before SP/TP sharding. seq_len comes in as a plain Python list so we
+        # avoid an extra GPU sync and just sum it on the host.
+        mfu_local = flops / parallel_size / promised_flops
+        seq_len_sum_local = float(sum(seq_len))
 
-        # Calculate mfu per rank
-        # Divide by parallel size because seq_len/flops are estimated before SP/TP sharding.
-        mfu = flops_tensor.item() / parallel_size / promised_flops
-        mfu = torch.tensor(mfu, device=device)
-        torch.distributed.all_reduce(mfu, op=torch.distributed.ReduceOp.AVG)
-        mfu = mfu.item()
+        local = torch.tensor([mfu_local, seq_len_sum_local], device=device, dtype=torch.float32)
+        gathered = torch.empty(world_size * 2, device=device, dtype=torch.float32)
+        torch.distributed.all_gather_into_tensor(gathered, local)
+        gathered = gathered.view(world_size, 2)
 
-        # Calculating token stats
-        seq_len = torch.tensor(seq_len, device=device, dtype=torch.float32)
-        # Divide by parallel size to avoid counting replicated SP/TP batches multiple times.
-        total_seq_len = seq_len.sum() / parallel_size
-        torch.distributed.all_reduce(total_seq_len, op=torch.distributed.ReduceOp.SUM)
-        # Avg seq len won't be effected by sp since we perform all reduce
-        # across world size
-        global_seq_len_avg = seq_len.sum()
-        torch.distributed.all_reduce(global_seq_len_avg, op=torch.distributed.ReduceOp.AVG)
-        metrics["perf/global_seq_len_avg"] = global_seq_len_avg.item()
-        global_seq_len_min = seq_len.sum()
-        torch.distributed.all_reduce(global_seq_len_min, op=torch.distributed.ReduceOp.MIN)
-        metrics["perf/global_seq_len_min"] = global_seq_len_min.item()
-        global_seq_len_max = seq_len.sum()
-        torch.distributed.all_reduce(global_seq_len_max, op=torch.distributed.ReduceOp.MAX)
-        metrics["perf/global_seq_len_max"] = global_seq_len_max.item()
+        mfu_all = gathered[:, 0]
+        sl_all = gathered[:, 1]
 
-        metrics["train/mfu"] = round(mfu, 2)
-        total_tokens += total_seq_len.item()
+        # Reduce on-device, then do a single batched .tolist() sync to pull
+        # all five scalars at once.
+        reduced = torch.stack(
+            [
+                mfu_all.mean(),
+                sl_all.sum() / parallel_size,  # total_seq_len (deduped across SP/TP)
+                sl_all.mean(),  # global_seq_len_avg
+                sl_all.amin(),  # global_seq_len_min
+                sl_all.amax(),  # global_seq_len_max
+            ]
+        ).tolist()
+        mfu, total_seq_len, global_seq_len_avg, global_seq_len_min, global_seq_len_max = reduced
 
-        tokens_per_second = total_seq_len.item() / delta_time
+        total_tokens += total_seq_len
+        tokens_per_second = total_seq_len / delta_time
         tokens_per_gpu = tokens_per_second / world_size
 
-        # Log total tokens and total tokens per second
-        metrics["train/total_tokens"] = TrainUtilities.format_tokens(total_tokens)
-        metrics["train/tokens_per_second"] = round(tokens_per_second)
-        metrics["train/tokens_per_gpu"] = round(tokens_per_gpu)
-
+        metrics = {
+            "train/mfu": round(mfu, 2),
+            "perf/global_seq_len_avg": global_seq_len_avg,
+            "perf/global_seq_len_min": global_seq_len_min,
+            "perf/global_seq_len_max": global_seq_len_max,
+            "train/total_tokens": TrainUtilities.format_tokens(total_tokens),
+            "train/tokens_per_second": round(tokens_per_second),
+            "train/tokens_per_gpu": round(tokens_per_gpu),
+        }
         return metrics, total_tokens
