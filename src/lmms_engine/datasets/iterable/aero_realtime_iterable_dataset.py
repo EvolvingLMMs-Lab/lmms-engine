@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import av
 import librosa
+import soundfile as sf
 from loguru import logger
 
 warnings.filterwarnings("ignore", message=".*PySoundFile.*")
@@ -126,6 +127,21 @@ class AeroRealtimeIterableDataset(MultiModalIterableDataset):
                 duration = (float(end) - offset) if end is not None else None
                 audio = self._extract_audio_from_video(video_path, offset=offset, duration=duration)
                 audios.append(audio)
+
+        # Mix any user-provided TTS audio onto the (single) video audio track.
+        # ``user_audio`` is a list of ``{"path", "start_time"}`` where
+        # ``start_time`` is relative to the chunk start (= video_start).  This
+        # is how EgoIT realtime data injects spoken questions.
+        user_audio_entries = data.get("user_audio")
+        if user_audio_entries is not None and len(user_audio_entries) > 0:
+            if not audios:
+                raise ValueError("user_audio requires a video track to mix onto")
+            audios[0] = self._mix_user_audio_onto_track(
+                base=audios[0],
+                user_audio_entries=user_audio_entries,
+                target_sr=self.processor.sampling_rate,
+                data_folder=data_folder,
+            )
 
         # Convert messages to HF format (realtime_text items are passed through)
         hf_messages = TrainUtilities.convert_open_to_hf(messages)
@@ -301,6 +317,54 @@ class AeroRealtimeIterableDataset(MultiModalIterableDataset):
                 return float(c.duration) / float(av.time_base) if c.duration else None
         except Exception:
             return None
+
+    @staticmethod
+    def _load_audio_file(path: str, target_sr: int) -> Optional[np.ndarray]:
+        """Load a standalone wav file as mono float32 at ``target_sr``."""
+        try:
+            audio, sr = sf.read(path, dtype="float32", always_2d=False)
+        except Exception:
+            return None
+        if audio.ndim == 2:
+            audio = audio.mean(axis=1)
+        if sr != target_sr:
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
+        return audio.astype(np.float32, copy=False)
+
+    @classmethod
+    def _mix_user_audio_onto_track(
+        cls,
+        base: np.ndarray,
+        user_audio_entries: List[Dict[str, Any]],
+        target_sr: int,
+        data_folder: Optional[str],
+        base_attenuation: float = 0.3,
+    ) -> np.ndarray:
+        """Overlay TTS waveforms on a base audio track at their ``start_time``.
+
+        ``base`` is the audio extracted from the video clip; each entry in
+        ``user_audio_entries`` is ``{"path", "start_time"}`` with ``start_time``
+        in seconds relative to the clip start.  The base track is attenuated in
+        the overlap window so the spoken TTS dominates without clipping; the
+        whole track is clipped to ``[-1, 1]`` at the end.
+
+        Returns the modified base array (mutated in place for efficiency).
+        """
+        base_len = base.shape[0]
+        for entry in user_audio_entries:
+            rel = entry["path"]
+            full = os.path.join(data_folder, rel) if data_folder is not None else rel
+            wav = cls._load_audio_file(full, target_sr=target_sr)
+            if wav is None or wav.shape[0] == 0:
+                continue
+            st = max(0.0, float(entry.get("start_time", 0.0)))
+            ofs = int(round(st * target_sr))
+            if ofs >= base_len:
+                continue
+            end_ofs = min(ofs + wav.shape[0], base_len)
+            base[ofs:end_ofs] = base[ofs:end_ofs] * base_attenuation + wav[: end_ofs - ofs]
+        np.clip(base, -1.0, 1.0, out=base)
+        return base
 
     def get_collator(self):
         return AeroRealtimeCollator(self.processor)
