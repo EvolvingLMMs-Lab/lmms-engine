@@ -952,6 +952,9 @@ def _aero_audio_eager_forward(
     key_rep = repeat_kv(key, module.num_key_value_groups)
     value_rep = repeat_kv(value, module.num_key_value_groups)
 
+    if bool(getattr(module.config, "is_causal", False)):
+        window_right = 0 if window_right < 0 else min(window_right, 0)
+
     local_mask = _aero_audio_build_local_additive_mask(
         q_len=q_len,
         k_len=k_len,
@@ -988,6 +991,9 @@ def _aero_audio_sdpa_forward(
     k_len = key.shape[-2]
     key_rep = repeat_kv(key, module.num_key_value_groups)
     value_rep = repeat_kv(value, module.num_key_value_groups)
+
+    if bool(getattr(module.config, "is_causal", False)):
+        window_right = 0 if window_right < 0 else min(window_right, 0)
 
     local_mask = _aero_audio_build_local_additive_mask(
         q_len=q_len,
@@ -1033,7 +1039,7 @@ def _aero_audio_fa_forward(
     v = value.transpose(1, 2)
     bsz, q_len, _, _ = q.shape
 
-    causal = q_len == k.shape[1]
+    causal = bool(getattr(module.config, "is_causal", False)) or (q_len == k.shape[1])
     window = (window_left, window_right)
 
     if attention_mask is None or attention_mask.dim() != 2:

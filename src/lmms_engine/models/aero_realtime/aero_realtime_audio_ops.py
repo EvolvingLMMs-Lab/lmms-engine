@@ -102,7 +102,7 @@ def _varlen_attention_forward(
         cu_seqlens_k=cu_seq_lens,
         max_seqlen_q=max_seqlen,
         max_seqlen_k=max_seqlen,
-        causal=True,
+        causal=bool(getattr(self.config, "is_causal", False)),
         softmax_scale=self.scaling,
         window_size=window_size,
         dropout_p=0.0 if not self.training else self.attention_dropout,
