@@ -73,6 +73,7 @@ class AeroRealtimeAudioEncoderConfig(PretrainedConfig):
         sliding_window: int | None = 750,
         attention_window_left: int | None = None,
         attention_window_right: int = 0,
+        is_causal: bool = False,
         norm_type: str = "rms_norm",
         mlp_type: str = "swiglu",
         conv_padding: str = "causal",
@@ -100,6 +101,7 @@ class AeroRealtimeAudioEncoderConfig(PretrainedConfig):
             attention_window_left = (sliding_window - 1) if sliding_window is not None else -1
         self.attention_window_left = attention_window_left
         self.attention_window_right = attention_window_right
+        self.is_causal = bool(is_causal)
 
         if norm_type not in ("rms_norm", "layer_norm"):
             raise ValueError(f"norm_type must be 'rms_norm' or 'layer_norm', got {norm_type}")
