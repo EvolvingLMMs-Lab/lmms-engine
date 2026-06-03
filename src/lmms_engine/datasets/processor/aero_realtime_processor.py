@@ -56,6 +56,10 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
 
     def __init__(self, config: ProcessorConfig) -> None:
         self.config = config
+        # Fraction of <|rt_pad|> labels to mask out (set to -100) so the
+        # model is not asked to predict silence at every audio_pad slot.
+        # 0.0 = supervise all, 1.0 = never supervise rt_pad.
+        self.rt_pad_label_mask_ratio = float((config.extra_kwargs or {}).get("rt_pad_label_mask_ratio", 0.0))
 
     def build(self):
         self.processor = self._build_processor()
@@ -181,6 +185,21 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         )
 
         # ==============================================================
+        # 0. Normal-QA tail planning: if hf_messages has assistant turns
+        #    AND we have video, compute per-pair token counts so we can
+        #    append matching silence audio features after the main FE pass
+        #    (we don't push silence through the feature extractor because
+        #    ``padding="longest"`` would pad short tails up to the video
+        #    audio length, producing zero-length encoder chunks).
+        # ==============================================================
+        qa_silence_token_counts: List[int] = []
+        if realtime_segments is None and videos is not None and hf_messages is not None:
+            qa_pairs, _ = self._extract_qa_pairs(hf_messages)
+            for _, a_text in qa_pairs:
+                a_tok = self.tokenizer.encode(a_text, add_special_tokens=False)
+                qa_silence_token_counts.append(len(a_tok))
+
+        # ==============================================================
         # 1. Process images
         # ==============================================================
         image_inputs = {}
@@ -304,6 +323,18 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
             )
 
         # ==============================================================
+        # 5b. Randomly mask a fraction of rt_pad supervision so the model
+        #     isn't forced to predict silence at every audio_pad slot.
+        # ==============================================================
+        if self.rt_pad_label_mask_ratio > 0.0 and "labels" in inputs:
+            labels = inputs["labels"]
+            rt_pad_mask = labels == self.rt_pad_id
+            if rt_pad_mask.any():
+                drop = torch.rand_like(labels, dtype=torch.float) < self.rt_pad_label_mask_ratio
+                labels = labels.masked_fill(rt_pad_mask & drop, -100)
+                inputs["labels"] = labels
+
+        # ==============================================================
         # 6. Pack vision/audio tensors into output
         # ==============================================================
         if images is not None:
@@ -342,11 +373,60 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
             inputs["input_features"] = feats
             inputs["audio_attention_mask"] = enc_mask
 
+            # ----------------------------------------------------------
+            # Append silence audio chunks for normal-QA tail envelopes.
+            # Each tail token = one valid silence chunk (features all
+            # zero, enc_mask all one). Done *after* FE so we don't
+            # trigger ``padding="longest"`` against the video audio.
+            # ----------------------------------------------------------
+            total_tail = sum(qa_silence_token_counts)
+            if total_tail > 0 and self.processor.chunk_audio:
+                F_dim = feats.shape[-2]
+                tail_feats = feats.new_zeros((total_tail, F_dim, chunk_mel))
+                tail_mask = enc_mask.new_ones((total_tail, chunk_enc))
+                inputs["input_features"] = torch.cat([feats, tail_feats], dim=0)
+                inputs["audio_attention_mask"] = torch.cat([enc_mask, tail_mask], dim=0)
+
         return inputs
 
     # ------------------------------------------------------------------
     # Core: build input_ids, text_stream_ids, labels
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_qa_pairs(hf_messages):
+        """Split hf_messages into video-only messages + [(q_text, a_text), ...].
+
+        Question text that lives in the same user turn as the video is
+        attached to the *next* assistant turn (so all q+a tails go after
+        the video envelope, inside the same user turn).
+        """
+        qa_pairs = []
+        video_only = []
+        pending_q_parts = []
+        for msg in hf_messages:
+            role = msg["role"]
+            if role == "system":
+                video_only.append(msg)
+                continue
+            if role == "user":
+                video_content, text_parts = [], []
+                for c in msg["content"]:
+                    ctype = c.get("type")
+                    if ctype in ("video", "image", "audio"):
+                        video_content.append(c)
+                    elif ctype == "text" and c.get("text"):
+                        text_parts.append(c["text"])
+                if video_content:
+                    video_only.append({"role": "user", "content": video_content})
+                pending_q_parts.extend(text_parts)
+            elif role == "assistant":
+                a_parts = [c["text"] for c in msg["content"] if c.get("type") == "text" and c.get("text")]
+                if not a_parts:
+                    continue
+                qa_pairs.append(("\n".join(pending_q_parts).strip(), "\n".join(a_parts)))
+                pending_q_parts = []
+        return qa_pairs, video_only
 
     def _build_normal_qa_ids_and_labels(
         self,
@@ -361,63 +441,90 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         system_message: str = "You are a helpful assistant",
         add_system_prompt: bool = True,
     ) -> dict:
-        """Build input_ids, text_stream_ids, and labels from HF messages.
+        """Build input_ids/text_stream_ids/labels for normal video QA.
 
-        For normal video QA the text_stream_ids only differ from input_ids
-        on audio pad positions, where all ``<|audio_pad|>`` slots become
-        ``<|rt_pad|>`` context. Normal QA keeps standard assistant labels;
-        realtime span labels are built by ``_build_realtime_ids_and_labels``.
+        When the conversation contains assistant turns *and* a video, the
+        assistant answers are NOT supervised as plain text after the video
+        envelope.  Instead each ``(question, answer)`` pair is appended
+        inside the same user turn as::
 
-        Video placeholders and envelope boundary tokens keep their original
-        ids; vision features replace video placeholder embeddings in the model.
+            q_k <|audio_start|><|audio_pad|>×n_k <|audio_end|>
+
+        where ``n_k = len(tokenize(a_k))``.  The ``input_ids`` carry silent
+        ``<|audio_pad|>`` slots, ``text_stream_ids`` carry the answer tokens
+        in those same slots, and ``labels`` supervise only the answer tokens.
+        The caller (dataset) is responsible for appending matching silence
+        audio (``n_k * 1280`` samples per pair) so the audio feature
+        extractor produces exactly ``n_k`` audio tokens per tail envelope.
+
+        When there are no assistant turns OR no video, falls back to the
+        original behaviour: standard Qwen template labels + ``rt_pad``
+        rewrite on audio_pad positions.
         """
-        results = self.get_qwen_template_labels(
-            hf_messages,
-            num_image_tokens,
-            num_video_tokens,
-            video_metadata,
-            video_grid_thw,
+
+        # --------------------------------------------------------------
+        # 1. Split hf_messages -> video_only_messages + qa_pairs
+        #    (process() may have already done this; idempotent)
+        # --------------------------------------------------------------
+        qa_pairs, video_only_messages = self._extract_qa_pairs(hf_messages)
+        has_video = video_grid_thw is not None
+
+        use_qa_tail = bool(qa_pairs) and has_video
+        base_messages = video_only_messages if use_qa_tail else hf_messages
+
+        # --------------------------------------------------------------
+        # 2+3. Delegate to realtime path with empty segments to get
+        #      input_ids / text_stream_ids / labels for the video portion.
+        #      Video-period audio_pad labels become rt_pad (silence).
+        # --------------------------------------------------------------
+        rt_result = self._build_realtime_ids_and_labels(
+            hf_messages=base_messages,
+            num_image_tokens=num_image_tokens,
+            num_video_tokens=num_video_tokens,
+            video_grid_thw=video_grid_thw,
+            video_metadata=video_metadata,
             audio_per_chunk_per_video=audio_per_chunk_per_video,
+            audio_attention_mask=audio_attention_mask,
+            realtime_segments=[],
             system_message=system_message,
             add_system_prompt=add_system_prompt,
         )
-        input_id = results["input_ids"].tolist()
-        target = results["labels"].tolist()
+        input_id = rt_result["input_ids"].tolist()
+        text_stream_id = rt_result["text_stream_ids"].tolist()
+        target = rt_result["labels"].tolist()
 
-        # ==============================================================
-        # Build text_stream_ids
-        # ==============================================================
-        has_video = video_grid_thw is not None
-        has_audio = audio_attention_mask is not None
-        text_stream_id = list(input_id)  # start as a copy of input_ids
+        # --------------------------------------------------------------
+        # 4. Append tail (q + silent audio envelope) for each QA pair
+        # --------------------------------------------------------------
+        if use_qa_tail:
+            audio_start_id = self.tokenizer.convert_tokens_to_ids(self.processor.audio_start_token)
+            audio_end_id = self.tokenizer.convert_tokens_to_ids(self.processor.audio_end_token)
+            audio_pad_id = self.audio_token_id
 
-        if has_video and has_audio:
-            # video + audio: only audio pads carry realtime stream context
-            self.processor._fill_text_stream_video_audio(
-                stream=text_stream_id,
-                video_grid_thw=video_grid_thw,
-                video_metadata=video_metadata,
-                temporal_patch_size=getattr(self.processor.video_processor, "temporal_patch_size", 2),
-                audio_start_id=self.tokenizer.convert_tokens_to_ids(self.processor.audio_start_token),
-                audio_end_id=self.tokenizer.convert_tokens_to_ids(self.processor.audio_end_token),
-                rt_pad_id=self.rt_pad_id,
-            )
-        elif has_audio:
-            # audio-only: single envelope per audio sample
-            n_samples = audio_attention_mask.shape[0]
-            for s_idx in range(n_samples):
-                self.processor._fill_text_stream_audio_only(
-                    stream=text_stream_id,
-                    sample_idx=s_idx,
-                    audio_attention_mask=audio_attention_mask,
-                    audio_start_id=self.tokenizer.convert_tokens_to_ids(self.processor.audio_start_token),
-                    audio_end_id=self.tokenizer.convert_tokens_to_ids(self.processor.audio_end_token),
-                    audio_pad_id=self.audio_token_id,
-                    rt_start_id=self.rt_start_id,
-                    rt_pad_id=self.rt_pad_id,
-                    rt_speak_id=self.rt_speak_id,
-                )
-        # video-only (no audio): no text_stream_ids (matches processor)
+            # Strip trailing "<|im_end|>\n" so the tail sits inside the same user turn.
+            im_end_tokens = self.tokenizer.encode("<|im_end|>\n", add_special_tokens=False)
+            tail_len = len(im_end_tokens)
+            assert (
+                input_id[-tail_len:] == im_end_tokens
+            ), f"expected trailing im_end tokens {im_end_tokens}, got {input_id[-tail_len:]}"
+            input_id = input_id[:-tail_len]
+            text_stream_id = text_stream_id[:-tail_len]
+            target = target[:-tail_len]
+
+            for q_text, a_text in qa_pairs:
+                q_tok = self.tokenizer.encode(q_text, add_special_tokens=False) if q_text else []
+                a_tok = self.tokenizer.encode(a_text, add_special_tokens=False)
+                n_k = len(a_tok)
+                if n_k == 0:
+                    continue
+                input_id += q_tok + [audio_start_id] + [audio_pad_id] * n_k + [audio_end_id]
+                text_stream_id += q_tok + [audio_start_id] + a_tok + [audio_end_id]
+                target += [-100] * len(q_tok) + [-100] + a_tok + [-100]
+
+            # Re-append "<|im_end|>\n"
+            input_id += im_end_tokens
+            text_stream_id += im_end_tokens
+            target += [-100] * tail_len
 
         input_id = torch.tensor(input_id, dtype=torch.long)
         target = torch.tensor(target, dtype=torch.long)
@@ -426,9 +533,7 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
             input_ids=input_id,
             labels=target,
         )
-        # text_stream_ids only when audio is present (= streaming mode)
-        if has_audio:
-            result["text_stream_ids"] = torch.tensor(text_stream_id, dtype=torch.long)
+        result["text_stream_ids"] = torch.tensor(text_stream_id, dtype=torch.long)
 
         return result
 
