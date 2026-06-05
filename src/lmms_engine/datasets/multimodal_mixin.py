@@ -144,6 +144,8 @@ class MultiModalDataLoadingMixin:
             return self.load_video_qwen_vl_utils(video_path, fps, video_kwargs=video_kwargs)
         elif self.config.video_backend == "qwen_omni_utils":
             return self.load_video_qwen_omni_utils(video_path, fps)
+        elif self.config.video_backend == "lmms_video_utils":
+            return self.load_video_lmms_video_utils(video_path, fps, video_kwargs=video_kwargs)
         else:
             raise ValueError(f"Video backend {self.config.video_backend} not supported")
 
@@ -280,3 +282,80 @@ class MultiModalDataLoadingMixin:
             return video_frames, sample_fps
         else:
             raise ValueError("No video frames returned from process_mm_info")
+
+    def load_video_lmms_video_utils(
+        self,
+        video_path: str,
+        fps: int,
+        video_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[np.ndarray, float, Any]:
+        """
+        Load video using lmms_video_utils codec-stream backend.
+
+        Returns canvases (codec-packed "frames") plus the full
+        ``CodecVideoOutput`` metadata so a downstream processor that
+        understands per-patch positions (e.g. LLaVA-OneVision-2) can use
+        them instead of re-deriving timestamps from frame index.
+
+        Decoder selection is read from ``config.extra_kwargs``:
+            ``video_decode_backend``: "auto" | "torchcodec" | "pyav"
+                (default: "pyav")
+            ``video_decode_device``:  "cpu" | "cuda" | "cuda:N"
+                (default: "cpu"; "cuda" resolves to cuda:LOCAL_RANK)
+
+        Args:
+            video_path: Path to video file.
+            fps: Target fps; mapped to ``target_fps`` when sampling strategy
+                is ``"fps"``.
+            video_kwargs: Optional extra fields. Supported keys mirror
+                qwen-vl-utils (``video_start``/``video_end``/``fps``/
+                ``nframes``/``max_pixels``/``min_pixels``); plus any
+                ``CodecConfig`` field (``score_mode``, ``gop_mode``,
+                ``target_canvas`` etc.).
+
+        Returns:
+            Tuple of (frames [T, H, W, C] np.uint8, sample_fps, codec_output).
+        """
+        from lmms_video_utils import fetch_codec_video
+
+        extra = self.config.extra_kwargs or {}
+        decode_backend = extra.get("video_decode_backend", "pyav")
+        decode_device = extra.get("video_decode_device", "cpu")
+        if decode_device == "cuda":
+            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+            decode_device = f"cuda:{local_rank}"
+
+        overrides: Dict[str, Any] = {
+            "backend": decode_backend,
+            "device": decode_device,
+        }
+        if self.config.video_max_pixels is not None:
+            overrides["max_pixels"] = int(self.config.video_max_pixels)
+        if self.config.video_min_pixels is not None:
+            overrides["min_pixels"] = int(self.config.video_min_pixels)
+        if self.config.video_max_frames is not None:
+            overrides["max_frames"] = int(self.config.video_max_frames)
+
+        if self.config.video_sampling_strategy == "fps":
+            overrides["target_fps"] = float(fps)
+        elif self.config.video_sampling_strategy == "frame_num":
+            overrides["max_frames"] = int(self.config.frame_num)
+
+        if video_kwargs:
+            qwen_to_ours = {
+                "video_start": "start_time",
+                "video_end": "end_time",
+                "fps": "target_fps",
+                "nframes": "max_frames",
+                "max_pixels": "max_pixels",
+                "min_pixels": "min_pixels",
+            }
+            for k, v in video_kwargs.items():
+                overrides[qwen_to_ours.get(k, k)] = v
+
+        codec_output = fetch_codec_video(video_path, **overrides)
+        canvases = codec_output.canvases.cpu().numpy()
+        if canvases.ndim == 4 and canvases.shape[1] in (1, 3, 4):
+            canvases = np.transpose(canvases, (0, 2, 3, 1))
+        sample_fps = float(codec_output.fps)
+        return canvases, sample_fps, codec_output
