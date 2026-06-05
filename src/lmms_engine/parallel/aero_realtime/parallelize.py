@@ -25,7 +25,11 @@ from loguru import logger
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.distributed.tensor import Shard
-from torch.distributed.tensor.parallel import parallelize_module
+from torch.distributed.tensor.parallel import (
+    ColwiseParallel,
+    RowwiseParallel,
+    parallelize_module,
+)
 
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.models.aero_realtime.backbone_registry import family_is_moe
@@ -48,32 +52,97 @@ def _ep_style_cls(family: str):
     raise ValueError(f"no EP ParallelStyle for backbone_family={family}")
 
 
+_QWEN3_VL_LIKE_TP_PLAN = {
+    "self_attn.q_proj": ColwiseParallel(use_local_output=True),
+    "self_attn.k_proj": ColwiseParallel(use_local_output=True),
+    "self_attn.v_proj": ColwiseParallel(use_local_output=True),
+    "self_attn.o_proj": RowwiseParallel(use_local_output=True),
+    "mlp.gate_proj": ColwiseParallel(use_local_output=True),
+    "mlp.up_proj": ColwiseParallel(use_local_output=True),
+    "mlp.down_proj": RowwiseParallel(use_local_output=True),
+}
+
+
+def _tp_plan_for_family(family: str):
+    """Return the per-decoder-layer TP plan for dense backbone families.
+
+    MoE families are handled via EP, not TP, so this only covers dense
+    families that ship a TP plan today (``qwen3_vl``). Add more dense
+    families here as their TP plans land.
+    """
+    if family == "qwen3_vl":
+        return _QWEN3_VL_LIKE_TP_PLAN
+    raise ValueError(f"no TP plan for backbone_family={family}")
+
+
+def _check_divisible(name: str, value: int, degree: int) -> None:
+    if value % degree != 0:
+        raise ValueError(f"{name} ({value}) must be divisible by tp_degree ({degree})")
+
+
+def _validate_aero_realtime_tp_config(model, tp_degree: int) -> None:
+    if tp_degree <= 1:
+        return
+
+    family = model.config.backbone_family
+    if family_is_moe(family):
+        raise ValueError(f"tp_degree>1 is not supported for MoE backbone_family={family}; use ep_degree instead")
+
+    # Dense families: validate text_config divisibility.
+    text_config = model.config.text_config
+    _check_divisible("hidden_size", text_config.hidden_size, tp_degree)
+    _check_divisible("intermediate_size", text_config.intermediate_size, tp_degree)
+    _check_divisible("num_attention_heads", text_config.num_attention_heads, tp_degree)
+    _check_divisible("num_key_value_heads", text_config.num_key_value_heads, tp_degree)
+
+    sp_degree = pgm.process_group_manager.cp_world_size
+    local_attention_heads = text_config.num_attention_heads // tp_degree
+    if sp_degree > 1 and local_attention_heads % sp_degree != 0:
+        raise ValueError(
+            f"num_attention_heads / tp_degree ({local_attention_heads}) must be divisible by "
+            f"sp_ulysses_degree ({sp_degree})"
+        )
+
+
 def apply_aero_realtime_parallel(
     model,
-    ep_mesh: DeviceMesh,
+    ep_mesh: DeviceMesh = None,
     tp_mesh: DeviceMesh = None,
     **kwargs,
 ):
-    """Apply EP ParallelStyle to each language_model decoder layer's
-    ``mlp.experts``. Only meaningful for MoE backbone families."""
-    assert tp_mesh is None, "Tensor Parallelism is not supported yet for AeroRealtime"
+    """Apply expert / tensor parallelism to the aero language_model.
 
+    - MoE families (``ep_mesh`` required): wrap each decoder layer's
+      ``mlp.experts`` with the family's ParallelStyle.
+    - Dense families (``tp_mesh`` required): apply the family's per-layer
+      TP plan to each decoder layer.
+    """
     family = model.config.backbone_family
-    if not family_is_moe(family):
-        raise ValueError(f"ep_degree>1 requires an MoE backbone_family; got {family}")
+    is_moe = family_is_moe(family)
 
-    style_cls = _ep_style_cls(family)
-    num_moe_layers = 0
+    if is_moe:
+        assert tp_mesh is None, f"tp_mesh not supported for MoE backbone_family={family}"
+        assert ep_mesh is not None, "ep_mesh required for MoE backbone family"
+
+        style_cls = _ep_style_cls(family)
+        num_moe_layers = 0
+        for decoder_layer in model.language_model.layers:
+            parallelize_module(
+                decoder_layer.mlp.experts,
+                device_mesh=ep_mesh,
+                parallelize_plan=style_cls(),
+            )
+            num_moe_layers += 1
+        logger.info(f"Applied {style_cls.__name__} to {num_moe_layers} aero_realtime MoE layers")
+        return
+
+    assert ep_mesh is None, f"ep_mesh not supported for dense backbone_family={family}"
+    assert tp_mesh is not None, "tp_mesh required for dense backbone family"
+
+    tp_plan = _tp_plan_for_family(family)
     for decoder_layer in model.language_model.layers:
-        module = decoder_layer.mlp
-        parallelize_module(
-            module.experts,
-            device_mesh=ep_mesh,
-            parallelize_plan=style_cls(),
-        )
-        num_moe_layers += 1
-
-    logger.info(f"Applied {style_cls.__name__} to {num_moe_layers} aero_realtime MoE layers")
+        parallelize_module(decoder_layer, device_mesh=tp_mesh, parallelize_plan=tp_plan)
+    logger.info(f"Applied {family} text TP to {len(model.language_model.layers)} aero_realtime decoder layers")
 
 
 def apply_aero_realtime_fsdp2(
@@ -163,16 +232,21 @@ def apply_aero_realtime_parallelize_fn(
 
     Mirrors the qwen3_5_moe / qwen3_vl_moe two-stage flow:
       1. capture ``full_state_dict`` BEFORE parallelization
-      2. apply EP (if ep_size>1; requires MoE family)
+      2. apply EP (MoE families, ep_size>1) or TP (dense families, tp_size>1)
       3. apply FSDP2
       4. reload full state dict into the now-sharded model
     """
     ep_size = pgm.process_group_manager.ep_size
+    tp_size = pgm.process_group_manager.tp_world_size
+    _validate_aero_realtime_tp_config(model, tp_size)
     full_state_dict = model.state_dict()
 
     if ep_size > 1:
         ep_mesh = pgm.process_group_manager.device_mesh["ep"]
         apply_aero_realtime_parallel(model, ep_mesh=ep_mesh, **kwargs)
+    elif tp_size > 1:
+        tp_mesh = pgm.process_group_manager.device_mesh["tp"]
+        apply_aero_realtime_parallel(model, tp_mesh=tp_mesh, **kwargs)
 
     apply_aero_realtime_fsdp2(model, train_args, **kwargs)
     fsdp2_load_full_state_dict(model, full_state_dict)
