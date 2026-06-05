@@ -54,6 +54,7 @@ class LlavaOnevision2DataProcessor(Qwen3_VLDataProcessor):
         audios: Optional[List[np.ndarray]] = None,
         sampling_rate: Optional[int] = None,
         videos=None,
+        video_metadata=None,
         system_message: str = "You are a helpful assistant",
         add_system_prompt: bool = True,
         add_generation_prompt: bool = False,
@@ -70,16 +71,33 @@ class LlavaOnevision2DataProcessor(Qwen3_VLDataProcessor):
             image_grid_thw = None
 
         # ---------------- Video branch ----------------
-        # OV2 video_processor expects a list of videos as pre-decoded frame
-        # arrays in **HWC uint8** format (so it can call PIL.Image.fromarray).
-        # The iterable dataset (qwen3_vl_iterable / qwen_vl_utils) hands us
-        # **CHW float32 / uint8** numpy arrays of shape ``[T, 3, H, W]``, so
-        # convert here.
-        if videos is not None:
+        # Two paths:
+        #   (a) ``video_metadata`` carries a list of ``CodecVideoOutput`` from
+        #       the ``lmms_video_utils`` backend. Each entry already knows the
+        #       per-patch ``(t, h, w)`` source coordinates and the per-canvas
+        #       source timestamp. Treat canvases as the "frames" the model
+        #       sees, but bypass OV2's video_processor and reuse our metadata.
+        #   (b) ``videos`` is a list of raw decoded frame arrays. OV2's
+        #       video_processor re-derives positions from ``arange(T)``; this
+        #       is the legacy frame-sampling path.
+        codec_meta_path = (
+            video_metadata is not None
+            and isinstance(video_metadata, (list, tuple))
+            and len(video_metadata) > 0
+            and self._looks_like_codec_output(video_metadata[0])
+        )
+
+        if codec_meta_path:
+            videos_inputs = self._build_codec_video_inputs(videos, video_metadata)
+        elif videos is not None:
             videos = [self._normalize_video_for_ov2(v) for v in videos]
             videos_inputs = self.processor.video_processor(videos=videos, return_tensors="pt")
-            video_grid_thw = videos_inputs["video_grid_thw"]  # [num_videos, 3]
-            frame_timestamps = videos_inputs["frame_timestamps"]  # list[list[float]]
+        else:
+            videos_inputs = None
+
+        if videos_inputs is not None:
+            video_grid_thw = videos_inputs["video_grid_thw"]
+            frame_timestamps = videos_inputs["frame_timestamps"]
             video_pixel_values = videos_inputs["pixel_values_videos"]
             video_patch_positions = videos_inputs["patch_positions"]
         else:
@@ -205,6 +223,144 @@ class LlavaOnevision2DataProcessor(Qwen3_VLDataProcessor):
             mod = sys.modules[type(video_proc).__module__]
             self._cached_build_patch_positions = mod.build_patch_positions
         return self._cached_build_patch_positions
+
+    @staticmethod
+    def _looks_like_codec_output(obj) -> bool:
+        return all(hasattr(obj, attr) for attr in ("canvases", "patch_positions", "source_pts", "fps"))
+
+    def _get_codec_module(self):
+        """Resolve the codec_video_processing module shipped with the OV2
+        checkpoint (loaded via trust_remote_code). Cached after first use."""
+        if not hasattr(self, "_cached_codec_module"):
+            import importlib
+            import sys
+
+            video_proc = self.processor.video_processor
+            base_pkg = type(video_proc).__module__.rsplit(".", 1)[0]
+            candidate_names = [
+                f"{base_pkg}.codec_video_processing_llava_onevision2",
+                "codec_video_processing_llava_onevision2",
+            ]
+            mod = None
+            for name in candidate_names:
+                if name in sys.modules:
+                    mod = sys.modules[name]
+                    break
+            if mod is None:
+                for name in candidate_names:
+                    try:
+                        mod = importlib.import_module(name)
+                        break
+                    except ImportError:
+                        continue
+            if mod is None:
+                raise ImportError(
+                    "Could not locate codec_video_processing_llava_onevision2 module; "
+                    "ensure the OV2 checkpoint was loaded with trust_remote_code=True."
+                )
+            self._cached_codec_module = mod
+        return self._cached_codec_module
+
+    def _build_codec_video_inputs(self, videos, video_metadata) -> dict:
+        """Construct the same dict shape OV2 video_processor would emit, but
+        from ``lmms_video_utils.CodecVideoOutput`` metadata.
+
+        - ``canvases`` are pushed through the OV2 image_processor (one canvas
+          == one "frame") to get ``pixel_values_videos`` and per-canvas grid.
+        - Source-side ``(t, h, w)`` patch coordinates are reordered into
+          OV2's 2x2 block layout via ``convert_positions_to_block_layout``
+          from the codec processing module.
+        - ``frame_timestamps`` are read straight off ``source_pts``.
+        """
+        codec_mod = self._get_codec_module()
+        convert_positions_to_block_layout = codec_mod.convert_positions_to_block_layout
+
+        per_video_pixel_values = []
+        per_video_grid_thw = []
+        per_video_patch_positions = []
+        per_video_timestamps: List[List[float]] = []
+
+        if videos is None:
+            videos = [None] * len(video_metadata)
+        if len(videos) != len(video_metadata):
+            raise ValueError(f"videos / video_metadata length mismatch: " f"{len(videos)} vs {len(video_metadata)}")
+
+        ip = self.processor.image_processor
+        sms = int(ip.merge_size)
+
+        for canvases_arr, meta in zip(videos, video_metadata):
+            pil_canvases = self._codec_canvases_to_pil(canvases_arr, meta)
+            image_data = ip(images=pil_canvases, return_tensors="pt")
+            image_grid_thw = image_data["image_grid_thw"]  # [N, 3] rows [1, Hp, Wp]
+            if not torch.all(image_grid_thw[:, 1] == image_grid_thw[0, 1]) or not torch.all(
+                image_grid_thw[:, 2] == image_grid_thw[0, 2]
+            ):
+                raise RuntimeError("codec canvases yielded inconsistent (Hp, Wp); expected uniform shape.")
+            T_eff = int(image_grid_thw[:, 0].sum().item())
+            H_p = int(image_grid_thw[0, 1].item())
+            W_p = int(image_grid_thw[0, 2].item())
+            video_grid_thw_row = torch.tensor([[T_eff, H_p, W_p]], dtype=image_grid_thw.dtype)
+
+            src_positions = meta.patch_positions
+            if hasattr(src_positions, "cpu"):
+                src_positions = src_positions.cpu()
+            src_positions = src_positions.to(torch.long)
+            expected = T_eff * H_p * W_p
+            if src_positions.shape[0] != expected:
+                raise ValueError(
+                    f"codec patch_positions length {src_positions.shape[0]} " f"!= expected T*H*W = {expected}"
+                )
+            patch_positions = convert_positions_to_block_layout(
+                src_positions,
+                T_eff,
+                H_p,
+                W_p,
+                spatial_merge_size=sms,
+            )
+
+            if hasattr(meta.source_pts, "cpu"):
+                seconds_seq = meta.source_pts.cpu().tolist()
+            else:
+                seconds_seq = list(meta.source_pts)
+            if len(seconds_seq) < T_eff:
+                pad_val = seconds_seq[-1] if seconds_seq else 0.0
+                seconds_seq = list(seconds_seq) + [pad_val] * (T_eff - len(seconds_seq))
+            elif len(seconds_seq) > T_eff:
+                seconds_seq = list(seconds_seq[:T_eff])
+
+            per_video_pixel_values.append(image_data["pixel_values"])
+            per_video_grid_thw.append(video_grid_thw_row)
+            per_video_patch_positions.append(patch_positions)
+            per_video_timestamps.append([float(s) for s in seconds_seq])
+
+        return {
+            "pixel_values_videos": torch.cat(per_video_pixel_values, dim=0),
+            "video_grid_thw": torch.cat(per_video_grid_thw, dim=0),
+            "patch_positions": torch.cat(per_video_patch_positions, dim=0),
+            "frame_timestamps": per_video_timestamps,
+        }
+
+    @staticmethod
+    def _codec_canvases_to_pil(canvases_arr, meta) -> List[Image]:
+        """Coerce canvases from the iterable (THWC uint8 np) or directly from
+        ``meta.canvases`` (TCHW uint8 tensor) into a list of PIL images."""
+        from PIL import Image as PILImage
+
+        if canvases_arr is None:
+            arr = meta.canvases
+            if hasattr(arr, "cpu"):
+                arr = arr.cpu().numpy()
+            if arr.ndim == 4 and arr.shape[1] in (1, 3, 4):
+                arr = np.transpose(arr, (0, 2, 3, 1))
+        else:
+            arr = canvases_arr
+            if hasattr(arr, "cpu"):
+                arr = arr.cpu().numpy()
+            if arr.ndim == 4 and arr.shape[1] in (1, 3, 4):
+                arr = np.transpose(arr, (0, 2, 3, 1))
+        if arr.dtype != np.uint8:
+            arr = arr.clip(0, 255).astype(np.uint8)
+        return [PILImage.fromarray(arr[i]) for i in range(arr.shape[0])]
 
     @property
     def vision_start_token_id(self) -> int:
