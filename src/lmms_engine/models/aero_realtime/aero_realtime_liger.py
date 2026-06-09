@@ -54,6 +54,7 @@ def _get_audio_features_rmpad(self, input_features: torch.Tensor, audio_attentio
         audio_hidden_states = audio_outputs.last_hidden_state
 
     df = self.config.downsample_factor
+    H = self.config.audio_hidden_size
     audio_output_lengths = None
     if audio_attention_mask is not None:
         audio_output_lengths = audio_attention_mask.sum(-1) // df
@@ -62,19 +63,37 @@ def _get_audio_features_rmpad(self, input_features: torch.Tensor, audio_attentio
         if audio_attention_mask is None:
             raise ValueError("Packed audio hidden states require audio_attention_mask.")
 
-        chunks = []
-        offset = 0
-        for length in audio_attention_mask.sum(-1).tolist():
-            usable_len = (length // df) * df
-            if usable_len > 0:
-                chunk = audio_hidden_states[offset : offset + usable_len]
-                chunks.append(chunk.reshape(-1, self.config.audio_hidden_size * df))
-            offset += length
+        B, max_T = audio_attention_mask.shape
+        total_valid = audio_hidden_states.shape[0]
 
-        if chunks:
-            audio_hidden_states = torch.cat(chunks, dim=0)
+        # Fast path: every row of audio_attention_mask is fully valid AND
+        # max_T is divisible by df. This is the dominant case under chunked
+        # streaming training (each chunk produces exactly df encoder frames),
+        # and lets us skip the per-segment python loop + cat in the slow path.
+        if max_T % df == 0 and total_valid == B * max_T:
+            audio_hidden_states = audio_hidden_states.reshape(-1, H * df)
         else:
-            audio_hidden_states = audio_hidden_states.new_empty((0, self.config.audio_hidden_size * df))
+            # Slow path: ragged segments. Build a fully-GPU gather index that
+            # selects only the `usable_len = (length // df) * df` rows from
+            # each segment, then reshape in one shot. Avoids the python loop
+            # + per-chunk slice + cat over potentially thousands of segments.
+            lengths = audio_attention_mask.sum(-1)
+            usable_lens = (lengths // df) * df
+            total_usable = int(usable_lens.sum().item())
+            if total_usable == 0:
+                audio_hidden_states = audio_hidden_states.new_empty((0, H * df))
+            else:
+                in_starts = torch.cumsum(lengths, dim=0) - lengths
+                out_starts = torch.cumsum(usable_lens, dim=0) - usable_lens
+                flat = torch.arange(total_usable, device=lengths.device)
+                seg = torch.searchsorted(
+                    out_starts[1:].contiguous() if B > 1 else out_starts.new_zeros(0),
+                    flat,
+                    right=True,
+                )
+                gather_idx = flat + (in_starts - out_starts)[seg]
+                audio_hidden_states = audio_hidden_states.index_select(0, gather_idx)
+                audio_hidden_states = audio_hidden_states.reshape(-1, H * df)
     else:
         seq_len = audio_hidden_states.shape[1]
         usable_len = (seq_len // df) * df
@@ -82,7 +101,7 @@ def _get_audio_features_rmpad(self, input_features: torch.Tensor, audio_attentio
         audio_hidden_states = audio_hidden_states.reshape(
             audio_hidden_states.shape[0],
             -1,
-            self.config.audio_hidden_size * df,
+            H * df,
         )
 
     return self.multi_modal_projector(audio_hidden_states), audio_output_lengths
