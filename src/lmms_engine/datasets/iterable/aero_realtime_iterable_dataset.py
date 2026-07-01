@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import av
 import librosa
+import pyarrow.parquet as pq
 import soundfile as sf
 from loguru import logger
 
@@ -46,6 +47,16 @@ from lmms_engine.datasets.iterable.multimodal_iterable_dataset import (
 )
 from lmms_engine.mapping_func import register_dataset
 from lmms_engine.utils.train_utils import TrainUtilities
+
+
+def _load_codec_parquet(path):
+    """Return {id: (flat_int64, n_frames)} for one codec parquet."""
+    cdf = pq.read_table(path).to_pandas()
+    out = {}
+    for _, r in cdf.iterrows():
+        out[r["id"]] = (np.asarray(r["codec_flat"], dtype=np.int64), int(r["codec_nframes"]))
+    logger.info(f"aero_realtime: loaded {len(out)} codec rows from {path}")
+    return out
 
 
 @register_dataset("aero_realtime_iterable")
@@ -65,6 +76,17 @@ class AeroRealtimeIterableDataset(MultiModalIterableDataset):
         realtime_segments = []
         video_paths = []
         kwargs = {}
+
+        codec_entry = None
+        codec_path = data.get("codec_path")
+        if codec_path:
+            if data_folder is not None and not os.path.isabs(codec_path):
+                codec_path = os.path.join(data_folder, codec_path)
+            if not hasattr(self, "_codec_cache"):
+                self._codec_cache = {}
+            if codec_path not in self._codec_cache:
+                self._codec_cache[codec_path] = _load_codec_parquet(codec_path)
+            codec_entry = self._codec_cache[codec_path].get(data.get("id"))
 
         messages = data["messages"]
         if isinstance(messages, str):
@@ -168,6 +190,7 @@ class AeroRealtimeIterableDataset(MultiModalIterableDataset):
             sampling_rate=self.processor.sampling_rate,
             videos=videos,
             realtime_segments=realtime_segments,
+            assistant_codec=codec_entry,
             **kwargs,
         )
         return inputs

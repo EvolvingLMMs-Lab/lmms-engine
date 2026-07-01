@@ -130,6 +130,7 @@ def aero_realtime_lce_forward(
     output_attentions: Optional[bool] = None,
     output_hidden_states: Optional[bool] = None,
     return_dict: Optional[bool] = None,
+    output_last_hidden_state: bool = False,
     **kwargs,
 ):
     """RMPad-aware forward for AeroRealtime with LigerCE loss.
@@ -214,7 +215,8 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Image token count ({n_image_tokens}) does not match " f"image feature count ({n_image_features})."
             )
-        inputs_embeds[image_mask] = image_features.to(inputs_embeds.dtype)
+        image_mask_expanded = image_mask.unsqueeze(-1).expand_as(inputs_embeds)
+        inputs_embeds = inputs_embeds.masked_scatter(image_mask_expanded, image_features.to(inputs_embeds.dtype))
 
     # ---- 4. Video features — scatter into packed embeddings ----
     video_features = None
@@ -227,7 +229,8 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Video token count ({n_video_tokens}) does not match " f"video feature count ({n_video_features})."
             )
-        inputs_embeds[video_mask] = video_features.to(inputs_embeds.dtype)
+        video_mask_expanded = video_mask.unsqueeze(-1).expand_as(inputs_embeds)
+        inputs_embeds = inputs_embeds.masked_scatter(video_mask_expanded, video_features.to(inputs_embeds.dtype))
 
     # ---- 5. Audio features — add into packed embeddings ----
     audio_features_flat = None
@@ -246,7 +249,11 @@ def aero_realtime_lce_forward(
             raise ValueError(
                 f"Audio token count ({n_audio_tokens}) does not match " f"audio feature count ({n_audio_features})."
             )
-        inputs_embeds[audio_mask] = inputs_embeds[audio_mask] + audio_features_flat.to(inputs_embeds.dtype)
+        audio_mask_flat = audio_mask.reshape(-1)
+        inputs_embeds_flat = inputs_embeds.reshape(-1, inputs_embeds.shape[-1])
+        additive = torch.zeros_like(inputs_embeds_flat)
+        additive[audio_mask_flat] = audio_features_flat.to(inputs_embeds.dtype)
+        inputs_embeds = (inputs_embeds_flat + additive).reshape(inputs_embeds.shape)
 
     # 7d. Unpad labels
     if labels is not None:
@@ -324,6 +331,18 @@ def aero_realtime_lce_forward(
         output = (logits,)
         return (loss,) + output if loss is not None else output
 
+    gathered_last_hidden_state = None
+    gathered_cu_seq_lens = None
+    if output_last_hidden_state:
+        if sp_size > 1:
+            gathered_last_hidden_state = gather_outputs_and_unpad(
+                outputs.last_hidden_state, gather_dim=0, unpad_dim=0, padding_size=pad_size
+            )
+            gathered_cu_seq_lens = cu_seq_lens[:-1] if pad_size > 0 else cu_seq_lens
+        else:
+            gathered_last_hidden_state = outputs.last_hidden_state
+            gathered_cu_seq_lens = cu_seq_lens
+
     return AeroRealtimeCausalLMOutputWithPast(
         loss=loss,
         logits=logits,
@@ -332,4 +351,7 @@ def aero_realtime_lce_forward(
         attentions=outputs.attentions,
         audio_hidden_states=audio_features_flat,
         vision_hidden_states=video_features,
+        last_hidden_state=gathered_last_hidden_state,
+        cu_seq_lens=gathered_cu_seq_lens,
+        indices=indices if output_last_hidden_state else None,
     )

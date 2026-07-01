@@ -49,6 +49,20 @@ class AeroRealtimeCollator(VisionCollator):
             )
             batched_inputs["text_stream_ids"] = text_stream_ids
 
+        codec_labels_list = inputs.pop("codec_labels", None)
+        if codec_labels_list is not None:
+            max_len = max(c.shape[0] for c in codec_labels_list)
+            G = codec_labels_list[0].shape[1]
+            padding_side = getattr(self.processor.tokenizer, "padding_side", "right")
+            padded = []
+            for c in codec_labels_list:
+                pad_n = max_len - c.shape[0]
+                if pad_n > 0:
+                    pad_block = c.new_full((pad_n, G), -100)
+                    c = torch.cat([pad_block, c], dim=0) if padding_side == "left" else torch.cat([c, pad_block], dim=0)
+                padded.append(c)
+            batched_inputs["codec_labels"] = torch.stack(padded, dim=0)
+
         if "attention_mask" in inputs.keys():
             inputs.pop("attention_mask")
 

@@ -9,6 +9,10 @@ from .aero_realtime import (
     AeroRealtimeProcessor,
     apply_liger_kernel_to_aero_realtime,
 )
+from .aero_realtime_omni import (
+    AeroRealtimeOmniConfig,
+    AeroRealtimeOmniForConditionalGeneration,
+)
 from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
@@ -48,6 +52,8 @@ __all__ = [
     "AeroRealtimeConfig",
     "AeroRealtimeForConditionalGeneration",
     "AeroRealtimeProcessor",
+    "AeroRealtimeOmniConfig",
+    "AeroRealtimeOmniForConditionalGeneration",
     "apply_liger_kernel_to_aero_realtime",
     "Bagel",
     "BagelConfig",

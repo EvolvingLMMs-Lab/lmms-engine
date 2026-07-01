@@ -154,6 +154,7 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         realtime_segments: Optional[List[Dict]] = None,
         system_message: str = "You are a helpful assistant",
         add_system_prompt=True,
+        assistant_codec=None,
         **kwargs,
     ):
         """Process a single training example.
@@ -386,6 +387,19 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
                 tail_mask = enc_mask.new_ones((total_tail, chunk_enc))
                 inputs["input_features"] = torch.cat([feats, tail_feats], dim=0)
                 inputs["audio_attention_mask"] = torch.cat([enc_mask, tail_mask], dim=0)
+
+        if assistant_codec is not None:
+            flat, n_frames = assistant_codec
+            G = 16
+            codec_arr = np.asarray(flat, dtype=np.int64).reshape(n_frames, G)
+            input_ids = inputs["input_ids"]
+            seq_len = int(input_ids.shape[0])
+            codec_labels = np.full((seq_len, G), -100, dtype=np.int64)
+            audio_positions = [i for i, t in enumerate(input_ids.tolist()) if t == self.audio_token_id]
+            n = min(len(audio_positions), n_frames)
+            for k in range(n):
+                codec_labels[audio_positions[k]] = codec_arr[k]
+            inputs["codec_labels"] = torch.from_numpy(codec_labels)
 
         return inputs
 

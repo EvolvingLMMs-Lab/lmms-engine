@@ -100,6 +100,9 @@ class AeroRealtimeCausalLMOutputWithPast(ModelOutput):
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     audio_hidden_states: Optional[torch.FloatTensor] = None
     vision_hidden_states: Optional[torch.FloatTensor] = None
+    last_hidden_state: Optional[torch.FloatTensor] = None
+    cu_seq_lens: Optional[torch.LongTensor] = None
+    indices: Optional[torch.LongTensor] = None
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +483,7 @@ class AeroRealtimeForConditionalGeneration(AeroRealtimePreTrainedModel, Generati
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        output_last_hidden_state: bool = False,
         **kwargs,
     ) -> Union[Tuple, AeroRealtimeCausalLMOutputWithPast]:
         """Forward pass for AeroRealtime.
@@ -672,6 +676,9 @@ class AeroRealtimeForConditionalGeneration(AeroRealtimePreTrainedModel, Generati
             attentions=outputs.attentions,
             audio_hidden_states=audio_features_flat,
             vision_hidden_states=video_features,
+            last_hidden_state=outputs.last_hidden_state if output_last_hidden_state else None,
+            cu_seq_lens=None,
+            indices=None,
         )
 
 
