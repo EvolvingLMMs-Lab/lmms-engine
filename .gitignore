@@ -177,3 +177,4 @@ checkpoints/
 .DS_Store
 .vscode
 docs/superpowers
+src/lmms-eval/
