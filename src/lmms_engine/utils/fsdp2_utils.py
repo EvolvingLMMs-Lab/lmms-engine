@@ -79,6 +79,12 @@ def fsdp2_load_full_state_dict(model: torch.nn.Module, full_state: dict, device_
                 sharded_tensor = full_tensor
             sharded_sd[param_name] = nn.Parameter(sharded_tensor)
         model.load_state_dict(sharded_sd, assign=True)
+
+        # non-persistent buffers (e.g. rotary inv_freq) are not in `full_state`;
+        # on non-rank-0 they come from `to_empty` and contain uninitialized memory,
+        # which can silently produce NaN in rotary_emb. Broadcast from rank 0 to fix.
+        for name, buf in model.named_buffers():
+            dist.broadcast(buf, src=0)
     else:
         from torch.distributed.checkpoint.state_dict import (
             StateDictOptions,
