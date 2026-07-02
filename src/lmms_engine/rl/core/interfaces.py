@@ -3,7 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from lmms_engine.rl.protocol import BufferStats, ModelVersion, RewardedTrajectory, RolloutTask, TrainBatch
+from lmms_engine.rl.protocol import (
+    BufferStats,
+    ModelVersion,
+    RewardedTrajectory,
+    RolloutTask,
+    TrainBatch,
+)
 
 
 class TrajectoryAdapter(ABC):

@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from lmms_engine.rl.core.interfaces import TrajectoryAdapter
-from lmms_engine.rl.protocol import ModelVersion, RewardedTrajectory, RolloutTask, TrajectoryStep
+from lmms_engine.rl.protocol import (
+    ModelVersion,
+    RewardedTrajectory,
+    RolloutTask,
+    TrajectoryStep,
+)
 
 
 class LMMSEvalTrajectoryAdapter(TrajectoryAdapter):

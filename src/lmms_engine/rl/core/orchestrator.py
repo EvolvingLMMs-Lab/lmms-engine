@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from lmms_engine.rl.config import RLRunConfig
 from lmms_engine.rl.core.factory import DEFAULT_RL_COMPONENT_FACTORY, RLComponentFactory
-from lmms_engine.rl.core.interfaces import BatchBuilder, DataBuffer, RolloutManager, WeightSyncClient
+from lmms_engine.rl.core.interfaces import (
+    BatchBuilder,
+    DataBuffer,
+    RolloutManager,
+    WeightSyncClient,
+)
 from lmms_engine.rl.protocol import ModelVersion, RolloutTask, TrainBatch
 
 
