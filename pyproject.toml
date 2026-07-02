@@ -73,6 +73,10 @@ eval = [
     "httpx",
 ]
 
+rl = [
+    "ray",
+]
+
 video = [
     "lmms-video-utils[all]>=0.1.0",
 ]

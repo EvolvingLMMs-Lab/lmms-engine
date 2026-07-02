@@ -2,6 +2,7 @@ from .config import TrainerConfig, TrainingArguments
 from .fsdp2 import FSDP2SFTTrainer
 from .hf import DLLMTrainer, Trainer, WanVideoTrainer
 from .registry import TRAINER_REGISTER
+from .rl import FSDP2RLTrainerBridge, GRPOBatchAdapter, GRPOConfig
 from .runner import TrainRunner
 
 __all__ = [
@@ -14,4 +15,7 @@ __all__ = [
     "DLLMTrainer",
     "WanVideoTrainer",
     "FSDP2SFTTrainer",
+    "FSDP2RLTrainerBridge",
+    "GRPOBatchAdapter",
+    "GRPOConfig",
 ]
