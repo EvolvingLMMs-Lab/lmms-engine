@@ -13,13 +13,13 @@ import yaml
 from loguru import logger
 
 import lmms_engine.parallel.process_group_manager as pgm
+from lmms_engine.datasets.processor import ProcessorConfig
 from lmms_engine.mapping_func import (
-    DATASET_MAPPING,
     DATAPROCESSOR_MAPPING,
+    DATASET_MAPPING,
     create_model_from_config,
     create_model_from_pretrained,
 )
-from lmms_engine.datasets.processor import ProcessorConfig
 from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.parallelize import apply_parallelize

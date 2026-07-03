@@ -7,7 +7,7 @@ import torch
 
 from lmms_engine.datasets.collator import VisionCollator
 from lmms_engine.rl.core.interfaces import TrainBatchAdapter
-from lmms_engine.rl.protocol import RewardedTrajectory, TrajectoryStep, TrainBatch
+from lmms_engine.rl.protocol import RewardedTrajectory, TrainBatch, TrajectoryStep
 
 
 @dataclass(slots=True)

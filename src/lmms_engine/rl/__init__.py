@@ -23,8 +23,8 @@ from lmms_engine.rl.core.interfaces import (
 from lmms_engine.rl.core.orchestrator import RLOrchestrator
 from lmms_engine.rl.data_buffer import InMemoryDataBuffer
 from lmms_engine.rl.lmms_eval import (
-    LMMSEvalTrajectoryAdapter,
     LMMSEvalRolloutTaskConfig,
+    LMMSEvalTrajectoryAdapter,
     build_rollout_episode_specs,
     clone_rollout_spec,
     trajectory_from_lmms_eval_episode,

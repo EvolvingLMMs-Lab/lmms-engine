@@ -438,7 +438,13 @@ class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
         )
 
     def _rl_perf_metrics(self, batch: dict[str, Any], delta_time: float, world_size: int) -> tuple[dict, int]:
-        seq_len = batch.get("attention_mask", torch.zeros((1, 1), device=self.fsdp2_model.device)).sum(dim=1).detach().cpu().tolist()
+        seq_len = (
+            batch.get("attention_mask", torch.zeros((1, 1), device=self.fsdp2_model.device))
+            .sum(dim=1)
+            .detach()
+            .cpu()
+            .tolist()
+        )
         flops, promised_flops, raw_flops = model_utils.flops_counter.estimate_flops(seq_len, delta_time=delta_time)
         self.compute_tracker.accumulate_flops(raw_flops)
         parallel_size = pgm.process_group_manager.cp_world_size * pgm.process_group_manager.tp_world_size

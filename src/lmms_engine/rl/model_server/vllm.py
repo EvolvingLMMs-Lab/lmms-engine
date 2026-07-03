@@ -87,7 +87,9 @@ class VLLMChatModelServer(ModelServer):
     def _sampling_kwargs(self, request: AgentInput) -> dict[str, Any]:
         generation_kwargs = dict(self.generation_kwargs)
         generation_kwargs.update(request.generation_kwargs or {})
-        max_tokens = int(generation_kwargs.pop("max_tokens", generation_kwargs.pop("max_new_tokens", self.default_max_tokens)))
+        max_tokens = int(
+            generation_kwargs.pop("max_tokens", generation_kwargs.pop("max_new_tokens", self.default_max_tokens))
+        )
         kwargs = {
             "max_tokens": max_tokens,
             "temperature": generation_kwargs.pop("temperature", 0),

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sys
-from importlib.util import find_spec
 from functools import lru_cache
+from importlib.util import find_spec
 from pathlib import Path
 
 

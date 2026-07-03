@@ -15,8 +15,8 @@ from lmms_engine.rl.lmms_eval.paths import ensure_lmms_eval_importable
 
 ensure_lmms_eval_importable()
 
-from lmms_eval.agentic.rollout import RolloutEpisodeSpec
 from lmms_eval import utils as lmms_eval_utils
+from lmms_eval.agentic.rollout import RolloutEpisodeSpec
 
 
 @dataclass(slots=True)
@@ -43,7 +43,9 @@ class LMMSEvalRolloutTaskConfig:
     request_metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def build_rollout_episode_specs(config: LMMSEvalRolloutTaskConfig | dict[str, Any] | None = None) -> list[RolloutEpisodeSpec]:
+def build_rollout_episode_specs(
+    config: LMMSEvalRolloutTaskConfig | dict[str, Any] | None = None
+) -> list[RolloutEpisodeSpec]:
     task_config = _coerce_task_config(config)
     task = _load_task_config(task_config)
     docs = _load_rollout_docs(task_config)
@@ -52,7 +54,11 @@ def build_rollout_episode_specs(config: LMMSEvalRolloutTaskConfig | dict[str, An
     specs: list[RolloutEpisodeSpec] = []
     for doc_idx, doc in docs:
         for repeat_idx in range(max(1, task_config.repeats)):
-            seed = None if task_config.seed is None else int(task_config.seed) + doc_idx * max(1, task_config.repeats) + repeat_idx
+            seed = (
+                None
+                if task_config.seed is None
+                else int(task_config.seed) + doc_idx * max(1, task_config.repeats) + repeat_idx
+            )
             specs.append(
                 RolloutEpisodeSpec(
                     doc=doc,
@@ -67,7 +73,9 @@ def build_rollout_episode_specs(config: LMMSEvalRolloutTaskConfig | dict[str, An
                         **lmms_eval_kwargs,
                         **task_config.lmms_eval_specific_kwargs,
                     },
-                    max_steps=int(task_config.max_steps or (task.get("generation_kwargs") or {}).get("max_game_steps", 32)),
+                    max_steps=int(
+                        task_config.max_steps or (task.get("generation_kwargs") or {}).get("max_game_steps", 32)
+                    ),
                     seed=seed,
                     request_metadata={
                         "task": task["task"],
