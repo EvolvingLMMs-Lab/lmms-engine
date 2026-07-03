@@ -18,7 +18,7 @@ from lmms_engine.utils.logging_utils import setup_distributed_logging
 from ..datasets import DatasetConfig
 from ..eval import EvalConfig
 from ..models import ModelConfig
-from ..train import TrainerConfig, TrainingArguments, TrainRunner
+from ..train import RLTrainRunner, TrainerConfig, TrainingArguments, TrainRunner
 
 
 def filter_training_args(kwargs: dict) -> dict:
@@ -114,7 +114,8 @@ def create_train_task(config):
         trainer_type=trainer_type,
         trainer_args=trainer_args,
     )
-    return TrainRunner(config=train_config)
+    runner_cls = RLTrainRunner if trainer_type == "fsdp2_grpo_rl_trainer" else TrainRunner
+    return runner_cls(config=train_config)
 
 
 def save_config(config):

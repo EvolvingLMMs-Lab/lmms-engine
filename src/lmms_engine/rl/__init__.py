@@ -24,6 +24,9 @@ from lmms_engine.rl.core.orchestrator import RLOrchestrator
 from lmms_engine.rl.data_buffer import InMemoryDataBuffer
 from lmms_engine.rl.lmms_eval import (
     LMMSEvalTrajectoryAdapter,
+    LMMSEvalRolloutTaskConfig,
+    build_rollout_episode_specs,
+    clone_rollout_spec,
     trajectory_from_lmms_eval_episode,
 )
 from lmms_engine.rl.protocol import (
@@ -55,6 +58,7 @@ __all__ = [
     "GRPOPayload",
     "InMemoryDataBuffer",
     "LMMSEvalTrajectoryAdapter",
+    "LMMSEvalRolloutTaskConfig",
     "ModelVersion",
     "PassthroughTrainBatchAdapter",
     "RLRunConfig",
@@ -76,6 +80,8 @@ __all__ = [
     "VLLMServerConfig",
     "VLLMWeightSyncClient",
     "WeightSyncClient",
+    "build_rollout_episode_specs",
+    "clone_rollout_spec",
     "make_ray_rollout_actor",
     "trajectory_from_lmms_eval_episode",
 ]

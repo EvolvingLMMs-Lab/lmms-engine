@@ -15,9 +15,11 @@ from loguru import logger
 import lmms_engine.parallel.process_group_manager as pgm
 from lmms_engine.mapping_func import (
     DATASET_MAPPING,
+    DATAPROCESSOR_MAPPING,
     create_model_from_config,
     create_model_from_pretrained,
 )
+from lmms_engine.datasets.processor import ProcessorConfig
 from lmms_engine.models import MONKEY_PATCHER
 from lmms_engine.models.utils import setup_flops_counter
 from lmms_engine.parallel.parallelize import apply_parallelize
@@ -262,3 +264,37 @@ class TrainRunner:
             cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
             del state_dict
             trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
+
+
+class RLTrainRunner(TrainRunner):
+    """Runner for online RL trainers that build batches from rollout, not datasets."""
+
+    def build(self):
+        if dist.is_initialized():
+            self.create_sp_dis_group()
+        self.model = self._build_model()
+        self.eval_dataset = None
+        self.train_dataset = None
+        self.processing_class = self._build_processor()
+        self._apply_monkey_patch()
+        self.trainer = self._build_trainer()
+
+    def _build_processor(self):
+        processor_config = self.train_dataset_config.processor_config
+        if isinstance(processor_config, dict):
+            processor_config = ProcessorConfig(**processor_config)
+        processor_cls = DATAPROCESSOR_MAPPING[processor_config.processor_type]
+        processor = processor_cls(processor_config)
+        processor.build()
+        return processor
+
+    def _build_trainer(self):
+        trainer_cls = TRAINER_REGISTER[self.config.trainer_type]
+        return trainer_cls(
+            model=self.model,
+            args=self.config.trainer_args,
+            data_collator=None,
+            train_dataset=None,
+            eval_dataset=None,
+            processing_class=self.processing_class,
+        )
