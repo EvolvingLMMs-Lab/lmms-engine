@@ -6,6 +6,7 @@ import shutil
 import time
 import uuid
 from dataclasses import fields, is_dataclass
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -30,17 +31,18 @@ from lmms_engine.rl.lmms_eval import (
     LMMSEvalRolloutTaskConfig,
     build_rollout_episode_specs,
 )
+from lmms_engine.rl.lmms_eval.paths import ensure_lmms_eval_importable
 from lmms_engine.train.config import TrainingArguments
 from lmms_engine.train.fsdp2.fsdp2_trainer import FSDP2SFTTrainer
+from lmms_engine.train.fsdp2.rl_policy_step import FSDP2RLPolicyStepMixin, RLPolicyLoss
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.train.rl import GRPOBatchAdapter, GRPOConfig, GRPOPayload
 from lmms_engine.utils import ComputeTracker, TrainUtilities
-from lmms_engine.utils.fsdp2_utils import fsdp2_clip_grad_norm_
 from lmms_engine.utils.tracking import Tracking
 
 
 @TRAINER_REGISTER.register("fsdp2_grpo_rl_trainer")
-class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
+class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
     """FSDP2-only RL trainer for the LMMs-Engine + lmms-eval MVP.
 
     Rollout is deliberately coordinated on rank 0 and broadcast to all FSDP
@@ -81,8 +83,10 @@ class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
         self.rollout_poll_s = float(self.rl_config.get("rollout_poll_s", 0.1))
         self.rollout_sleep_s = float(self.rl_config.get("rollout_sleep_s", 0.05))
         self.rollout_seed = int(self.rl_config.get("rollout_seed", self.args.seed or 42))
+        self.save_final_checkpoint = bool(self.rl_config.get("save_final_checkpoint", True))
         self._submitted_rollouts = 0
         self._last_policy_checkpoint: str | None = None
+        self._ray_model_server_pool = None
 
     def train(self, resume_from_checkpoint: bool = False):
         self.prepare_model()
@@ -126,6 +130,7 @@ class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
         rollout_specs = None
         if rank == 0:
             self._maybe_init_ray()
+            self._maybe_start_ray_model_server_pool()
             rollout_specs = build_rollout_episode_specs(self.rollout_task_config)
             if not rollout_specs:
                 raise ValueError("No rollout specs were built from the lmms-eval task config.")
@@ -199,9 +204,12 @@ class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
 
         pbar.close()
         self.memory_snapshot_profiler.stop_and_save(reason="rl_train_end")
-        output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
-        self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
-        self.validation_step(output_dir, self.global_step)
+        if self.save_final_checkpoint:
+            output_dir = os.path.join(self.args.output_dir, f"checkpoint-{self.global_step}")
+            self.save_checkpoints(output_dir, self.global_step, total_limit=self.args.save_total_limit)
+            self.validation_step(output_dir, self.global_step)
+        else:
+            logger.info("Skipping final RL checkpoint because rl_config.save_final_checkpoint=false.")
         if self.eval_backend is not None:
             self._check_eval_results(rank, wait_until_complete=True)
         if rank == 0:
@@ -214,40 +222,9 @@ class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
             )
         self.cuda_event_profiler.close()
 
-    def training_step(self, batch):
-        self.fsdp2_model.train()
-        if self.accumulated_grad_steps == 0:
-            self.optimizer.zero_grad()
+    def compute_policy_loss(self, batch: dict[str, Any]) -> RLPolicyLoss:
         loss, metrics = self.compute_grpo_loss(batch)
-        if dist.get_world_size() > 1:
-            loss = loss.mean()
-        loss = loss / self.args.gradient_accumulation_steps
-        loss_item = loss.item() * self.args.gradient_accumulation_steps
-        loss.backward()
-        self.accumulated_grad_steps += 1
-        should_update = self.accumulated_grad_steps >= self.args.gradient_accumulation_steps
-        grad_norm = None
-        if should_update:
-            grad_norm = fsdp2_clip_grad_norm_(self.fsdp2_model.parameters(), self.args.max_grad_norm)
-            if not torch.isfinite(grad_norm):
-                logger.warning(f"grad_norm is not finite: {grad_norm}")
-                self.optimizer.zero_grad()
-            else:
-                self.optimizer.step()
-                self.ema.update(step=self.global_step + 1)
-            self.scheduler.step()
-            self.accumulated_grad_steps = 0
-
-        reduced_loss = torch.tensor(loss_item, device=self.args.device)
-        dist.all_reduce(reduced_loss, op=dist.ReduceOp.AVG)
-        train_metrics = {
-            "train/loss": reduced_loss.item(),
-            "train/lr": self.scheduler.get_last_lr()[0],
-            **metrics,
-        }
-        if grad_norm is not None:
-            train_metrics["train/grad_norm"] = grad_norm.item()
-        return train_metrics
+        return RLPolicyLoss(loss=loss, metrics=metrics)
 
     def compute_grpo_loss(self, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, float]]:
         labels = batch["labels"]
@@ -436,8 +413,29 @@ class FSDP2GRPORLTrainer(FSDP2SFTTrainer):
             return
         import ray
 
+        ray_init_kwargs = _ray_init_kwargs_with_lmms_eval_path(self.rl_run_config.ray_init_kwargs)
         if not ray.is_initialized():
-            ray.init(**self.rl_run_config.ray_init_kwargs)
+            ray.init(**ray_init_kwargs)
+
+    def _maybe_start_ray_model_server_pool(self) -> None:
+        model_server = self.rollout_task_config.model_server
+        if not isinstance(model_server, dict):
+            return
+        backend = model_server.get("name") or model_server.get("backend")
+        if backend != "ray_actor_pool":
+            return
+
+        from lmms_engine.rl.model_server import start_ray_model_server_pool
+
+        self._ray_model_server_pool = start_ray_model_server_pool(model_server)
+        self.rollout_task_config.model_server = self._ray_model_server_pool.client_spec(
+            **dict(model_server.get("client", {}) or {})
+        )
+        logger.info(
+            "Started Ray model server pool with "
+            f"{len(self._ray_model_server_pool.actor_names)} replica(s); "
+            f"load_balancer={self._ray_model_server_pool.load_balancer_name}"
+        )
 
     def _rl_perf_metrics(self, batch: dict[str, Any], delta_time: float, world_size: int) -> tuple[dict, int]:
         seq_len = batch.get("attention_mask", torch.zeros((1, 1), device=self.fsdp2_model.device)).sum(dim=1).detach().cpu().tolist()
@@ -485,6 +483,29 @@ def _build_dataclass(cls, values: dict[str, Any] | None):
         return cls(**(values or {}))
     allowed = {field.name for field in fields(cls)}
     return cls(**{key: value for key, value in dict(values).items() if key in allowed})
+
+
+def _ray_init_kwargs_with_lmms_eval_path(ray_init_kwargs: dict[str, Any]) -> dict[str, Any]:
+    kwargs = copy.deepcopy(ray_init_kwargs or {})
+    lmms_eval_root = ensure_lmms_eval_importable()
+    engine_src = Path(__file__).resolve().parents[3]
+    pythonpath = _prepend_pythonpath([engine_src, lmms_eval_root])
+    os.environ["PYTHONPATH"] = pythonpath
+
+    runtime_env = dict(kwargs.get("runtime_env") or {})
+    env_vars = dict(runtime_env.get("env_vars") or {})
+    env_vars["PYTHONPATH"] = _prepend_pythonpath([engine_src, lmms_eval_root], env_vars.get("PYTHONPATH"))
+    runtime_env["env_vars"] = env_vars
+    kwargs["runtime_env"] = runtime_env
+    return kwargs
+
+
+def _prepend_pythonpath(paths: list[Path], existing: str | None = None) -> str:
+    entries = [str(path) for path in paths]
+    current = existing if existing is not None else os.environ.get("PYTHONPATH", "")
+    entries.extend(item for item in current.split(os.pathsep) if item)
+    deduped = list(dict.fromkeys(entries))
+    return os.pathsep.join(deduped)
 
 
 def _distributed_mean(value: torch.Tensor) -> float:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import os
 from collections.abc import Sequence
@@ -55,12 +56,12 @@ def build_rollout_episode_specs(config: LMMSEvalRolloutTaskConfig | dict[str, An
             specs.append(
                 RolloutEpisodeSpec(
                     doc=doc,
-                    game_env=task["game_env"],
-                    observation_parser=task["observation_parser"],
-                    action_parser=task["action_parser"],
+                    game_env=_serializable_component_spec(task["game_env"]),
+                    observation_parser=_serializable_component_spec(task["observation_parser"]),
+                    action_parser=_serializable_component_spec(task["action_parser"]),
                     model_server=task_config.model_server or "openai",
-                    loop_worker=task_config.loop_worker,
-                    model_output_parser=task_config.model_output_parser,
+                    loop_worker=_serializable_component_spec(task_config.loop_worker),
+                    model_output_parser=_serializable_component_spec(task_config.model_output_parser),
                     generation_kwargs={**(task.get("generation_kwargs") or {}), **task_config.generation_kwargs},
                     lmms_eval_specific_kwargs={
                         **lmms_eval_kwargs,
@@ -227,6 +228,26 @@ def _resolve_lmms_eval_kwargs(value: Any, model_name: str | None = None) -> dict
     if isinstance(value.get("dataset"), dict):
         resolved.update(value["dataset"])
     return resolved
+
+
+def _serializable_component_spec(value: Any) -> Any:
+    if callable(value):
+        source = inspect.getsourcefile(value)
+        name = getattr(value, "__name__", None)
+        if source and name:
+            return f"{Path(source).resolve()}:{name}"
+        module = getattr(value, "__module__", None)
+        qualname = getattr(value, "__qualname__", None)
+        if module and qualname:
+            return f"{module}:{qualname}"
+        return value
+    if isinstance(value, dict):
+        return {key: _serializable_component_spec(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_serializable_component_spec(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_serializable_component_spec(item) for item in value)
+    return value
 
 
 def clone_rollout_spec(spec: RolloutEpisodeSpec, *, seed: int | None = None) -> RolloutEpisodeSpec:

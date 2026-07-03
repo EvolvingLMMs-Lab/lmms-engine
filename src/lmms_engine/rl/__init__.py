@@ -29,6 +29,11 @@ from lmms_engine.rl.lmms_eval import (
     clone_rollout_spec,
     trajectory_from_lmms_eval_episode,
 )
+from lmms_engine.rl.model_server import (
+    RayModelServerPool,
+    VLLMChatModelServer,
+    start_ray_model_server_pool,
+)
 from lmms_engine.rl.protocol import (
     BufferStats,
     ModelVersion,
@@ -64,6 +69,7 @@ __all__ = [
     "RLRunConfig",
     "RayRolloutActor",
     "RayRolloutManager",
+    "RayModelServerPool",
     "RLComponentFactory",
     "RLOrchestrator",
     "RewardedTrajectory",
@@ -78,11 +84,13 @@ __all__ = [
     "TrainingEngineConfig",
     "TrajectoryStep",
     "VLLMServerConfig",
+    "VLLMChatModelServer",
     "VLLMWeightSyncClient",
     "WeightSyncClient",
     "build_rollout_episode_specs",
     "clone_rollout_spec",
     "make_ray_rollout_actor",
+    "start_ray_model_server_pool",
     "trajectory_from_lmms_eval_episode",
 ]
 

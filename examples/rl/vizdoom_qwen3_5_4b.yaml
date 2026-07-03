@@ -5,6 +5,11 @@
 #     --served-model-name qwen3.5-4b-vizdoom \
 #     --host 127.0.0.1 --port 8000 --trust-remote-code
 #
+# VERL-style Ray-native serving is also supported by replacing
+# trainer_args.rl_config.model_server with a ray_actor_pool block. That path
+# launches Ray model-server actors and rollout workers call them via Ray actor
+# RPC instead of OpenAI HTTP.
+#
 # For the packed Qwen3.5 linear-attention path, install:
 #   uv pip install flash-linear-attention causal-conv1d --no-build-isolation
 # Then set trainer_args.use_rmpad=true.
@@ -106,6 +111,28 @@ trainer_args:
       api_key: EMPTY
       enable_thinking: true
       max_concurrent_requests: 1
+
+    # Ray-native alternative. Requires vLLM installed in the rollout actor
+    # environment and separate/managed GPU resources for model-server actors.
+    #
+    # model_server:
+    #   name: ray_actor_pool
+    #   actor_name_prefix: qwen3-5-4b-vizdoom-policy
+    #   num_replicas: 1
+    #   actor_options:
+    #     num_gpus: 1
+    #   server:
+    #     factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
+    #     model: Qwen/Qwen3.5-4B
+    #     trust_remote_code: true
+    #     dtype: bfloat16
+    #     tensor_parallel_size: 1
+    #     generation_kwargs:
+    #       max_new_tokens: 96
+    #       temperature: 1.0
+    #       top_p: 0.9
+    #     chat_template_kwargs:
+    #       enable_thinking: true
 
     rollout:
       backend: ray

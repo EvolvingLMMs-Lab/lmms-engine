@@ -38,7 +38,8 @@ class RayRolloutActor:
 
 def make_ray_rollout_actor(actor_options: dict[str, Any] | None = None):
     ray = _require_ray()
-    return ray.remote(**(actor_options or {}))(RayRolloutActor)
+    actor_options = dict(actor_options or {})
+    return ray.remote(**actor_options)(RayRolloutActor) if actor_options else ray.remote(RayRolloutActor)
 
 
 class RayRolloutManager(RolloutManager):
