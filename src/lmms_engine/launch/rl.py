@@ -28,8 +28,7 @@ def _train_loop_per_worker(train_loop_config: dict[str, Any]) -> None:
     task = create_train_task(config)
     if not isinstance(task, RLTrainRunner):
         raise ValueError(
-            "lmms_engine.launch.rl requires an RL trainer config, "
-            "for example trainer_type=fsdp2_grpo_rl_trainer."
+            "lmms_engine.launch.rl requires an RL trainer config, " "for example trainer_type=fsdp2_grpo_rl_trainer."
         )
 
     save_config(original_config)

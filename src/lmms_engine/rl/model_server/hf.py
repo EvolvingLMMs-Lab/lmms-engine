@@ -168,7 +168,9 @@ class TransformersChatModelServer(ModelServer):
     def _generation_kwargs(self, request: AgentInput) -> dict[str, Any]:
         kwargs = dict(self.generation_kwargs)
         kwargs.update(request.generation_kwargs or {})
-        kwargs["max_new_tokens"] = int(kwargs.pop("max_tokens", kwargs.get("max_new_tokens", self.default_max_new_tokens)))
+        kwargs["max_new_tokens"] = int(
+            kwargs.pop("max_tokens", kwargs.get("max_new_tokens", self.default_max_new_tokens))
+        )
         for key in _AGENTIC_ONLY_KEYS | _STOP_KEYS:
             kwargs.pop(key, None)
         if kwargs.get("temperature", 0) and "do_sample" not in kwargs:
@@ -184,16 +186,26 @@ class TransformersChatModelServer(ModelServer):
 
 
 def _resolve_model_class(model: str) -> Any:
-    from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForImageTextToText
+    from transformers import (
+        AutoConfig,
+        AutoModelForCausalLM,
+        AutoModelForImageTextToText,
+    )
 
     config = AutoConfig.from_pretrained(model, trust_remote_code=True)
     model_type = getattr(config, "model_type", "")
     if "qwen3_5" in model_type:
-        from transformers import Qwen3_5ForConditionalGeneration, Qwen3_5MoeForConditionalGeneration
+        from transformers import (
+            Qwen3_5ForConditionalGeneration,
+            Qwen3_5MoeForConditionalGeneration,
+        )
 
         return Qwen3_5MoeForConditionalGeneration if "moe" in model_type else Qwen3_5ForConditionalGeneration
     if "qwen3_vl" in model_type:
-        from transformers import Qwen3VLForConditionalGeneration, Qwen3VLMoeForConditionalGeneration
+        from transformers import (
+            Qwen3VLForConditionalGeneration,
+            Qwen3VLMoeForConditionalGeneration,
+        )
 
         return Qwen3VLMoeForConditionalGeneration if "moe" in model_type else Qwen3VLForConditionalGeneration
     if type(config) in AutoModelForImageTextToText._model_mapping.keys():
