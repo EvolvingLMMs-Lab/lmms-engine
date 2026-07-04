@@ -162,6 +162,8 @@ cython_debug/
 #.idea/
 
 data/
+!examples/rl/data/
+!examples/rl/data/vizdoom_train.jsonl
 scripts/
 wandb/
 playground/

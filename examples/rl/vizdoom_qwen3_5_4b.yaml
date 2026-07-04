@@ -1,36 +1,20 @@
-# Qwen3.5-4B + VizDoom online RL MVP.
-#
-# Start an OpenAI-compatible policy server separately, for example:
-#   vllm serve Qwen/Qwen3.5-4B \
-#     --served-model-name qwen3.5-4b-vizdoom \
-#     --host 127.0.0.1 --port 8000 --trust-remote-code
-#
-# VERL-style Ray-native serving is also supported by replacing
-# trainer_args.rl_config.model_server with a ray_actor_pool block. That path
-# launches Ray model-server actors and rollout workers call them via Ray actor
-# RPC instead of OpenAI HTTP.
-#
-# For the packed Qwen3.5 linear-attention path, install:
-#   uv pip install flash-linear-attention causal-conv1d --no-build-isolation
-# Then set trainer_args.use_rmpad=true.
+# Minimal Qwen3-VL-4B + VizDoom RL config.
+# Rollout docs are engine-side train data; lmms-eval only provides env/parsers.
 
 trainer_type: fsdp2_grpo_rl_trainer
 
 dataset_config:
-  # RLTrainRunner only uses processor_config from this section. RL rollout docs
-  # are engine-side training data from trainer_args.rl_config.task.data_path.
   dataset_type: qwen3_vl_iterable
   dataset_format: yaml
   dataset_path: null
   processor_config:
-    processor_name: Qwen/Qwen3.5-4B
+    processor_name: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
     processor_type: qwen3_vl
     extra_kwargs:
       video_max_pixels: 360448
       video_min_pixels: 28800
       image_max_pixels: 360448
       image_min_pixels: 28800
-  shuffle: true
   object_storage: none
   packing: false
   video_sampling_strategy: fps
@@ -42,7 +26,7 @@ dataset_config:
   video_backend: qwen_vl_utils
 
 trainer_args:
-  output_dir: ./output/qwen3_5_4b_vizdoom_rl
+  output_dir: ./output/qwen3_5_4b_vizdoom_rl_minimal_smoke
   do_train: true
   do_eval: false
   eval_strategy: "no"
@@ -51,26 +35,24 @@ trainer_args:
   learning_rate: 1.0e-6
   weight_decay: 0.0
   max_grad_norm: 1.0
-  num_train_epochs: 1
-  max_steps: 100
+  max_steps: 3
   lr_scheduler_type: cosine
   warmup_ratio: 0.03
   logging_steps: 1
   save_strategy: steps
-  save_steps: 25
-  save_total_limit: 2
+  save_steps: 1000000
   bf16: true
   tf32: true
   dataloader_drop_last: true
   dataloader_num_workers: 0
   remove_unused_columns: false
   gradient_checkpointing: true
-  use_liger_kernel: true
+  use_liger_kernel: false
   use_rmpad: false
   fsdp2: true
   fsdp_config:
     transformer_layer_cls_to_wrap:
-      - Qwen3_5DecoderLayer
+      - Qwen3VLTextDecoderLayer
     reshard_after_forward: false
     min_num_params: 0
   sp_ulysses_degree: 1
@@ -78,12 +60,13 @@ trainer_args:
   output_dtype: bfloat16
   optim: adamw_torch_fused
   seed: 42
-  run_name: qwen3_5_4b_vizdoom_rl
+  run_name: qwen3_5_4b_vizdoom_rl_minimal_smoke
   print_batch_input_steps: 5
   report_to:
     - tensorboard
 
   rl_config:
+    save_final_checkpoint: false
     sync_policy_weights: false
     rollout_seed: 42
     rollout_poll_s: 0.1
@@ -93,64 +76,58 @@ trainer_args:
       task_name: vizdoom
       data_path: examples/rl/data/vizdoom_train.jsonl
       data_format: jsonl
-      limit: 3
-      repeats: 8
+      limit: 100
+      repeats: 1
       model_output_parser: qwen
-      max_steps: 64
+      max_steps: 1
       seed: 42
       generation_kwargs:
-        max_new_tokens: 96
+        max_new_tokens: 32
         temperature: 1.0
         top_p: 0.9
         do_sample: true
 
     model_server:
-      name: openai
-      model: qwen3.5-4b-vizdoom
-      base_url: http://127.0.0.1:8000/v1
-      api_key: EMPTY
-      enable_thinking: true
-      max_concurrent_requests: 1
-
-    # Ray-native alternative. Requires vLLM installed in the rollout actor
-    # environment and separate/managed GPU resources for model-server actors.
-    #
-    # model_server:
-    #   name: ray_actor_pool
-    #   actor_name_prefix: qwen3-5-4b-vizdoom-policy
-    #   num_replicas: 1
-    #   actor_options:
-    #     num_gpus: 1
-    #   server:
-    #     factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
-    #     model: Qwen/Qwen3.5-4B
-    #     trust_remote_code: true
-    #     dtype: bfloat16
-    #     tensor_parallel_size: 1
-    #     generation_kwargs:
-    #       max_new_tokens: 96
-    #       temperature: 1.0
-    #       top_p: 0.9
-    #     chat_template_kwargs:
-    #       enable_thinking: true
+      name: ray_actor_pool
+      actor_name_prefix: qwen3-vl-4b-vizdoom-policy
+      num_replicas: 1
+      actor_options:
+        num_gpus: 1
+      server:
+        factory: lmms_engine.rl.model_server.hf:TransformersChatModelServer
+        model: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
+        torch_dtype: bfloat16
+        device: cuda
+        device_map: auto
+        attn_implementation: sdpa
+        local_files_only: true
+        system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
+        processor_kwargs:
+          max_pixels: 360448
+          min_pixels: 28800
+        generation_kwargs:
+          max_new_tokens: 32
+          temperature: 1.0
+          top_p: 0.9
+          do_sample: true
 
     rollout:
       backend: ray
-      num_workers: 4
+      num_workers: 2
       max_inflight_per_worker: 1
       poll_timeout_s: 0.0
 
     data_buffer:
       backend: in_memory
-      max_trajectories: 64
-      high_watermark: 48
-      low_watermark: 24
-      train_batch_size: 8
-      min_trajectories_per_batch: 8
+      max_trajectories: 4
+      high_watermark: 3
+      low_watermark: 1
+      train_batch_size: 2
+      min_trajectories_per_batch: 2
 
     training:
       trainer_type: fsdp2_grpo_rl_trainer
-      global_batch_size: 8
+      global_batch_size: 2
       update_weights_every_steps: 10
       batch_builder: fixed_global
 
@@ -161,18 +138,17 @@ trainer_args:
       normalize_advantages: true
       beta: 0.0
       system_message: "You are a careful VizDoom agent. Choose one valid action for the current frame."
-      processor_kwargs:
-        fps: 1
+      processor_kwargs: {}
 
     ray_init_kwargs:
       ignore_reinit_error: true
 
 model_config:
-  load_from_pretrained_path: Qwen/Qwen3.5-4B
+  load_from_pretrained_path: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
   attn_implementation: sdpa
   torch_dtype: bfloat16
   model_general_type: image_text_to_text
   monkey_patch_kwargs:
-    patch_type: ["liger"]
+    patch_type: []
 
 extra_kwargs: null
