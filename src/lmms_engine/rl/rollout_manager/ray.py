@@ -44,7 +44,9 @@ class RayRolloutActor:
             episodes = self._run_batched_episodes(tasks)
         except (AttributeError, TypeError):
             episodes = [self.worker.run_episode(task.payload) for task in tasks]
-        return [self.trajectory_adapter.from_episode(task, episode) for task, episode in zip(tasks, episodes, strict=True)]
+        return [
+            self.trajectory_adapter.from_episode(task, episode) for task, episode in zip(tasks, episodes, strict=True)
+        ]
 
     def _run_batched_episodes(self, tasks: list[RolloutTask]) -> list[Any]:
         from lmms_eval.agentic.loop.manager import LoopManager, RolloutJob
