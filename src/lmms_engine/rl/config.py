@@ -29,6 +29,7 @@ class RolloutManagerConfig:
     backend: str = "ray"
     num_workers: int = 1
     max_inflight_per_worker: int = 1
+    batch_size: int = 1
     actor_options: dict[str, Any] = field(default_factory=dict)
     worker_config: dict[str, Any] = field(default_factory=dict)
     trajectory_adapter: Any = "lmms_engine.rl.lmms_eval.trajectory_adapter:LMMSEvalTrajectoryAdapter"

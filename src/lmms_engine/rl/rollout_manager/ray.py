@@ -32,8 +32,52 @@ class RayRolloutActor:
         self.trajectory_adapter = _build_trajectory_adapter(trajectory_adapter)
 
     def run(self, task: RolloutTask) -> RewardedTrajectory:
-        episode = self.worker.run_episode(task.payload)
-        return self.trajectory_adapter.from_episode(task, episode)
+        return self.run_batch([task])[0]
+
+    def run_batch(self, tasks: list[RolloutTask]) -> list[RewardedTrajectory]:
+        if not tasks:
+            return []
+        if len(tasks) == 1:
+            episode = self.worker.run_episode(tasks[0].payload)
+            return [self.trajectory_adapter.from_episode(tasks[0], episode)]
+        try:
+            episodes = self._run_batched_episodes(tasks)
+        except (AttributeError, TypeError):
+            episodes = [self.worker.run_episode(task.payload) for task in tasks]
+        return [self.trajectory_adapter.from_episode(task, episode) for task, episode in zip(tasks, episodes, strict=True)]
+
+    def _run_batched_episodes(self, tasks: list[RolloutTask]) -> list[Any]:
+        from lmms_eval.agentic.loop.manager import LoopManager, RolloutJob
+
+        jobs = []
+        shared_model_server = None
+        for index, task in enumerate(tasks):
+            components = self.worker.component_builder.build(task.payload)
+            if shared_model_server is None:
+                shared_model_server = components.model_server
+            loop_worker = self.worker.component_builder.factory.build_loop_worker(
+                task.payload.loop_worker,
+                model_server=components.model_server,
+                env_manager=components.env_manager,
+                observation_parser=components.observation_parser,
+                model_output_parser=components.model_output_parser,
+                action_parser=components.action_parser,
+                max_steps=task.payload.max_steps,
+                generation_kwargs=task.payload.generation_kwargs,
+                request_metadata=task.payload.request_metadata,
+            )
+            jobs.append(
+                RolloutJob(
+                    index=index,
+                    make_session=lambda _model_server, task=task, loop_worker=loop_worker: loop_worker.new_session(
+                        task.payload.doc,
+                        seed=task.payload.seed,
+                        agent_id=task.payload.agent_id,
+                    ),
+                    run_serial=lambda _model_server, task=task: self.worker.run_episode(task.payload),
+                )
+            )
+        return LoopManager(max_workers=len(jobs)).run_jobs(jobs, shared_model_server)
 
 
 def make_ray_rollout_actor(actor_options: dict[str, Any] | None = None):
@@ -49,7 +93,8 @@ class RayRolloutManager(RolloutManager):
     def __init__(self, config: RolloutManagerConfig | None = None) -> None:
         self.config = config or RolloutManagerConfig()
         self._actors: list[Any] = []
-        self._inflight: list[Any] = []
+        self._inflight: list[tuple[Any, int]] = []
+        self._pending: list[RolloutTask] = []
         self._next_actor = 0
         self._paused = False
 
@@ -73,32 +118,54 @@ class RayRolloutManager(RolloutManager):
             return False
         if not self._actors:
             self.start()
-        capacity = max(1, self.config.num_workers * self.config.max_inflight_per_worker)
-        if len(self._inflight) >= capacity:
+        capacity = max(
+            1,
+            self.config.num_workers * self.config.max_inflight_per_worker * max(1, int(self.config.batch_size)),
+        )
+        if self.inflight >= capacity:
             return False
-        actor = self._actors[self._next_actor]
-        self._next_actor = (self._next_actor + 1) % len(self._actors)
-        self._inflight.append(actor.run.remote(task))
+        self._pending.append(task)
+        if len(self._pending) >= max(1, int(self.config.batch_size)):
+            self._flush_pending()
         return True
 
     async def submit_async(self, task: RolloutTask) -> bool:
         return await asyncio.to_thread(self.submit, task)
 
     def poll_completed(self, timeout_s: float | None = None) -> list[RewardedTrajectory]:
+        self._flush_pending()
         if not self._inflight:
             return []
         ray = _require_ray()
         timeout = self.config.poll_timeout_s if timeout_s is None else timeout_s
-        ready, remaining = ray.wait(self._inflight, num_returns=len(self._inflight), timeout=timeout)
-        self._inflight = list(remaining)
-        return list(ray.get(ready)) if ready else []
+        refs = [ref for ref, _count in self._inflight]
+        ready, remaining = ray.wait(refs, num_returns=len(refs), timeout=timeout)
+        remaining_ids = set(remaining)
+        self._inflight = [(ref, count) for ref, count in self._inflight if ref in remaining_ids]
+        if not ready:
+            return []
+        completed = ray.get(ready)
+        return [trajectory for batch in completed for trajectory in batch]
 
     async def poll_completed_async(self, timeout_s: float | None = None) -> list[RewardedTrajectory]:
         return await asyncio.to_thread(self.poll_completed, timeout_s)
 
     @property
     def inflight(self) -> int:
-        return len(self._inflight)
+        return len(self._pending) + sum(count for _ref, count in self._inflight)
+
+    def _flush_pending(self) -> None:
+        if not self._pending:
+            return
+        if not self._actors:
+            self.start()
+        batch_size = max(1, int(self.config.batch_size))
+        while self._pending:
+            batch = self._pending[:batch_size]
+            del self._pending[:batch_size]
+            actor = self._actors[self._next_actor]
+            self._next_actor = (self._next_actor + 1) % len(self._actors)
+            self._inflight.append((actor.run_batch.remote(batch), len(batch)))
 
 
 def _build_trajectory_adapter(spec: Any):

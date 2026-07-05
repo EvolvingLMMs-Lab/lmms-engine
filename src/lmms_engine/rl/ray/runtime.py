@@ -66,6 +66,7 @@ class RayResourcePlan:
     model_server_gpus_per_replica: float
     rollout_workers: int
     rollout_max_inflight_per_worker: int
+    rollout_batch_size: int
     data_buffer_max_trajectories: int
     data_buffer_high_watermark: int
     data_buffer_low_watermark: int
@@ -80,22 +81,30 @@ class RayResourcePlan:
     def from_env(cls, spec: RayClusterSpec) -> "RayResourcePlan":
         rollout_gpus = env_int("ROLLOUT_GPUS", max(0, spec.num_nodes - 1) * spec.gpus_per_node)
         train_gpus = env_int("TRAIN_GPUS", spec.gpus_per_node)
-        model_server_replicas = env_int("MODEL_SERVER_REPLICAS", rollout_gpus)
+        model_server_gpus_per_replica = env_float("MODEL_SERVER_GPUS_PER_REPLICA", 1.0)
+        default_model_server_replicas = max(1, int(rollout_gpus / model_server_gpus_per_replica))
+        model_server_replicas = env_int("MODEL_SERVER_REPLICAS", default_model_server_replicas)
         rollout_workers = env_int("ROLLOUT_WORKERS", model_server_replicas)
+        total_gpus = rollout_gpus + train_gpus
+        default_train_batch_size = max(train_gpus, train_gpus * 4, total_gpus)
+        default_buffer_max_trajectories = max(1, rollout_workers * 4, default_train_batch_size * 8)
+        default_buffer_high_watermark = max(1, rollout_workers * 3, default_train_batch_size * 6)
+        default_buffer_low_watermark = max(1, rollout_workers, default_train_batch_size * 2)
 
         return cls(
             rollout_gpus=rollout_gpus,
             train_gpus=train_gpus,
             model_server_replicas=model_server_replicas,
-            model_server_gpus_per_replica=env_float("MODEL_SERVER_GPUS_PER_REPLICA", 1.0),
+            model_server_gpus_per_replica=model_server_gpus_per_replica,
             rollout_workers=rollout_workers,
             rollout_max_inflight_per_worker=env_int("ROLLOUT_MAX_INFLIGHT_PER_WORKER", 1),
-            data_buffer_max_trajectories=env_int("DATA_BUFFER_MAX_TRAJECTORIES", max(1, rollout_workers * 4)),
-            data_buffer_high_watermark=env_int("DATA_BUFFER_HIGH_WATERMARK", max(1, rollout_workers * 3)),
-            data_buffer_low_watermark=env_int("DATA_BUFFER_LOW_WATERMARK", max(1, rollout_workers)),
-            train_batch_size=env_int("TRAIN_BATCH_SIZE", train_gpus),
-            min_trajectories_per_batch=env_int("MIN_TRAJECTORIES_PER_BATCH", train_gpus),
-            global_batch_size=env_int("RL_GLOBAL_BATCH_SIZE", train_gpus),
+            rollout_batch_size=env_int("ROLLOUT_BATCH_SIZE", 2),
+            data_buffer_max_trajectories=env_int("DATA_BUFFER_MAX_TRAJECTORIES", default_buffer_max_trajectories),
+            data_buffer_high_watermark=env_int("DATA_BUFFER_HIGH_WATERMARK", default_buffer_high_watermark),
+            data_buffer_low_watermark=env_int("DATA_BUFFER_LOW_WATERMARK", default_buffer_low_watermark),
+            train_batch_size=env_int("TRAIN_BATCH_SIZE", default_train_batch_size),
+            min_trajectories_per_batch=env_int("MIN_TRAJECTORIES_PER_BATCH", default_train_batch_size),
+            global_batch_size=env_int("RL_GLOBAL_BATCH_SIZE", default_train_batch_size),
             train_workers=env_int("RAY_TRAIN_NUM_WORKERS", train_gpus),
             train_use_gpu=env_bool("RAY_TRAIN_USE_GPU", True),
             train_gpus_per_worker=env_float("RAY_TRAIN_NUM_GPUS_PER_WORKER", 1.0),
@@ -121,6 +130,7 @@ class RayResourcePlan:
         rollout = rl_config.setdefault("rollout", {})
         rollout["num_workers"] = self.rollout_workers
         rollout["max_inflight_per_worker"] = self.rollout_max_inflight_per_worker
+        rollout["batch_size"] = self.rollout_batch_size
         actor_options = rollout.setdefault("actor_options", {})
         actor_options.setdefault("scheduling_strategy", "DEFAULT")
         actor_options.setdefault("resources", {})[ROLLOUT_NODE_RESOURCE] = 0.001

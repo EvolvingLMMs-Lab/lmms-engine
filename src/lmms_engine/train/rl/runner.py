@@ -277,7 +277,9 @@ class RLTrainRunner(TrainRunner):
     def _submit_available_rollouts(self, orchestrator, rollout_specs, model_version: ModelVersion) -> None:
         capacity = max(
             1,
-            self.rl_run_config.rollout.num_workers * self.rl_run_config.rollout.max_inflight_per_worker,
+            self.rl_run_config.rollout.num_workers
+            * self.rl_run_config.rollout.max_inflight_per_worker
+            * max(1, int(self.rl_run_config.rollout.batch_size)),
         )
         while orchestrator.rollout_manager.inflight < capacity and not orchestrator.data_buffer.should_pause_rollout():
             base_spec = rollout_specs[self.submitted_rollouts % len(rollout_specs)]

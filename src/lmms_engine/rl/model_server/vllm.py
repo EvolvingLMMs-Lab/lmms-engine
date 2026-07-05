@@ -25,6 +25,7 @@ class VLLMChatModelServer(ModelServer):
         model: str,
         generation_kwargs: dict[str, Any] | None = None,
         chat_template_kwargs: dict[str, Any] | None = None,
+        system_prompt: str | None = None,
         default_max_tokens: int = 64,
         **engine_kwargs: Any,
     ) -> None:
@@ -36,6 +37,7 @@ class VLLMChatModelServer(ModelServer):
         self.llm = LLM(model=model, **engine_kwargs)
         self.generation_kwargs = dict(generation_kwargs or {})
         self.chat_template_kwargs = dict(chat_template_kwargs or {})
+        self.system_prompt = system_prompt
         self.default_max_tokens = int(default_max_tokens)
 
     def generate(self, request: Any) -> AgentOutput:
@@ -62,12 +64,16 @@ class VLLMChatModelServer(ModelServer):
     def _request_to_messages(self, request: AgentInput) -> list[dict[str, Any]]:
         if isinstance(request.metadata.get("messages"), list):
             return request.metadata["messages"]
-        return [
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": [{"type": "text", "text": self.system_prompt}]})
+        messages.append(
             {
                 "role": request.metadata.get("role", "user"),
                 "content": self._content_blocks_to_vllm_content(request.content),
             }
-        ]
+        )
+        return messages
 
     def _content_blocks_to_vllm_content(self, blocks: list[ContentBlock]) -> list[dict[str, Any]]:
         content = []

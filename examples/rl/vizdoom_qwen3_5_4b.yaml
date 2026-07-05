@@ -26,7 +26,7 @@ dataset_config:
   video_backend: qwen_vl_utils
 
 trainer_args:
-  output_dir: ./output/qwen3_5_4b_vizdoom_rl_minimal_smoke
+  output_dir: ./output/qwen3_5_4b_vizdoom_rl_100k
   do_train: true
   do_eval: false
   eval_strategy: "no"
@@ -35,7 +35,7 @@ trainer_args:
   learning_rate: 1.0e-6
   weight_decay: 0.0
   max_grad_norm: 1.0
-  max_steps: 3
+  max_steps: 3125 # 100k rollout specs / default 4-node RL batch 32.
   lr_scheduler_type: cosine
   warmup_ratio: 0.03
   logging_steps: 1
@@ -60,7 +60,7 @@ trainer_args:
   output_dtype: bfloat16
   optim: adamw_torch_fused
   seed: 42
-  run_name: qwen3_5_4b_vizdoom_rl_minimal_smoke
+  run_name: qwen3_5_4b_vizdoom_rl_100k
   print_batch_input_steps: 5
   report_to:
     - tensorboard
@@ -77,9 +77,9 @@ trainer_args:
       data_path: examples/rl/data/vizdoom_train.jsonl
       data_format: jsonl
       limit: 100
-      repeats: 1
+      repeats: 1000 # 100 base docs x 1000 repeats = 100k rollout episode specs.
       model_output_parser: qwen
-      max_steps: 1
+      max_steps: 10
       seed: 42
       generation_kwargs:
         max_new_tokens: 32
@@ -90,21 +90,17 @@ trainer_args:
     model_server:
       name: ray_actor_pool
       actor_name_prefix: qwen3-5-4b-vizdoom-policy
-      num_replicas: 1
+      num_replicas: 24
       actor_options:
         num_gpus: 1
       server:
-        factory: lmms_engine.rl.model_server.hf:TransformersChatModelServer
+        factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
         model: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
-        torch_dtype: bfloat16
-        device: cuda
-        device_map: auto
-        attn_implementation: sdpa
-        local_files_only: true
+        dtype: bfloat16
+        trust_remote_code: true
+        gpu_memory_utilization: 0.85
+        max_num_seqs: 8
         system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
-        processor_kwargs:
-          max_pixels: 360448
-          min_pixels: 28800
         generation_kwargs:
           max_new_tokens: 32
           temperature: 1.0
@@ -113,21 +109,22 @@ trainer_args:
 
     rollout:
       backend: ray
-      num_workers: 2
+      num_workers: 24
       max_inflight_per_worker: 1
+      batch_size: 2
       poll_timeout_s: 0.0
 
     data_buffer:
       backend: in_memory
-      max_trajectories: 4
-      high_watermark: 3
-      low_watermark: 1
-      train_batch_size: 2
-      min_trajectories_per_batch: 2
+      max_trajectories: 256
+      high_watermark: 192
+      low_watermark: 64
+      train_batch_size: 32
+      min_trajectories_per_batch: 32
 
     training:
       trainer_type: fsdp2_grpo_rl_trainer
-      global_batch_size: 2
+      global_batch_size: 32
       update_weights_every_steps: 10
       batch_builder: fixed_global
 
