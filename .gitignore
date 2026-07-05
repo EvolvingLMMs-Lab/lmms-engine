@@ -179,3 +179,4 @@ checkpoints/
 .DS_Store
 .vscode
 docs/superpowers
+_vizdoom.ini

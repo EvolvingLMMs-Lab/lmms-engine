@@ -24,6 +24,12 @@ def _require_ray():
     return ray
 
 
+def _detached_actor_options(options: dict[str, Any] | None = None) -> dict[str, Any]:
+    options = dict(options or {})
+    options.setdefault("scheduling_strategy", "DEFAULT")
+    return options
+
+
 @dataclass(slots=True)
 class RayModelServerPool:
     actor_names: list[str]
@@ -50,13 +56,13 @@ def start_ray_model_server_pool(config: dict[str, Any]) -> RayModelServerPool:
 
     namespace = config.get("namespace")
     num_replicas = int(config.get("num_replicas", 1))
-    actor_options = dict(config.get("actor_options", {}) or {})
+    actor_options = _detached_actor_options(config.get("actor_options"))
     factory_components = dict(config.get("factory_components", {}) or {})
     prefix = config.get("actor_name_prefix") or f"lmms-engine-policy-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     lifetime = config.get("lifetime")
     get_if_exists = bool(config.get("get_if_exists", False))
 
-    actor_cls = ray.remote(**actor_options)(RayModelServerActor) if actor_options else ray.remote(RayModelServerActor)
+    actor_cls = ray.remote(**actor_options)(RayModelServerActor)
     actor_names = []
     actor_handles = []
     for replica_idx in range(num_replicas):
@@ -73,7 +79,9 @@ def start_ray_model_server_pool(config: dict[str, Any]) -> RayModelServerPool:
         actor_handles.append(actor_handle)
 
     lb_name = config.get("load_balancer_name") or f"{prefix}-lb"
-    lb_actor_cls = ray.remote(RayModelServerLoadBalancer)
+    lb_actor_cls = ray.remote(**_detached_actor_options(config.get("load_balancer_actor_options")))(
+        RayModelServerLoadBalancer
+    )
     lb_options = {"name": lb_name}
     if namespace is not None:
         lb_options["namespace"] = namespace
