@@ -1,4 +1,4 @@
-# Minimal Qwen3-VL-4B + VizDoom RL config.
+# Minimal Qwen3.5-4B + VizDoom RL config.
 # Rollout docs are engine-side train data; lmms-eval only provides env/parsers.
 
 trainer_type: fsdp2_grpo_rl_trainer
@@ -8,7 +8,7 @@ dataset_config:
   dataset_format: yaml
   dataset_path: null
   processor_config:
-    processor_name: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
+    processor_name: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
     processor_type: qwen3_vl
     extra_kwargs:
       video_max_pixels: 360448
@@ -52,7 +52,7 @@ trainer_args:
   fsdp2: true
   fsdp_config:
     transformer_layer_cls_to_wrap:
-      - Qwen3VLTextDecoderLayer
+      - Qwen3_5DecoderLayer
     reshard_after_forward: false
     min_num_params: 0
   sp_ulysses_degree: 1
@@ -89,13 +89,13 @@ trainer_args:
 
     model_server:
       name: ray_actor_pool
-      actor_name_prefix: qwen3-vl-4b-vizdoom-policy
+      actor_name_prefix: qwen3-5-4b-vizdoom-policy
       num_replicas: 1
       actor_options:
         num_gpus: 1
       server:
         factory: lmms_engine.rl.model_server.hf:TransformersChatModelServer
-        model: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
+        model: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
         torch_dtype: bfloat16
         device: cuda
         device_map: auto
@@ -144,7 +144,7 @@ trainer_args:
       ignore_reinit_error: true
 
 model_config:
-  load_from_pretrained_path: /mnt/aigc/users/pufanyi/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
+  load_from_pretrained_path: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
   attn_implementation: sdpa
   torch_dtype: bfloat16
   model_general_type: image_text_to_text
