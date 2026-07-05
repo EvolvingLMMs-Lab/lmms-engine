@@ -57,8 +57,7 @@ def _train_loop_per_worker(train_loop_config: dict[str, Any]) -> None:
     task = create_train_task(config)
     if not isinstance(task, RLTrainRunner):
         raise ValueError(
-            "lmms_engine.launch.rl requires an RL trainer config, "
-            "for example trainer_type=fsdp2_grpo_rl_trainer."
+            "lmms_engine.launch.rl requires an RL trainer config, " "for example trainer_type=fsdp2_grpo_rl_trainer."
         )
 
     save_config(original_config)
@@ -76,9 +75,7 @@ def _ray_train_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def _scaling_config(ray_train_config: dict[str, Any]) -> ScalingConfig:
     resources_per_worker = ray_train_config.get("resources_per_worker")
-    resources_per_worker = (
-        dict(resources_per_worker) if resources_per_worker is not None else None
-    )
+    resources_per_worker = dict(resources_per_worker) if resources_per_worker is not None else None
 
     gpus_per_worker = os.environ.get("RAY_TRAIN_NUM_GPUS_PER_WORKER")
     if gpus_per_worker is not None:

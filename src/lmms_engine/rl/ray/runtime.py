@@ -229,9 +229,7 @@ class RayNodeScheduler:
                     logger.info(f"Ray cluster ready: {len(alive)}/{self.spec.num_nodes} nodes alive.")
                     return
                 if time.time() > deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for Ray nodes: {len(alive)}/{self.spec.num_nodes} alive."
-                    )
+                    raise TimeoutError(f"Timed out waiting for Ray nodes: {len(alive)}/{self.spec.num_nodes} alive.")
                 time.sleep(5)
         finally:
             ray.shutdown()
@@ -261,8 +259,7 @@ class RayRLMultinodeRuntime:
     def run(self, config: dict[str, Any], train: Callable[[dict[str, Any]], None]) -> None:
         worker = self.scheduler.current_worker()
         logger.info(
-            f"Multinode RL worker: id={worker.id}, role={worker.role}, "
-            f"ip={worker.ip}, resources={worker.resources}"
+            f"Multinode RL worker: id={worker.id}, role={worker.role}, " f"ip={worker.ip}, resources={worker.resources}"
         )
 
         if worker.role == "rollout":
