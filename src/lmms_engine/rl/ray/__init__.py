@@ -4,10 +4,8 @@ from lmms_engine.rl.ray.runtime import (
     RayResourcePlan,
     RayRLMultinodeRuntime,
     WorkerDescriptor,
-    default_num_workers,
-    env_bool,
-    env_int,
-    use_multinode_default,
+    default_gpus_per_node,
+    use_multinode_config,
 )
 
 __all__ = [
@@ -16,8 +14,6 @@ __all__ = [
     "RayRLMultinodeRuntime",
     "RayResourcePlan",
     "WorkerDescriptor",
-    "default_num_workers",
-    "env_bool",
-    "env_int",
-    "use_multinode_default",
+    "default_gpus_per_node",
+    "use_multinode_config",
 ]

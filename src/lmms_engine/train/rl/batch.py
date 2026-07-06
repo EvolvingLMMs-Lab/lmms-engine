@@ -12,6 +12,8 @@ class FixedGlobalBatchBuilder(BatchBuilderBase):
         self.config = config or TrainingEngineConfig()
 
     def build(self, trajectories: list[RewardedTrajectory], model_version: ModelVersion | None) -> TrainBatch:
+        if self.config.global_batch_size is None:
+            raise ValueError("TrainingEngineConfig.global_batch_size must be resolved before building TrainBatch.")
         return TrainBatch(
             batch_id=f"train-batch-{model_version.version_id if model_version else 'unknown'}",
             model_version=model_version,

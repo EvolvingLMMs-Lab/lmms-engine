@@ -37,11 +37,13 @@ class InMemoryDataBuffer(DataBuffer):
             return self.push(trajectory)
 
     def pop_train_batch(self) -> TrainBatch | None:
-        if len(self._queue) < self.config.min_trajectories_per_batch:
+        min_trajectories = self.config.resolved_min_trajectories_per_batch()
+        global_train_batch_size = self.config.resolved_global_train_batch_size()
+        if len(self._queue) < min_trajectories:
             return None
 
         trajectories: list[RewardedTrajectory] = []
-        while self._queue and len(trajectories) < self.config.train_batch_size:
+        while self._queue and len(trajectories) < global_train_batch_size:
             trajectory = self._queue.popleft()
             trajectories.append(trajectory)
             self._pending_steps -= len(trajectory.steps)
@@ -52,8 +54,12 @@ class InMemoryDataBuffer(DataBuffer):
             batch_id=str(uuid.uuid4()),
             model_version=model_version,
             trajectories=trajectories,
-            global_batch_size=self.config.train_batch_size,
-            metadata={"source": "in_memory_data_buffer"},
+            global_batch_size=global_train_batch_size,
+            metadata={
+                "source": "in_memory_data_buffer",
+                "train_batch_size_per_gpu": self.config.train_batch_size_per_gpu,
+                "global_train_batch_size": global_train_batch_size,
+            },
         )
 
     async def pop_train_batch_async(self) -> TrainBatch | None:

@@ -24,24 +24,27 @@ class RayClusterSpec:
     gpus_per_node: int
     master_addr: str
     ray_port: str
+    node_rank: str
     train_node_rank: str
     head_node_ip: str
     wait_timeout: int
 
     @classmethod
-    def from_env(cls, *, default_gpus_per_node: int) -> "RayClusterSpec":
-        master_addr = os.environ.get("MASTER_ADDR")
-        if not master_addr:
-            raise ValueError("WORLD_SIZE>1 requires MASTER_ADDR for the Ray head/training node.")
+    def from_config(cls, config: dict[str, Any]) -> "RayClusterSpec":
+        num_nodes = int(config.get("nnodes") or 1)
+        master_addr = config.get("master_addr")
+        if num_nodes > 1 and not master_addr:
+            raise ValueError("--master-addr is required when --nnodes > 1.")
 
         return cls(
-            num_nodes=env_int("WORLD_SIZE", 1),
-            gpus_per_node=env_int("NUM_GPUS_PER_NODE", default_gpus_per_node),
-            master_addr=master_addr,
-            ray_port=os.environ.get("RAY_PORT") or os.environ.get("MASTER_PORT", "6379"),
-            train_node_rank=os.environ.get("TRAIN_NODE_RANK", "0"),
-            head_node_ip=os.environ.get("HEAD_NODE_IP", master_addr),
-            wait_timeout=env_int("RAY_WAIT_TIMEOUT", 300),
+            num_nodes=num_nodes,
+            gpus_per_node=int(config.get("gpus_per_node") or default_gpus_per_node()),
+            master_addr=str(master_addr or "127.0.0.1"),
+            ray_port=str(config.get("ray_port") or "6379"),
+            node_rank=str(config.get("node_rank") or "0"),
+            train_node_rank=str(config.get("train_node_rank") or "0"),
+            head_node_ip=str(config.get("head_node_ip") or master_addr or "127.0.0.1"),
+            wait_timeout=int(config.get("wait_timeout") or 300),
         )
 
     @property
@@ -67,29 +70,56 @@ class RayResourcePlan:
     rollout_workers: int
     rollout_max_inflight_per_worker: int
     rollout_batch_size: int
-    data_buffer_max_trajectories: int
-    data_buffer_high_watermark: int
-    data_buffer_low_watermark: int
-    train_batch_size: int
-    min_trajectories_per_batch: int
-    global_batch_size: int
     train_workers: int
     train_use_gpu: bool
     train_gpus_per_worker: float
 
     @classmethod
-    def from_env(cls, spec: RayClusterSpec) -> "RayResourcePlan":
-        rollout_gpus = env_int("ROLLOUT_GPUS", max(0, spec.num_nodes - 1) * spec.gpus_per_node)
-        train_gpus = env_int("TRAIN_GPUS", spec.gpus_per_node)
-        model_server_gpus_per_replica = env_float("MODEL_SERVER_GPUS_PER_REPLICA", 1.0)
+    def from_config(cls, spec: RayClusterSpec, config: dict[str, Any]) -> "RayResourcePlan":
+        for removed_name in (
+            "TRAIN_BATCH_SIZE",
+            "TRAIN_BATCH_SIZE_PER_GPU",
+            "MIN_TRAJECTORIES_PER_BATCH",
+            "RL_GLOBAL_BATCH_SIZE",
+        ):
+            if removed_name in os.environ:
+                raise ValueError(
+                    f"{removed_name} has been removed from the Ray resource environment. "
+                    "Set trainer_args.rl_config.data_buffer.train_batch_size_per_gpu in YAML instead."
+                )
+
+        trainer_args = dict(config.get("trainer_args", {}) or {})
+        rl_config = dict(trainer_args.get("rl_config", {}) or {})
+        model_server_config = dict(rl_config.get("model_server", {}) or {})
+        rollout_config = dict(rl_config.get("rollout", {}) or {})
+        ray_train_config = dict(config.get("ray_train", {}) or {})
+
+        rollout_gpus = max(0, spec.num_nodes - 1) * spec.gpus_per_node
+        train_gpus = spec.gpus_per_node
+        actor_options = dict(model_server_config.get("actor_options", {}) or {})
+        model_server_gpus_per_replica = float(actor_options.get("num_gpus") or 1.0)
         default_model_server_replicas = max(1, int(rollout_gpus / model_server_gpus_per_replica))
-        model_server_replicas = env_int("MODEL_SERVER_REPLICAS", default_model_server_replicas)
-        rollout_workers = env_int("ROLLOUT_WORKERS", model_server_replicas)
-        total_gpus = rollout_gpus + train_gpus
-        default_train_batch_size = max(train_gpus, train_gpus * 4, total_gpus)
-        default_buffer_max_trajectories = max(1, rollout_workers * 4, default_train_batch_size * 8)
-        default_buffer_high_watermark = max(1, rollout_workers * 3, default_train_batch_size * 6)
-        default_buffer_low_watermark = max(1, rollout_workers, default_train_batch_size * 2)
+        model_server_replicas = default_model_server_replicas
+        rollout_workers = model_server_replicas
+        train_workers = train_gpus
+        resources_per_worker = dict(ray_train_config.get("resources_per_worker", {}) or {})
+        train_gpus_per_worker = float(resources_per_worker.get("GPU") or 1.0)
+        if train_workers < 1:
+            raise ValueError(f"ray_train.num_workers must be >= 1, got {train_workers}.")
+        if rollout_gpus < model_server_replicas * model_server_gpus_per_replica:
+            raise ValueError(
+                "Not enough rollout GPUs for vLLM replicas: "
+                f"rollout_gpus={rollout_gpus}, model_server_replicas={model_server_replicas}, "
+                f"gpus_per_replica={model_server_gpus_per_replica}. "
+                "Check NUM_GPUS_PER_NODE and Ray node GPU registration."
+            )
+        if train_gpus < train_workers * train_gpus_per_worker:
+            raise ValueError(
+                "Not enough train GPUs for Ray Train workers: "
+                f"train_gpus={train_gpus}, train_workers={train_workers}, "
+                f"gpus_per_worker={train_gpus_per_worker}. "
+                "Check NUM_GPUS_PER_NODE and Ray node GPU registration."
+            )
 
         return cls(
             rollout_gpus=rollout_gpus,
@@ -97,17 +127,11 @@ class RayResourcePlan:
             model_server_replicas=model_server_replicas,
             model_server_gpus_per_replica=model_server_gpus_per_replica,
             rollout_workers=rollout_workers,
-            rollout_max_inflight_per_worker=env_int("ROLLOUT_MAX_INFLIGHT_PER_WORKER", 1),
-            rollout_batch_size=env_int("ROLLOUT_BATCH_SIZE", 2),
-            data_buffer_max_trajectories=env_int("DATA_BUFFER_MAX_TRAJECTORIES", default_buffer_max_trajectories),
-            data_buffer_high_watermark=env_int("DATA_BUFFER_HIGH_WATERMARK", default_buffer_high_watermark),
-            data_buffer_low_watermark=env_int("DATA_BUFFER_LOW_WATERMARK", default_buffer_low_watermark),
-            train_batch_size=env_int("TRAIN_BATCH_SIZE", default_train_batch_size),
-            min_trajectories_per_batch=env_int("MIN_TRAJECTORIES_PER_BATCH", default_train_batch_size),
-            global_batch_size=env_int("RL_GLOBAL_BATCH_SIZE", default_train_batch_size),
-            train_workers=env_int("RAY_TRAIN_NUM_WORKERS", train_gpus),
-            train_use_gpu=env_bool("RAY_TRAIN_USE_GPU", True),
-            train_gpus_per_worker=env_float("RAY_TRAIN_NUM_GPUS_PER_WORKER", 1.0),
+            rollout_max_inflight_per_worker=int(rollout_config.get("max_inflight_per_worker") or 1),
+            rollout_batch_size=int(rollout_config.get("batch_size") or 2),
+            train_workers=train_workers,
+            train_use_gpu=bool(ray_train_config.get("use_gpu", True)),
+            train_gpus_per_worker=train_gpus_per_worker,
         )
 
     def apply_to(self, config: dict[str, Any]) -> None:
@@ -137,15 +161,39 @@ class RayResourcePlan:
 
     def _apply_data_buffer(self, rl_config: dict[str, Any]) -> None:
         data_buffer = rl_config.setdefault("data_buffer", {})
-        data_buffer["max_trajectories"] = self.data_buffer_max_trajectories
-        data_buffer["high_watermark"] = self.data_buffer_high_watermark
-        data_buffer["low_watermark"] = self.data_buffer_low_watermark
-        data_buffer["train_batch_size"] = self.train_batch_size
-        data_buffer["min_trajectories_per_batch"] = self.min_trajectories_per_batch
+        if "train_batch_size" in data_buffer:
+            raise ValueError(
+                "trainer_args.rl_config.data_buffer.train_batch_size has been removed. "
+                "Use trainer_args.rl_config.data_buffer.train_batch_size_per_gpu instead."
+            )
+        train_batch_size_per_gpu = int(data_buffer.get("train_batch_size_per_gpu", 1))
+        if train_batch_size_per_gpu < 1:
+            raise ValueError(
+                "trainer_args.rl_config.data_buffer.train_batch_size_per_gpu must be >= 1, "
+                f"got {train_batch_size_per_gpu}."
+            )
+        global_train_batch_size = train_batch_size_per_gpu * self.train_workers
+        configured_global = data_buffer.get("global_train_batch_size")
+        if configured_global not in (None, global_train_batch_size):
+            raise ValueError(
+                "trainer_args.rl_config.data_buffer.global_train_batch_size is derived from "
+                "train_batch_size_per_gpu * ray_train.num_workers; leave it null."
+            )
+        data_buffer["global_train_batch_size"] = global_train_batch_size
+        if data_buffer.get("min_trajectories_per_batch") is None:
+            data_buffer["min_trajectories_per_batch"] = global_train_batch_size
 
     def _apply_training(self, rl_config: dict[str, Any]) -> None:
         training = rl_config.setdefault("training", {})
-        training["global_batch_size"] = self.global_batch_size
+        data_buffer = rl_config.setdefault("data_buffer", {})
+        global_train_batch_size = data_buffer["global_train_batch_size"]
+        configured_global = training.get("global_batch_size")
+        if configured_global not in (None, global_train_batch_size):
+            raise ValueError(
+                "trainer_args.rl_config.training.global_batch_size is derived from "
+                "data_buffer.train_batch_size_per_gpu * ray_train.num_workers; leave it null."
+            )
+        training["global_batch_size"] = global_train_batch_size
 
     def _apply_ray_train(self, config: dict[str, Any]) -> None:
         ray_train = dict(config.get("ray_train", {}) or {})
@@ -168,7 +216,7 @@ class RayNodeScheduler:
         role = "train" if self.is_train_node() else "rollout"
         resource_name = TRAIN_NODE_RESOURCE if role == "train" else ROLLOUT_NODE_RESOURCE
         ip = self.spec.head_node_ip if role == "train" else _local_node_ip()
-        node_rank = self._node_rank() or "local"
+        node_rank = self.spec.node_rank
         return WorkerDescriptor(
             id=f"{role}/{node_rank}",
             role=role,
@@ -178,17 +226,7 @@ class RayNodeScheduler:
         )
 
     def is_train_node(self) -> bool:
-        role = os.environ.get("ROLE", "").lower()
-        if role in {"train", "trainer", "head"}:
-            return True
-        if role in {"rollout", "worker"}:
-            return False
-
-        node_rank = self._node_rank()
-        if node_rank is not None:
-            return node_rank == self.spec.train_node_rank
-
-        return bool(_resolve_addresses(self.spec.master_addr) & _local_addresses())
+        return self.spec.node_rank == self.spec.train_node_rank
 
     def start_head(self) -> None:
         self.stop()
@@ -203,7 +241,8 @@ class RayNodeScheduler:
                 str(self.spec.gpus_per_node),
                 "--resources",
                 json.dumps({TRAIN_NODE_RESOURCE: 1000}),
-            ]
+            ],
+            gpus_per_node=self.spec.gpus_per_node,
         )
 
     def join_rollout_node(self) -> None:
@@ -220,7 +259,8 @@ class RayNodeScheduler:
                         str(self.spec.gpus_per_node),
                         "--resources",
                         json.dumps({ROLLOUT_NODE_RESOURCE: 1000}),
-                    ]
+                    ],
+                    gpus_per_node=self.spec.gpus_per_node,
                 )
                 return
             except subprocess.CalledProcessError:
@@ -237,6 +277,7 @@ class RayNodeScheduler:
                 alive = [node for node in ray.nodes() if node.get("Alive")]
                 if len(alive) >= self.spec.num_nodes:
                     logger.info(f"Ray cluster ready: {len(alive)}/{self.spec.num_nodes} nodes alive.")
+                    _validate_cluster_resources(alive, self.spec)
                     return
                 if time.time() > deadline:
                     raise TimeoutError(f"Timed out waiting for Ray nodes: {len(alive)}/{self.spec.num_nodes} alive.")
@@ -247,23 +288,14 @@ class RayNodeScheduler:
     def stop(self) -> None:
         _ray_stop()
 
-    @staticmethod
-    def _node_rank() -> str | None:
-        for env_name in ("NODE_RANK", "SLURM_NODEID", "RANK"):
-            value = os.environ.get(env_name)
-            if value is not None:
-                return value
-        return None
-
-
 class RayRLMultinodeRuntime:
     def __init__(self, spec: RayClusterSpec, scheduler: RayNodeScheduler):
         self.spec = spec
         self.scheduler = scheduler
 
     @classmethod
-    def from_env(cls, *, default_gpus_per_node: int) -> "RayRLMultinodeRuntime":
-        spec = RayClusterSpec.from_env(default_gpus_per_node=default_gpus_per_node)
+    def from_config(cls, config: dict[str, Any]) -> "RayRLMultinodeRuntime":
+        spec = RayClusterSpec.from_config(config)
         return cls(spec=spec, scheduler=RayNodeScheduler(spec))
 
     def run(self, config: dict[str, Any], train: Callable[[dict[str, Any]], None]) -> None:
@@ -278,17 +310,19 @@ class RayRLMultinodeRuntime:
 
         self.scheduler.start_head()
         try:
-            os.environ["RAY_ADDRESS"] = self.spec.ray_address
             self.scheduler.wait_for_workers()
-            RayResourcePlan.from_env(self.spec).apply_to(config)
+            RayResourcePlan.from_config(self.spec, config).apply_to(config)
+            ray_train = config.setdefault("ray_train", {})
+            ray_init_kwargs = ray_train.setdefault("ray_init_kwargs", {})
+            ray_init_kwargs["address"] = self.spec.ray_address
             clear_external_distributed_env()
             train(config)
         finally:
             self.scheduler.stop()
 
 
-def use_multinode_default() -> bool:
-    return env_bool("LMMS_ENGINE_RL_MULTINODE", True) and env_int("WORLD_SIZE", 1) > 1
+def use_multinode_config(config: dict[str, Any]) -> bool:
+    return bool(config.get("enabled", True)) and int(config.get("nnodes") or 1) > 1
 
 
 def clear_external_distributed_env() -> None:
@@ -305,29 +339,27 @@ def clear_external_distributed_env() -> None:
         os.environ.pop(name, None)
 
 
-def default_num_workers() -> int:
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible_devices:
-        devices = [device for device in visible_devices.split(",") if device.strip()]
-        return max(1, len(devices))
+def default_gpus_per_node() -> int:
+    nvidia_smi_count = _nvidia_smi_gpu_count()
+    if nvidia_smi_count:
+        return nvidia_smi_count
+
     return 1
 
 
-def env_bool(name: str, default: Any) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return bool(default)
-    return value.lower() in {"1", "true", "yes", "on"}
-
-
-def env_int(name: str, default: Any) -> int:
-    value = os.environ.get(name)
-    return int(value if value is not None else default)
-
-
-def env_float(name: str, default: Any) -> float:
-    value = os.environ.get(name)
-    return float(value if value is not None else default)
+def _nvidia_smi_gpu_count() -> int | None:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--list-gpus"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    count = sum(1 for line in result.stdout.splitlines() if line.strip().startswith("GPU "))
+    return count or None
 
 
 def _local_node_ip() -> str:
@@ -357,8 +389,54 @@ def _resolve_addresses(host: str) -> set[str]:
     return addresses
 
 
-def _ray_start(args: list[str]) -> None:
-    subprocess.run([_ray_bin(), "start", *args], check=True)
+def _validate_cluster_resources(alive_nodes: list[dict[str, Any]], spec: RayClusterSpec) -> None:
+    summaries = []
+    train_nodes = 0
+    rollout_nodes = 0
+    total_gpus = 0.0
+
+    for node in alive_nodes:
+        resources = dict(node.get("Resources") or {})
+        node_id = node.get("NodeID") or "unknown"
+        node_ip = node.get("NodeManagerAddress") or node.get("NodeManagerHostname") or "unknown"
+        gpus = float(resources.get("GPU", 0.0))
+        total_gpus += gpus
+        if resources.get(TRAIN_NODE_RESOURCE, 0.0) > 0:
+            train_nodes += 1
+            role = "train"
+        elif resources.get(ROLLOUT_NODE_RESOURCE, 0.0) > 0:
+            rollout_nodes += 1
+            role = "rollout"
+        else:
+            role = "unknown"
+        summaries.append(f"{role}@{node_ip} gpu={gpus:g} node_id={node_id[:8]}")
+        if gpus < spec.gpus_per_node:
+            raise ValueError(
+                "Ray node registered fewer GPUs than expected: "
+                f"{role}@{node_ip} has GPU={gpus:g}, expected={spec.gpus_per_node}. "
+                "Set NUM_GPUS_PER_NODE=8 and make sure Ray is started with all node GPUs visible."
+            )
+
+    expected_rollout_nodes = max(0, spec.num_nodes - 1)
+    expected_total_gpus = spec.num_nodes * spec.gpus_per_node
+    logger.info("Ray cluster resource summary: " + "; ".join(summaries))
+    if train_nodes != 1:
+        raise ValueError(f"Expected exactly one Ray train node, got {train_nodes}.")
+    if rollout_nodes != expected_rollout_nodes:
+        raise ValueError(f"Expected {expected_rollout_nodes} Ray rollout nodes, got {rollout_nodes}.")
+    if total_gpus < expected_total_gpus:
+        raise ValueError(
+            "Ray cluster registered too few total GPUs: "
+            f"got {total_gpus:g}, expected {expected_total_gpus}. "
+            "Check NUM_NODES/NUM_GPUS_PER_NODE and launcher GPU visibility."
+        )
+
+
+def _ray_start(args: list[str], *, gpus_per_node: int | None = None) -> None:
+    env = os.environ.copy()
+    if gpus_per_node is not None:
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(str(index) for index in range(gpus_per_node))
+    subprocess.run([_ray_bin(), "start", *args], check=True, env=env)
 
 
 def _ray_stop() -> None:

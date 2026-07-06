@@ -1,5 +1,7 @@
-# Minimal Qwen3.5-4B + VizDoom RL config.
-# Rollout docs are engine-side train data; lmms-eval only provides env/parsers.
+# Qwen3.5-4B + VizDoom RL config.
+# Four-node defaults: one 8-GPU FSDP2 train node plus three 8-GPU Ray vLLM
+# rollout nodes. For a local 8-GPU smoke run, override train/vLLM counts from
+# the CLI to split the single node explicitly.
 
 trainer_type: fsdp2_grpo_rl_trainer
 
@@ -35,7 +37,7 @@ trainer_args:
   learning_rate: 1.0e-6
   weight_decay: 0.0
   max_grad_norm: 1.0
-  max_steps: 3125 # 100k rollout specs / default 4-node RL batch 32.
+  max_steps: 12500 # 100k rollout specs / default 4-node train batch: 1 per GPU * 8 GPUs.
   lr_scheduler_type: cosine
   warmup_ratio: 0.03
   logging_steps: 1
@@ -99,6 +101,7 @@ trainer_args:
         dtype: bfloat16
         trust_remote_code: true
         gpu_memory_utilization: 0.85
+        max_model_len: 8192
         max_num_seqs: 8
         system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
         generation_kwargs:
@@ -119,12 +122,13 @@ trainer_args:
       max_trajectories: 256
       high_watermark: 192
       low_watermark: 64
-      train_batch_size: 32
-      min_trajectories_per_batch: 32
+      train_batch_size_per_gpu: 1
+      global_train_batch_size: null
+      min_trajectories_per_batch: null
 
     training:
       trainer_type: fsdp2_grpo_rl_trainer
-      global_batch_size: 32
+      global_batch_size: null
       update_weights_every_steps: 10
       batch_builder: fixed_global
 
@@ -139,6 +143,13 @@ trainer_args:
 
     ray_init_kwargs:
       ignore_reinit_error: true
+
+ray_train:
+  num_workers: 4
+  use_gpu: true
+  resources_per_worker:
+    GPU: 1
+  placement_strategy: PACK
 
 model_config:
   load_from_pretrained_path: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B

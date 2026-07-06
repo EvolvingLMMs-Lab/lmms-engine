@@ -10,6 +10,7 @@ from lmms_engine.rl.config import (
     RolloutManagerConfig,
     TrainingEngineConfig,
     VLLMServerConfig,
+    resolve_train_batch_size_per_gpu,
 )
 from lmms_engine.rl.core.factory import DEFAULT_RL_COMPONENT_FACTORY, RLComponentFactory
 from lmms_engine.rl.core.interfaces import BatchBuilder as BatchBuilderBase
@@ -92,6 +93,7 @@ __all__ = [
     "make_ray_rollout_actor",
     "start_ray_model_server_pool",
     "trajectory_from_lmms_eval_episode",
+    "resolve_train_batch_size_per_gpu",
 ]
 
 

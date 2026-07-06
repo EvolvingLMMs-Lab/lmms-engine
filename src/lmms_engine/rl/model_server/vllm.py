@@ -25,6 +25,8 @@ class VLLMChatModelServer(ModelServer):
         model: str,
         generation_kwargs: dict[str, Any] | None = None,
         chat_template_kwargs: dict[str, Any] | None = None,
+        chat_template_content_format: str = "openai",
+        mm_processor_kwargs: dict[str, Any] | None = None,
         system_prompt: str | None = None,
         default_max_tokens: int = 64,
         **engine_kwargs: Any,
@@ -37,6 +39,8 @@ class VLLMChatModelServer(ModelServer):
         self.llm = LLM(model=model, **engine_kwargs)
         self.generation_kwargs = dict(generation_kwargs or {})
         self.chat_template_kwargs = dict(chat_template_kwargs or {})
+        self.chat_template_content_format = chat_template_content_format
+        self.mm_processor_kwargs = dict(mm_processor_kwargs or {})
         self.system_prompt = system_prompt
         self.default_max_tokens = int(default_max_tokens)
 
@@ -57,7 +61,10 @@ class VLLMChatModelServer(ModelServer):
         outputs = self.llm.chat(
             messages=messages,
             sampling_params=sampling_params,
+            use_tqdm=False,
+            chat_template_content_format=self.chat_template_content_format,
             chat_template_kwargs=self.chat_template_kwargs or None,
+            mm_processor_kwargs=self.mm_processor_kwargs or None,
         )
         return [self._output_to_agent_output(output) for output in outputs]
 
@@ -81,11 +88,11 @@ class VLLMChatModelServer(ModelServer):
             if block.type == "text" and block.data is not None:
                 content.append({"type": "text", "text": str(block.data)})
             elif block.type in {"image", "image_url"} and block.data is not None:
-                content.append({"type": "image", "image": _media_payload(block.data, "image_url")})
+                content.append(_image_content(block.data))
             elif block.type in {"video", "video_url"} and block.data is not None:
-                content.append({"type": "video", "video": _media_payload(block.data, "video_url")})
+                content.append(_video_content(block.data))
             elif block.type in {"audio", "audio_url"} and block.data is not None:
-                content.append({"type": "audio", "audio": _media_payload(block.data, "audio_url")})
+                content.append({"type": "audio_url", "audio_url": {"url": _media_payload(block.data, "audio_url")}})
         if not content:
             content.append({"type": "text", "text": ""})
         return content
@@ -132,3 +139,33 @@ def _media_payload(data: Any, nested_key: str) -> Any:
         if nested is not None:
             return nested
     return data
+
+
+def _image_content(data: Any) -> dict[str, Any]:
+    payload = _media_payload(data, "image_url")
+    if isinstance(payload, str):
+        return {"type": "image_url", "image_url": {"url": payload}}
+    return {"type": "image_pil", "image_pil": payload}
+
+
+def _video_content(data: Any) -> dict[str, Any]:
+    payload = _media_payload(data, "video_url")
+    if isinstance(payload, str):
+        return {"type": "video_url", "video_url": {"url": payload}}
+
+    from vllm.multimodal.utils import encode_video_url
+
+    return {"type": "video_url", "video_url": {"url": encode_video_url(_frames_to_numpy(payload))}}
+
+
+def _frames_to_numpy(frames: Any):
+    import numpy as np
+
+    if hasattr(frames, "ndim"):
+        array = np.asarray(frames)
+        if array.ndim == 3:
+            array = array[None, ...]
+        return array
+    if not isinstance(frames, list | tuple):
+        frames = [frames]
+    return np.stack([np.asarray(frame.convert("RGB") if hasattr(frame, "convert") else frame) for frame in frames], axis=0)

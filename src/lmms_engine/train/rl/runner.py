@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import pathlib
+import sys
 import time
 import uuid
 from dataclasses import fields, is_dataclass
@@ -28,7 +29,9 @@ from lmms_engine.rl import (
     RolloutTask,
     TrainingEngineConfig,
     VLLMServerConfig,
+    resolve_train_batch_size_per_gpu,
 )
+from lmms_engine.rl.protocol import TrainBatch
 from lmms_engine.rl.lmms_eval import (
     LMMSEvalRolloutTaskConfig,
     build_rollout_episode_specs,
@@ -39,6 +42,8 @@ from lmms_engine.train.rl.grpo import GRPOBatchAdapter, GRPOConfig, GRPOPayload
 from lmms_engine.train.runner import TrainRunner
 from lmms_engine.utils import ComputeTracker, TrainUtilities
 from lmms_engine.utils.tracking import Tracking
+
+_VLLM_SERVER_FACTORY = "lmms_engine.rl.model_server.vllm:VLLMChatModelServer"
 
 
 class RLTrainRunner(TrainRunner):
@@ -55,6 +60,7 @@ class RLTrainRunner(TrainRunner):
                 "model_server": self.rl_config.get("model_server", self.rl_config.get("task", {}).get("model_server")),
             },
         )
+        _validate_ray_vllm_model_server(self.rollout_task_config.model_server)
         self.sync_policy_weights = bool(self.rl_config.get("sync_policy_weights", False))
         self.rollout_poll_s = float(self.rl_config.get("rollout_poll_s", 0.1))
         self.rollout_sleep_s = float(self.rl_config.get("rollout_sleep_s", 0.05))
@@ -113,6 +119,16 @@ class RLTrainRunner(TrainRunner):
         trainer = self.trainer
         rank = dist.get_rank()
         world_size = dist.get_world_size()
+        global_train_batch_size = resolve_train_batch_size_per_gpu(
+            self.rl_run_config,
+            train_world_size=world_size,
+        )
+        if rank == 0:
+            logger.info(
+                "Resolved RL train batch: "
+                f"train_batch_size_per_gpu={self.rl_run_config.data_buffer.train_batch_size_per_gpu}, "
+                f"train_world_size={world_size}, global_train_batch_size={global_train_batch_size}"
+            )
 
         orchestrator = None
         rollout_specs = None
@@ -144,6 +160,7 @@ class RLTrainRunner(TrainRunner):
             train_batch = object_list[0]
             if train_batch is None:
                 continue
+            train_batch = _shard_train_batch(train_batch, rank=rank, world_size=world_size)
 
             payload = self.batch_adapter.to_trainer_batch(train_batch)
             tensors = trainer.prepare_rl_batch(payload)
@@ -365,9 +382,15 @@ class RLTrainRunner(TrainRunner):
 
 
 def _build_rl_run_config(config: dict[str, Any]) -> RLRunConfig:
+    data_buffer_config = dict(config.get("data_buffer", {}) or {})
+    if "train_batch_size" in data_buffer_config:
+        raise ValueError(
+            "trainer_args.rl_config.data_buffer.train_batch_size has been removed. "
+            "Use trainer_args.rl_config.data_buffer.train_batch_size_per_gpu instead."
+        )
     return RLRunConfig(
         rollout=_build_dataclass(RolloutManagerConfig, config.get("rollout", {})),
-        data_buffer=_build_dataclass(DataBufferConfig, config.get("data_buffer", {})),
+        data_buffer=_build_dataclass(DataBufferConfig, data_buffer_config),
         training=_build_dataclass(TrainingEngineConfig, config.get("training", {})),
         vllm=_build_dataclass(VLLMServerConfig, config.get("vllm", {})),
         ray_init_kwargs=dict(config.get("ray_init_kwargs", {}) or {}),
@@ -386,6 +409,40 @@ def _build_dataclass(cls, values: dict[str, Any] | None):
     return cls(**{key: value for key, value in dict(values).items() if key in allowed})
 
 
+def _shard_train_batch(batch: TrainBatch, *, rank: int, world_size: int) -> TrainBatch:
+    if world_size <= 1:
+        return batch
+    if len(batch.trajectories) < world_size:
+        raise ValueError(
+            "RL global train batch must contain at least one trajectory per FSDP rank: "
+            f"got {len(batch.trajectories)} trajectories for world_size={world_size}. "
+            "Increase trainer_args.rl_config.data_buffer.train_batch_size_per_gpu or reduce ray_train.num_workers."
+        )
+
+    local_trajectories = batch.trajectories[rank::world_size]
+    if not local_trajectories:
+        raise ValueError(
+            "RL train batch sharding produced an empty local batch: "
+            f"rank={rank}, world_size={world_size}, global_trajectories={len(batch.trajectories)}."
+        )
+
+    return TrainBatch(
+        batch_id=f"{batch.batch_id}-rank{rank}",
+        model_version=batch.model_version,
+        trajectories=local_trajectories,
+        global_batch_size=batch.global_batch_size,
+        payload=batch.payload,
+        metadata={
+            **batch.metadata,
+            "global_batch_id": batch.batch_id,
+            "global_num_trajectories": len(batch.trajectories),
+            "local_num_trajectories": len(local_trajectories),
+            "rank": rank,
+            "world_size": world_size,
+        },
+    )
+
+
 def _ray_init_kwargs_with_lmms_eval_path(ray_init_kwargs: dict[str, Any]) -> dict[str, Any]:
     kwargs = copy.deepcopy(ray_init_kwargs or {})
     lmms_eval_root = ensure_lmms_eval_importable()
@@ -396,6 +453,7 @@ def _ray_init_kwargs_with_lmms_eval_path(ray_init_kwargs: dict[str, Any]) -> dic
     runtime_env = dict(kwargs.get("runtime_env") or {})
     env_vars = dict(runtime_env.get("env_vars") or {})
     env_vars["PYTHONPATH"] = _prepend_pythonpath([engine_src, lmms_eval_root], env_vars.get("PYTHONPATH"))
+    env_vars["PATH"] = _prepend_path([_python_bin_dir()], env_vars.get("PATH"))
     runtime_env["env_vars"] = env_vars
     kwargs["runtime_env"] = runtime_env
     return kwargs
@@ -409,6 +467,21 @@ def _prepend_pythonpath(paths: list[Path], existing: str | None = None) -> str:
     return os.pathsep.join(deduped)
 
 
+def _prepend_path(paths: list[Path], existing: str | None = None) -> str:
+    entries = [str(path) for path in paths]
+    current = existing if existing is not None else os.environ.get("PATH", "")
+    entries.extend(item for item in current.split(os.pathsep) if item)
+    return os.pathsep.join(dict.fromkeys(entries))
+
+
+def _python_bin_dir() -> Path:
+    bin_name = "Scripts" if os.name == "nt" else "bin"
+    venv_bin = Path(sys.prefix) / bin_name
+    if venv_bin.exists():
+        return venv_bin
+    return Path(sys.executable).parent
+
+
 def _payload_metrics(payload: GRPOPayload) -> dict[str, float]:
     rewards = payload.tensors.get("sample_rewards") if isinstance(payload.tensors, dict) else None
     if rewards is None:
@@ -417,3 +490,21 @@ def _payload_metrics(payload: GRPOPayload) -> dict[str, float]:
         "rl/batch_reward_mean_host": float(rewards.float().mean().item()),
         "rl/batch_size": float(rewards.numel()),
     }
+
+
+def _validate_ray_vllm_model_server(model_server: Any) -> None:
+    if not isinstance(model_server, dict):
+        raise ValueError("rl_config.model_server must be a Ray actor pool hosting vLLM.")
+    backend = model_server.get("name") or model_server.get("backend")
+    if backend != "ray_actor_pool":
+        raise ValueError(f"rl_config.model_server.name must be 'ray_actor_pool', got {backend!r}.")
+
+    server = model_server.get("server") or model_server.get("server_spec")
+    if not isinstance(server, dict):
+        raise ValueError("rl_config.model_server.server must be a dict vLLM server spec.")
+    factory = server.get("factory")
+    if factory != _VLLM_SERVER_FACTORY:
+        raise ValueError(
+            "rl_config.model_server.server.factory must be "
+            f"{_VLLM_SERVER_FACTORY!r}; no non-vLLM rollout backend is allowed."
+        )

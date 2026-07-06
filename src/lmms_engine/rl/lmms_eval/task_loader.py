@@ -47,6 +47,11 @@ def build_rollout_episode_specs(
     config: LMMSEvalRolloutTaskConfig | dict[str, Any] | None = None
 ) -> list[RolloutEpisodeSpec]:
     task_config = _coerce_task_config(config)
+    if task_config.model_server is None:
+        raise ValueError(
+            "RL rollout requires an explicit model_server. "
+            "Use a Ray-hosted vLLM model server; no implicit model-server fallback is allowed."
+        )
     task = _load_task_config(task_config)
     docs = _load_rollout_docs(task_config)
     lmms_eval_kwargs = _resolve_lmms_eval_kwargs(task.get("lmms_eval_specific_kwargs"), model_name=None)
@@ -65,7 +70,7 @@ def build_rollout_episode_specs(
                     game_env=_serializable_component_spec(task["game_env"]),
                     observation_parser=_serializable_component_spec(task["observation_parser"]),
                     action_parser=_serializable_component_spec(task["action_parser"]),
-                    model_server=task_config.model_server or "openai",
+                    model_server=task_config.model_server,
                     loop_worker=_serializable_component_spec(task_config.loop_worker),
                     model_output_parser=_serializable_component_spec(task_config.model_output_parser),
                     generation_kwargs={**(task.get("generation_kwargs") or {}), **task_config.generation_kwargs},

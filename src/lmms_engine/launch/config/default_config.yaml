@@ -200,6 +200,134 @@ trainer_args:
   ema_param_filter: null
   ema_resume_from_ema: false
   eval_config: null
+  rl_config:
+    save_final_checkpoint: true
+    sync_policy_weights: false
+    rollout_seed: 42
+    rollout_poll_s: 0.1
+    rollout_sleep_s: 0.05
+    task:
+      task_name: null
+      task_yaml: null
+      include_path: null
+      data_path: null
+      data_format: jsonl
+      docs: null
+      split: null
+      limit: null
+      offset: 0
+      repeats: 1
+      model_output_parser: null
+      loop_worker: simple
+      max_steps: null
+      seed: null
+      generation_kwargs:
+        max_new_tokens: null
+        temperature: null
+        top_p: null
+        do_sample: null
+      lmms_eval_specific_kwargs: {}
+      request_metadata: {}
+    model_server:
+      name: null
+      actor_name_prefix: null
+      num_replicas: 1
+      actor_options: {}
+      server:
+        factory: null
+        model: null
+        dtype: null
+        trust_remote_code: null
+        gpu_memory_utilization: null
+        max_model_len: null
+        max_num_seqs: null
+        system_prompt: null
+        generation_kwargs:
+          max_new_tokens: null
+          temperature: null
+          top_p: null
+          do_sample: null
+      client: {}
+      namespace: null
+      load_balancer_name: null
+      load_balancer_actor_options: {}
+      sticky: true
+      lifetime: null
+      get_if_exists: false
+      factory_components: {}
+    rollout:
+      backend: ray
+      num_workers: 1
+      max_inflight_per_worker: 1
+      batch_size: 1
+      actor_options: {}
+      worker_config: {}
+      trajectory_adapter: lmms_engine.rl.lmms_eval.trajectory_adapter:LMMSEvalTrajectoryAdapter
+      task_queue_size: 1024
+      pause_on_buffer_high_watermark: true
+      poll_timeout_s: 0.0
+    data_buffer:
+      backend: in_memory
+      max_trajectories: 4096
+      high_watermark: 3072
+      low_watermark: 2048
+      train_batch_size_per_gpu: 1
+      global_train_batch_size: null
+      min_trajectories_per_batch: null
+      preserve_model_version: true
+    training:
+      trainer_type: fsdp2_rl_trainer
+      global_batch_size: null
+      update_weights_every_steps: 1
+      batch_builder: fixed_global
+      batch_adapter: {}
+      extra_kwargs: {}
+    algorithm:
+      name: grpo
+      group_size: 1
+      beta: 0.0
+      clip_range_low: 0.2
+      clip_range_high: 0.2
+      normalize_advantages: true
+      advantage_clip: null
+      advantage_epsilon: 1.0e-6
+      reward_key: total_reward
+      fallback_to_total_reward: true
+      use_step_rewards: false
+      system_message: You are a helpful agent.
+      add_system_prompt: true
+      processor_kwargs: {}
+      extra_kwargs: {}
+    vllm:
+      backend: vllm_http
+      base_url: http://127.0.0.1:8000/v1
+      model: policy
+      api_key: EMPTY
+      reload_endpoint: /reload_weights
+      logprobs_endpoint: /v1/completions
+      timeout_s: 600.0
+      extra_kwargs: {}
+    ray_init_kwargs: {}
+    extra_kwargs: {}
+ray_train:
+  num_workers: null
+  use_gpu: true
+  resources_per_worker: null
+  placement_strategy: PACK
+  ray_init_kwargs: {}
+  runtime_env: {}
+  run_config: {}
+  include_dashboard: false
+rl_runtime:
+  enabled: true
+  nnodes: 1
+  gpus_per_node: 8
+  master_addr: null
+  ray_port: "6379"
+  node_rank: "0"
+  train_node_rank: "0"
+  head_node_ip: null
+  wait_timeout: 300
 model_config:
   extra_kwargs: {}
   load_from_pretrained_path: Qwen/Qwen2.5-VL-7B-Instruct

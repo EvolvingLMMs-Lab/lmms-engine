@@ -6,6 +6,7 @@ from typing import Any
 
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 from accelerate.utils import send_to_device
 from loguru import logger
 
@@ -82,9 +83,12 @@ class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         response_mask = shift_labels.ne(-100)
-        safe_labels = shift_labels.masked_fill(~response_mask, 0)
-        log_probs = torch.nn.functional.log_softmax(shift_logits.float(), dim=-1)
-        token_log_probs = torch.gather(log_probs, dim=-1, index=safe_labels.unsqueeze(-1)).squeeze(-1)
+        token_log_probs = -F.cross_entropy(
+            shift_logits.transpose(1, 2),
+            shift_labels,
+            ignore_index=-100,
+            reduction="none",
+        )
         token_log_probs = token_log_probs * response_mask
 
         token_counts = response_mask.sum(dim=-1).clamp_min(1)

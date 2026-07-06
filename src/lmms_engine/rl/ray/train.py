@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,6 @@ from ray.train import RunConfig, ScalingConfig
 from ray.train.torch import TorchTrainer
 
 from lmms_engine.launch.cli import create_train_task, save_config
-from lmms_engine.rl.ray.runtime import default_num_workers, env_bool, env_int
 from lmms_engine.train import RLTrainRunner
 from lmms_engine.utils.logging_utils import setup_distributed_logging
 
@@ -28,12 +28,11 @@ def run_ray_train(config: dict[str, Any]) -> None:
 
     ray_init_kwargs = dict(ray_train_config.get("ray_init_kwargs", {}) or {})
     configured_ray_address = ray_init_kwargs.pop("address", None)
-    ray_address = os.environ.get("RAY_ADDRESS") or configured_ray_address
     if not ray.is_initialized():
         ray.init(
-            address=ray_address,
+            address=configured_ray_address,
             ignore_reinit_error=True,
-            include_dashboard=env_bool("RAY_DASHBOARD", ray_train_config.get("include_dashboard", False)),
+            include_dashboard=bool(ray_train_config.get("include_dashboard", False)),
             runtime_env=runtime_env,
             **ray_init_kwargs,
         )
@@ -77,22 +76,9 @@ def _scaling_config(ray_train_config: dict[str, Any]) -> ScalingConfig:
     resources_per_worker = ray_train_config.get("resources_per_worker")
     resources_per_worker = dict(resources_per_worker) if resources_per_worker is not None else None
 
-    gpus_per_worker = os.environ.get("RAY_TRAIN_NUM_GPUS_PER_WORKER")
-    if gpus_per_worker is not None:
-        resources_per_worker = dict(resources_per_worker or {})
-        resources_per_worker["GPU"] = float(gpus_per_worker)
-
-    cpus_per_worker = os.environ.get("RAY_TRAIN_NUM_CPUS_PER_WORKER")
-    if cpus_per_worker is not None:
-        resources_per_worker = dict(resources_per_worker or {})
-        resources_per_worker["CPU"] = float(cpus_per_worker)
-
     return ScalingConfig(
-        num_workers=env_int(
-            "RAY_TRAIN_NUM_WORKERS",
-            ray_train_config.get("num_workers", default_num_workers()),
-        ),
-        use_gpu=env_bool("RAY_TRAIN_USE_GPU", ray_train_config.get("use_gpu", True)),
+        num_workers=int(ray_train_config.get("num_workers") or 1),
+        use_gpu=bool(ray_train_config.get("use_gpu", True)),
         resources_per_worker=resources_per_worker,
         placement_strategy=str(ray_train_config.get("placement_strategy", "PACK")),
     )
@@ -111,6 +97,7 @@ def _runtime_env(ray_train_config: dict[str, Any]) -> dict[str, Any]:
     runtime_env = dict(ray_train_config.get("runtime_env", {}) or {})
     env_vars = dict(runtime_env.get("env_vars", {}) or {})
     env_vars["PYTHONPATH"] = _pythonpath(env_vars.get("PYTHONPATH"))
+    env_vars["PATH"] = _path_with_python_bin(env_vars.get("PATH"))
     runtime_env["env_vars"] = env_vars
     return runtime_env
 
@@ -127,3 +114,18 @@ def _pythonpath(existing: str | None = None) -> str:
     entries = [str(engine_src), str(lmms_eval_root)]
     entries.extend(item for item in current.split(os.pathsep) if item)
     return os.pathsep.join(dict.fromkeys(entries))
+
+
+def _path_with_python_bin(existing: str | None = None) -> str:
+    current = existing if existing is not None else os.environ.get("PATH", "")
+    entries = [str(_python_bin_dir())]
+    entries.extend(item for item in current.split(os.pathsep) if item)
+    return os.pathsep.join(dict.fromkeys(entries))
+
+
+def _python_bin_dir() -> Path:
+    bin_name = "Scripts" if os.name == "nt" else "bin"
+    venv_bin = Path(sys.prefix) / bin_name
+    if venv_bin.exists():
+        return venv_bin
+    return Path(sys.executable).parent
