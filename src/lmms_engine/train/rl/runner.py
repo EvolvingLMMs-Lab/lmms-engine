@@ -31,12 +31,12 @@ from lmms_engine.rl import (
     VLLMServerConfig,
     resolve_train_batch_size_per_gpu,
 )
-from lmms_engine.rl.protocol import TrainBatch
 from lmms_engine.rl.lmms_eval import (
     LMMSEvalRolloutTaskConfig,
     build_rollout_episode_specs,
 )
 from lmms_engine.rl.lmms_eval.paths import ensure_lmms_eval_importable
+from lmms_engine.rl.protocol import TrainBatch
 from lmms_engine.train.registry import TRAINER_REGISTER
 from lmms_engine.train.rl.grpo import GRPOBatchAdapter, GRPOConfig, GRPOPayload
 from lmms_engine.train.runner import TrainRunner

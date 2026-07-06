@@ -288,6 +288,7 @@ class RayNodeScheduler:
     def stop(self) -> None:
         _ray_stop()
 
+
 class RayRLMultinodeRuntime:
     def __init__(self, spec: RayClusterSpec, scheduler: RayNodeScheduler):
         self.spec = spec

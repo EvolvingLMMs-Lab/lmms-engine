@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import hydra
 import sys
+from pathlib import Path
+
+import hydra
 import yaml
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import get_original_cwd
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
-from pathlib import Path
 
-from lmms_engine.rl.ray import (
-    RayRLMultinodeRuntime,
-    use_multinode_config,
-)
+from lmms_engine.rl.ray import RayRLMultinodeRuntime, use_multinode_config
 from lmms_engine.rl.ray.train import run_ray_train
 from lmms_engine.utils.logging_utils import setup_distributed_logging
 
@@ -71,11 +69,7 @@ def _cli_overrides_without_config_yaml() -> list[str]:
         overrides = list(HydraConfig.get().overrides.task)
     except ValueError:
         return []
-    return [
-        override
-        for override in overrides
-        if not override.lstrip("+").startswith("config_yaml=")
-    ]
+    return [override for override in overrides if not override.lstrip("+").startswith("config_yaml=")]
 
 
 def _normalize_runtime_cli_flags(argv: list[str]) -> None:

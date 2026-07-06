@@ -168,4 +168,6 @@ def _frames_to_numpy(frames: Any):
         return array
     if not isinstance(frames, list | tuple):
         frames = [frames]
-    return np.stack([np.asarray(frame.convert("RGB") if hasattr(frame, "convert") else frame) for frame in frames], axis=0)
+    return np.stack(
+        [np.asarray(frame.convert("RGB") if hasattr(frame, "convert") else frame) for frame in frames], axis=0
+    )

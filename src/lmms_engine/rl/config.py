@@ -104,8 +104,7 @@ def resolve_train_batch_size_per_gpu(config: RLRunConfig, *, train_world_size: i
         config.data_buffer.min_trajectories_per_batch = global_train_batch_size
     if config.data_buffer.min_trajectories_per_batch < 1:
         raise ValueError(
-            "min_trajectories_per_batch must be >= 1, "
-            f"got {config.data_buffer.min_trajectories_per_batch}."
+            "min_trajectories_per_batch must be >= 1, " f"got {config.data_buffer.min_trajectories_per_batch}."
         )
     config.training.global_batch_size = global_train_batch_size
     return global_train_batch_size
