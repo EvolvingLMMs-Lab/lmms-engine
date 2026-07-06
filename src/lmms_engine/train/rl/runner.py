@@ -25,13 +25,13 @@ from lmms_engine.mapping_func import DATAPROCESSOR_MAPPING
 from lmms_engine.rl import (
     DataBufferConfig,
     ModelVersion,
+    RayActorWeightSyncClient,
     RLOrchestrator,
     RLRunConfig,
     RolloutManagerConfig,
     RolloutTask,
     TrainingEngineConfig,
     VLLMServerConfig,
-    RayActorWeightSyncClient,
     resolve_train_batch_size_per_gpu,
 )
 from lmms_engine.rl.lmms_eval import (
@@ -616,11 +616,7 @@ class RLTrainRunner(TrainRunner):
             return
 
         output_dir = self._policy_sync_root()
-        sync_dirs = [
-            path
-            for path in output_dir.iterdir()
-            if path.is_dir() and _is_weight_sync_source_dir(path)
-        ]
+        sync_dirs = [path for path in output_dir.iterdir() if path.is_dir() and _is_weight_sync_source_dir(path)]
         sync_dirs.sort(key=_policy_sync_step)
         stale = sync_dirs[: max(0, len(sync_dirs) - keep_last)]
         for fsdp_dir in stale:
@@ -808,9 +804,7 @@ def _coalesce_update_weight_disk_dir(
     if not values:
         return env_value
 
-    canonical = {
-        str(Path(os.path.expandvars(os.path.expanduser(value))).resolve()) for _name, value in values
-    }
+    canonical = {str(Path(os.path.expandvars(os.path.expanduser(value))).resolve()) for _name, value in values}
     if len(canonical) > 1:
         details = ", ".join(f"{name}={value!r}" for name, value in values)
         raise ValueError(

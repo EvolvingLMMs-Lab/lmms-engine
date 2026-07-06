@@ -11,7 +11,12 @@ from lmms_engine.rl.core.interfaces import (
     RolloutManager,
     WeightSyncClient,
 )
-from lmms_engine.rl.protocol import ModelVersion, RewardedTrajectory, RolloutTask, TrainBatch
+from lmms_engine.rl.protocol import (
+    ModelVersion,
+    RewardedTrajectory,
+    RolloutTask,
+    TrainBatch,
+)
 
 
 class RLOrchestrator:

@@ -75,9 +75,7 @@ class RayResourcePlan:
     train_gpus_per_worker: float
 
     @classmethod
-    def from_config(
-        cls, spec: RayClusterSpec, config: dict[str, Any]
-    ) -> "RayResourcePlan":
+    def from_config(cls, spec: RayClusterSpec, config: dict[str, Any]) -> "RayResourcePlan":
         for removed_name in (
             "TRAIN_BATCH_SIZE",
             "TRAIN_BATCH_SIZE_PER_GPU",
@@ -100,24 +98,14 @@ class RayResourcePlan:
         train_gpus = spec.gpus_per_node
         actor_options = dict(model_server_config.get("actor_options", {}) or {})
         model_server_gpus_per_replica = float(actor_options.get("num_gpus") or 1.0)
-        default_model_server_replicas = max(
-            1, int(rollout_gpus / model_server_gpus_per_replica)
-        )
-        model_server_replicas = int(
-            model_server_config.get("num_replicas") or default_model_server_replicas
-        )
-        rollout_workers = int(
-            rollout_config.get("num_workers") or model_server_replicas
-        )
+        default_model_server_replicas = max(1, int(rollout_gpus / model_server_gpus_per_replica))
+        model_server_replicas = int(model_server_config.get("num_replicas") or default_model_server_replicas)
+        rollout_workers = int(rollout_config.get("num_workers") or model_server_replicas)
         train_workers = int(ray_train_config.get("num_workers") or train_gpus)
-        resources_per_worker = dict(
-            ray_train_config.get("resources_per_worker", {}) or {}
-        )
+        resources_per_worker = dict(ray_train_config.get("resources_per_worker", {}) or {})
         train_gpus_per_worker = float(resources_per_worker.get("GPU") or 1.0)
         if train_workers < 1:
-            raise ValueError(
-                f"ray_train.num_workers must be >= 1, got {train_workers}."
-            )
+            raise ValueError(f"ray_train.num_workers must be >= 1, got {train_workers}.")
         if rollout_gpus < model_server_replicas * model_server_gpus_per_replica:
             raise ValueError(
                 "Not enough rollout GPUs for vLLM replicas: "
@@ -139,9 +127,7 @@ class RayResourcePlan:
             model_server_replicas=model_server_replicas,
             model_server_gpus_per_replica=model_server_gpus_per_replica,
             rollout_workers=rollout_workers,
-            rollout_max_inflight_per_worker=int(
-                rollout_config.get("max_inflight_per_worker") or 1
-            ),
+            rollout_max_inflight_per_worker=int(rollout_config.get("max_inflight_per_worker") or 1),
             rollout_batch_size=int(rollout_config.get("batch_size") or 2),
             train_workers=train_workers,
             train_use_gpu=bool(ray_train_config.get("use_gpu", True)),
@@ -218,9 +204,7 @@ class RayResourcePlan:
             "GPU": self.train_gpus_per_worker,
             TRAIN_NODE_RESOURCE: 0.001,
         }
-        ray_train["placement_strategy"] = str(
-            ray_train.get("placement_strategy", "PACK")
-        )
+        ray_train["placement_strategy"] = str(ray_train.get("placement_strategy", "PACK"))
         config["ray_train"] = ray_train
 
 
@@ -230,9 +214,7 @@ class RayNodeScheduler:
 
     def current_worker(self) -> WorkerDescriptor:
         role = "train" if self.is_train_node() else "rollout"
-        resource_name = (
-            TRAIN_NODE_RESOURCE if role == "train" else ROLLOUT_NODE_RESOURCE
-        )
+        resource_name = TRAIN_NODE_RESOURCE if role == "train" else ROLLOUT_NODE_RESOURCE
         ip = self.spec.head_node_ip if role == "train" else _local_node_ip()
         node_rank = self.spec.node_rank
         return WorkerDescriptor(
@@ -267,9 +249,7 @@ class RayNodeScheduler:
         self.stop()
         while True:
             try:
-                logger.info(
-                    f"Starting rollout node and joining Ray at {self.spec.ray_address}"
-                )
+                logger.info(f"Starting rollout node and joining Ray at {self.spec.ray_address}")
                 _ray_start(
                     [
                         "--block",
@@ -296,15 +276,11 @@ class RayNodeScheduler:
             while True:
                 alive = [node for node in ray.nodes() if node.get("Alive")]
                 if len(alive) >= self.spec.num_nodes:
-                    logger.info(
-                        f"Ray cluster ready: {len(alive)}/{self.spec.num_nodes} nodes alive."
-                    )
+                    logger.info(f"Ray cluster ready: {len(alive)}/{self.spec.num_nodes} nodes alive.")
                     _validate_cluster_resources(alive, self.spec)
                     return
                 if time.time() > deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for Ray nodes: {len(alive)}/{self.spec.num_nodes} alive."
-                    )
+                    raise TimeoutError(f"Timed out waiting for Ray nodes: {len(alive)}/{self.spec.num_nodes} alive.")
                 time.sleep(5)
         finally:
             ray.shutdown()
@@ -323,13 +299,10 @@ class RayRLMultinodeRuntime:
         spec = RayClusterSpec.from_config(config)
         return cls(spec=spec, scheduler=RayNodeScheduler(spec))
 
-    def run(
-        self, config: dict[str, Any], train: Callable[[dict[str, Any]], None]
-    ) -> None:
+    def run(self, config: dict[str, Any], train: Callable[[dict[str, Any]], None]) -> None:
         worker = self.scheduler.current_worker()
         logger.info(
-            f"Multinode RL worker: id={worker.id}, role={worker.role}, "
-            f"ip={worker.ip}, resources={worker.resources}"
+            f"Multinode RL worker: id={worker.id}, role={worker.role}, " f"ip={worker.ip}, resources={worker.resources}"
         )
 
         if worker.role == "rollout":
@@ -386,9 +359,7 @@ def _nvidia_smi_gpu_count() -> int | None:
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
-    count = sum(
-        1 for line in result.stdout.splitlines() if line.strip().startswith("GPU ")
-    )
+    count = sum(1 for line in result.stdout.splitlines() if line.strip().startswith("GPU "))
     return count or None
 
 
@@ -419,9 +390,7 @@ def _resolve_addresses(host: str) -> set[str]:
     return addresses
 
 
-def _validate_cluster_resources(
-    alive_nodes: list[dict[str, Any]], spec: RayClusterSpec
-) -> None:
+def _validate_cluster_resources(alive_nodes: list[dict[str, Any]], spec: RayClusterSpec) -> None:
     summaries = []
     train_nodes = 0
     rollout_nodes = 0
@@ -430,11 +399,7 @@ def _validate_cluster_resources(
     for node in alive_nodes:
         resources = dict(node.get("Resources") or {})
         node_id = node.get("NodeID") or "unknown"
-        node_ip = (
-            node.get("NodeManagerAddress")
-            or node.get("NodeManagerHostname")
-            or "unknown"
-        )
+        node_ip = node.get("NodeManagerAddress") or node.get("NodeManagerHostname") or "unknown"
         gpus = float(resources.get("GPU", 0.0))
         total_gpus += gpus
         if resources.get(TRAIN_NODE_RESOURCE, 0.0) > 0:
@@ -459,9 +424,7 @@ def _validate_cluster_resources(
     if train_nodes != 1:
         raise ValueError(f"Expected exactly one Ray train node, got {train_nodes}.")
     if rollout_nodes != expected_rollout_nodes:
-        raise ValueError(
-            f"Expected {expected_rollout_nodes} Ray rollout nodes, got {rollout_nodes}."
-        )
+        raise ValueError(f"Expected {expected_rollout_nodes} Ray rollout nodes, got {rollout_nodes}.")
     if total_gpus < expected_total_gpus:
         raise ValueError(
             "Ray cluster registered too few total GPUs: "
@@ -473,9 +436,7 @@ def _validate_cluster_resources(
 def _ray_start(args: list[str], *, gpus_per_node: int | None = None) -> None:
     env = os.environ.copy()
     if gpus_per_node is not None:
-        env["CUDA_VISIBLE_DEVICES"] = ",".join(
-            str(index) for index in range(gpus_per_node)
-        )
+        env["CUDA_VISIBLE_DEVICES"] = ",".join(str(index) for index in range(gpus_per_node))
     subprocess.run([_ray_bin(), "start", *args], check=True, env=env)
 
 
@@ -498,6 +459,4 @@ def _ray_bin() -> str:
     resolved = shutil.which("ray")
     if resolved:
         return resolved
-    raise FileNotFoundError(
-        "Could not find the `ray` executable. Set RAY=/path/to/ray."
-    )
+    raise FileNotFoundError("Could not find the `ray` executable. Set RAY=/path/to/ray.")

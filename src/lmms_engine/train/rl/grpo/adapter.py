@@ -50,9 +50,7 @@ class GRPOPayload:
 class GRPOBatchAdapter(TrainBatchAdapter):
     """Convert engine TrainBatch into a GRPO trainer payload."""
 
-    def __init__(
-        self, config: GRPOConfig | None = None, processor: Any | None = None
-    ) -> None:
+    def __init__(self, config: GRPOConfig | None = None, processor: Any | None = None) -> None:
         self.config = config or GRPOConfig()
         self.processor = processor
         self.collator = VisionCollator(processor) if processor is not None else None
@@ -67,9 +65,7 @@ class GRPOBatchAdapter(TrainBatchAdapter):
                 **batch.metadata,
                 "algorithm": "grpo",
                 "batch_id": batch.batch_id,
-                "model_version": batch.model_version.version_id
-                if batch.model_version
-                else None,
+                "model_version": batch.model_version.version_id if batch.model_version else None,
             },
         )
 
@@ -95,9 +91,7 @@ class GRPOBatchAdapter(TrainBatchAdapter):
                 )
 
         if not samples:
-            raise ValueError(
-                "GRPOBatchAdapter could not build any train samples from the rollout trajectories."
-            )
+            raise ValueError("GRPOBatchAdapter could not build any train samples from the rollout trajectories.")
 
         advantages = self._advantages(rewards)
         for sample, reward, advantage in zip(samples, rewards, advantages, strict=True):
@@ -142,9 +136,7 @@ class GRPOBatchAdapter(TrainBatchAdapter):
             **self.config.processor_kwargs,
         )
 
-    def _selected_steps(
-        self, trajectory: RewardedTrajectory
-    ) -> list[tuple[int, TrajectoryStep]]:
+    def _selected_steps(self, trajectory: RewardedTrajectory) -> list[tuple[int, TrajectoryStep]]:
         indexed_steps = list(enumerate(trajectory.steps))
         limit = self.config.max_steps_per_trajectory
         if limit is None or int(limit) <= 0 or len(indexed_steps) <= int(limit):
@@ -257,13 +249,9 @@ def _history_to_hf_messages(
             )
             continue
         if hasattr(turn_content, "content"):
-            content, turn_images, turn_videos = _content_blocks_to_hf_content(
-                turn_content.content
-            )
+            content, turn_images, turn_videos = _content_blocks_to_hf_content(turn_content.content)
         elif _is_content_block_list(turn_content):
-            content, turn_images, turn_videos = _content_blocks_to_hf_content(
-                turn_content
-            )
+            content, turn_images, turn_videos = _content_blocks_to_hf_content(turn_content)
         elif isinstance(turn_content, str):
             content, turn_images, turn_videos = (
                 [{"type": "text", "text": turn_content}],
@@ -286,9 +274,7 @@ def _history_to_hf_messages(
 
 
 def _is_content_block_list(value: Any) -> bool:
-    return isinstance(value, list) and all(
-        hasattr(item, "type") and hasattr(item, "data") for item in value
-    )
+    return isinstance(value, list) and all(hasattr(item, "type") and hasattr(item, "data") for item in value)
 
 
 def _history_text(content: Any) -> str:
@@ -300,17 +286,9 @@ def _history_text(content: Any) -> str:
     if isinstance(content, list):
         parts = []
         for item in content:
-            if (
-                hasattr(item, "type")
-                and getattr(item, "type") == "text"
-                and getattr(item, "data", None) is not None
-            ):
+            if hasattr(item, "type") and getattr(item, "type") == "text" and getattr(item, "data", None) is not None:
                 parts.append(str(item.data))
-            elif (
-                isinstance(item, dict)
-                and item.get("type") == "text"
-                and item.get("text") is not None
-            ):
+            elif isinstance(item, dict) and item.get("type") == "text" and item.get("text") is not None:
                 parts.append(str(item["text"]))
         return "\n".join(parts)
     return "" if content is None else str(content)

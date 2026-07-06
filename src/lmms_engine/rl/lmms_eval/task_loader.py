@@ -57,9 +57,7 @@ def build_rollout_episode_specs(
         )
     task = _load_task_config(task_config)
     docs = _load_rollout_docs(task_config)
-    lmms_eval_kwargs = _resolve_lmms_eval_kwargs(
-        task.get("lmms_eval_specific_kwargs"), model_name=None
-    )
+    lmms_eval_kwargs = _resolve_lmms_eval_kwargs(task.get("lmms_eval_specific_kwargs"), model_name=None)
 
     specs: list[RolloutEpisodeSpec] = []
     for doc_idx, doc in docs:
@@ -67,17 +65,13 @@ def build_rollout_episode_specs(
             seed = (
                 None
                 if task_config.seed is None
-                else int(task_config.seed)
-                + doc_idx * max(1, task_config.repeats)
-                + repeat_idx
+                else int(task_config.seed) + doc_idx * max(1, task_config.repeats) + repeat_idx
             )
             specs.append(
                 RolloutEpisodeSpec(
                     doc=doc,
                     game_env=_serializable_component_spec(
-                        task_config.game_env
-                        if task_config.game_env is not None
-                        else task["game_env"]
+                        task_config.game_env if task_config.game_env is not None else task["game_env"]
                     ),
                     observation_parser=_serializable_component_spec(
                         task_config.observation_parser
@@ -85,15 +79,11 @@ def build_rollout_episode_specs(
                         else task["observation_parser"]
                     ),
                     action_parser=_serializable_component_spec(
-                        task_config.action_parser
-                        if task_config.action_parser is not None
-                        else task["action_parser"]
+                        task_config.action_parser if task_config.action_parser is not None else task["action_parser"]
                     ),
                     model_server=task_config.model_server,
                     loop_worker=_serializable_component_spec(task_config.loop_worker),
-                    model_output_parser=_serializable_component_spec(
-                        task_config.model_output_parser
-                    ),
+                    model_output_parser=_serializable_component_spec(task_config.model_output_parser),
                     generation_kwargs={
                         **(task.get("generation_kwargs") or {}),
                         **task_config.generation_kwargs,
@@ -103,10 +93,7 @@ def build_rollout_episode_specs(
                         **task_config.lmms_eval_specific_kwargs,
                     },
                     max_steps=int(
-                        task_config.max_steps
-                        or (task.get("generation_kwargs") or {}).get(
-                            "max_game_steps", 32
-                        )
+                        task_config.max_steps or (task.get("generation_kwargs") or {}).get("max_game_steps", 32)
                     ),
                     seed=seed,
                     request_metadata={
@@ -128,9 +115,7 @@ def _coerce_task_config(
     if isinstance(config, LMMSEvalRolloutTaskConfig):
         return config
     allowed = set(LMMSEvalRolloutTaskConfig.__dataclass_fields__)
-    return LMMSEvalRolloutTaskConfig(
-        **{key: value for key, value in dict(config).items() if key in allowed}
-    )
+    return LMMSEvalRolloutTaskConfig(**{key: value for key, value in dict(config).items() if key in allowed})
 
 
 def _load_task_config(config: LMMSEvalRolloutTaskConfig) -> dict[str, Any]:
@@ -138,9 +123,7 @@ def _load_task_config(config: LMMSEvalRolloutTaskConfig) -> dict[str, Any]:
         yaml_path = str(Path(config.task_yaml).expanduser())
     else:
         if config.task_name is None:
-            raise ValueError(
-                "Set rl_config.task.task_name or rl_config.task.task_yaml for lmms-eval rollout."
-            )
+            raise ValueError("Set rl_config.task.task_name or rl_config.task.task_yaml for lmms-eval rollout.")
         yaml_path = str(_find_task_yaml(config.task_name, config.include_path))
     return lmms_eval_utils.load_yaml_config(yaml_path=yaml_path, mode="full")
 
@@ -158,10 +141,7 @@ def _load_rollout_docs(config: LMMSEvalRolloutTaskConfig) -> list[tuple[int, Any
 
     start = max(0, int(config.offset))
     end = None if config.limit is None else start + max(0, int(config.limit))
-    return [
-        (idx, docs[idx])
-        for idx in range(start, len(docs) if end is None else min(end, len(docs)))
-    ]
+    return [(idx, docs[idx]) for idx in range(start, len(docs) if end is None else min(end, len(docs)))]
 
 
 def _load_docs_from_path(path: str, data_format: str) -> list[dict[str, Any]]:
@@ -179,13 +159,9 @@ def _load_docs_from_path(path: str, data_format: str) -> list[dict[str, Any]]:
                 return split
         if isinstance(data, list):
             return data
-        raise ValueError(
-            f"JSON rollout data must be a list or contain a train/data list: {resolved}"
-        )
+        raise ValueError(f"JSON rollout data must be a list or contain a train/data list: {resolved}")
 
-    dataset = datasets.load_dataset(
-        normalized_format, data_files=str(resolved), split="train"
-    )
+    dataset = datasets.load_dataset(normalized_format, data_files=str(resolved), split="train")
     return [dict(item) for item in dataset]
 
 
@@ -214,9 +190,7 @@ def _find_task_yaml(task_name: str, include_path: str | list[str] | None) -> Pat
     for root in roots:
         for yaml_path in root.rglob("*.yaml"):
             try:
-                config = lmms_eval_utils.load_yaml_config(
-                    yaml_path=str(yaml_path), mode="simple"
-                )
+                config = lmms_eval_utils.load_yaml_config(yaml_path=str(yaml_path), mode="simple")
             except Exception:
                 continue
             if config.get("task") == task_name:
@@ -234,9 +208,7 @@ def _resolve_local_data_files(config: dict[str, Any], yaml_path: str) -> None:
 
     yaml_dir = Path(yaml_path).resolve().parent
     package_root = _lmms_eval_package_parent()
-    dataset_kwargs["data_files"] = _rewrite_data_files(
-        data_files, yaml_dir, package_root
-    )
+    dataset_kwargs["data_files"] = _rewrite_data_files(data_files, yaml_dir, package_root)
 
 
 def _rewrite_data_files(value: Any, yaml_dir: Path, package_root: Path) -> Any:
@@ -245,10 +217,7 @@ def _rewrite_data_files(value: Any, yaml_dir: Path, package_root: Path) -> Any:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return [_rewrite_data_files(item, yaml_dir, package_root) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _rewrite_data_files(item, yaml_dir, package_root)
-            for key, item in value.items()
-        }
+        return {key: _rewrite_data_files(item, yaml_dir, package_root) for key, item in value.items()}
     return value
 
 
@@ -277,9 +246,7 @@ def _lmms_engine_package_parent() -> Path:
     return Path(lmms_engine.__file__).resolve().parent.parent.parent
 
 
-def _resolve_lmms_eval_kwargs(
-    value: Any, model_name: str | None = None
-) -> dict[str, Any]:
+def _resolve_lmms_eval_kwargs(value: Any, model_name: str | None = None) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     if model_name and isinstance(value.get(model_name), dict):
@@ -312,9 +279,7 @@ def _serializable_component_spec(value: Any) -> Any:
     return value
 
 
-def clone_rollout_spec(
-    spec: RolloutEpisodeSpec, *, seed: int | None = None
-) -> RolloutEpisodeSpec:
+def clone_rollout_spec(spec: RolloutEpisodeSpec, *, seed: int | None = None) -> RolloutEpisodeSpec:
     cloned = copy.copy(spec)
     if seed is not None:
         cloned.seed = seed

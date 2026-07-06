@@ -36,9 +36,7 @@ class VLLMChatModelServer(ModelServer):
         try:
             from vllm import LLM
         except ImportError as exc:
-            raise ImportError(
-                "VLLMChatModelServer requires `vllm`. Install vLLM in the rollout environment."
-            ) from exc
+            raise ImportError("VLLMChatModelServer requires `vllm`. Install vLLM in the rollout environment.") from exc
 
         self.llm = LLM(model=model, **engine_kwargs)
         self.generation_kwargs = dict(generation_kwargs or {})
@@ -58,16 +56,12 @@ class VLLMChatModelServer(ModelServer):
             return []
         for request in requests:
             if not isinstance(request, AgentInput):
-                raise TypeError(
-                    f"VLLMChatModelServer requires AgentInput requests, got {type(request).__name__}"
-                )
+                raise TypeError(f"VLLMChatModelServer requires AgentInput requests, got {type(request).__name__}")
 
         from vllm import SamplingParams
 
         messages = [self._request_to_messages(request) for request in requests]
-        sampling_params = [
-            SamplingParams(**self._sampling_kwargs(request)) for request in requests
-        ]
+        sampling_params = [SamplingParams(**self._sampling_kwargs(request)) for request in requests]
         outputs = self.llm.chat(
             messages=messages,
             sampling_params=sampling_params,
@@ -171,9 +165,7 @@ class VLLMChatModelServer(ModelServer):
         history = request.metadata.get("conversation_history")
         if isinstance(history, list):
             messages.extend(
-                message
-                for message in (self._history_turn_to_message(turn) for turn in history)
-                if message is not None
+                message for message in (self._history_turn_to_message(turn) for turn in history) if message is not None
             )
         messages.append(
             {
@@ -183,9 +175,7 @@ class VLLMChatModelServer(ModelServer):
         )
         return messages
 
-    def _content_blocks_to_vllm_content(
-        self, blocks: list[ContentBlock]
-    ) -> list[dict[str, Any]]:
+    def _content_blocks_to_vllm_content(self, blocks: list[ContentBlock]) -> list[dict[str, Any]]:
         content = []
         for block in blocks:
             if block.type == "text" and block.data is not None:
@@ -243,9 +233,7 @@ class VLLMChatModelServer(ModelServer):
             "temperature": generation_kwargs.pop("temperature", 0),
             "top_p": generation_kwargs.pop("top_p", 1.0),
         }
-        stop = generation_kwargs.pop("stop", None) or generation_kwargs.pop(
-            "until", None
-        )
+        stop = generation_kwargs.pop("stop", None) or generation_kwargs.pop("until", None)
         if stop is not None:
             kwargs["stop"] = stop if isinstance(stop, list) else [stop]
         for key in _AGENTIC_ONLY_KEYS | _GENERATION_KEYS_TO_DROP:
@@ -309,18 +297,13 @@ def _frames_to_numpy(frames: Any):
     if not isinstance(frames, list | tuple):
         frames = [frames]
     return np.stack(
-        [
-            np.asarray(frame.convert("RGB") if hasattr(frame, "convert") else frame)
-            for frame in frames
-        ],
+        [np.asarray(frame.convert("RGB") if hasattr(frame, "convert") else frame) for frame in frames],
         axis=0,
     )
 
 
 def _is_content_block_list(value: Any) -> bool:
-    return isinstance(value, list) and all(
-        isinstance(item, ContentBlock) for item in value
-    )
+    return isinstance(value, list) and all(isinstance(item, ContentBlock) for item in value)
 
 
 def _history_text(content: Any) -> str:
@@ -332,17 +315,9 @@ def _history_text(content: Any) -> str:
     if isinstance(content, list):
         parts = []
         for item in content:
-            if (
-                isinstance(item, ContentBlock)
-                and item.type == "text"
-                and item.data is not None
-            ):
+            if isinstance(item, ContentBlock) and item.type == "text" and item.data is not None:
                 parts.append(str(item.data))
-            elif (
-                isinstance(item, dict)
-                and item.get("type") == "text"
-                and item.get("text") is not None
-            ):
+            elif isinstance(item, dict) and item.get("type") == "text" and item.get("text") is not None:
                 parts.append(str(item["text"]))
         return "\n".join(parts)
     return "" if content is None else str(content)
@@ -363,8 +338,7 @@ def _validate_weight_path(checkpoint_path: str, require_hf_checkpoint: bool = Tr
         raise FileNotFoundError(f"vLLM HF checkpoint is missing config.json: {resolved}")
     if require_hf_checkpoint and not (safetensors_files or bin_files or index_files):
         raise FileNotFoundError(
-            "vLLM HF checkpoint has no model weight files (*.safetensors, *.bin, or *.index.json): "
-            f"{resolved}"
+            "vLLM HF checkpoint has no model weight files (*.safetensors, *.bin, or *.index.json): " f"{resolved}"
         )
 
     return {

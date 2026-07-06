@@ -15,7 +15,10 @@ from lmms_engine.rl.core.interfaces import (
 from lmms_engine.rl.core.registry import Registry
 from lmms_engine.rl.data_buffer import InMemoryDataBuffer
 from lmms_engine.rl.rollout_manager import RayRolloutManager
-from lmms_engine.rl.training_engine import RayActorWeightSyncClient, VLLMWeightSyncClient
+from lmms_engine.rl.training_engine import (
+    RayActorWeightSyncClient,
+    VLLMWeightSyncClient,
+)
 
 DATA_BUFFER_REGISTRY: Registry[DataBuffer] = Registry("data_buffer")
 ROLLOUT_MANAGER_REGISTRY: Registry[RolloutManager] = Registry("rollout_manager")

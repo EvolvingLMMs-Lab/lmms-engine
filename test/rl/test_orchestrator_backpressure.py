@@ -1,10 +1,19 @@
 import unittest
 
 from lmms_engine.rl.config import DataBufferConfig, RLRunConfig
-from lmms_engine.rl.core.interfaces import BatchBuilder, RolloutManager, WeightSyncClient
+from lmms_engine.rl.core.interfaces import (
+    BatchBuilder,
+    RolloutManager,
+    WeightSyncClient,
+)
 from lmms_engine.rl.core.orchestrator import RLOrchestrator
 from lmms_engine.rl.data_buffer import InMemoryDataBuffer
-from lmms_engine.rl.protocol import ModelVersion, RewardedTrajectory, RolloutTask, TrainBatch
+from lmms_engine.rl.protocol import (
+    ModelVersion,
+    RewardedTrajectory,
+    RolloutTask,
+    TrainBatch,
+)
 
 
 class FakeRolloutManager(RolloutManager):

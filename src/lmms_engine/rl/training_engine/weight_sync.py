@@ -60,8 +60,7 @@ class RayActorWeightSyncClient(WeightSyncClient):
             raise ValueError("RayActorWeightSyncClient requires ModelVersion.checkpoint_path.")
         if not Path(model_version.checkpoint_path).exists():
             raise FileNotFoundError(
-                "Policy weight checkpoint does not exist on the training worker: "
-                f"{model_version.checkpoint_path}"
+                "Policy weight checkpoint does not exist on the training worker: " f"{model_version.checkpoint_path}"
             )
 
         ray = _require_ray()

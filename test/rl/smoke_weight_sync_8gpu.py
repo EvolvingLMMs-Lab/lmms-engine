@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for path in (REPO_ROOT / "src", REPO_ROOT / "src" / "lmms-eval"):
     sys.path.insert(0, str(path))
@@ -17,7 +16,9 @@ for path in (REPO_ROOT / "src", REPO_ROOT / "src" / "lmms-eval"):
 import ray  # noqa: E402
 
 from lmms_engine.rl.protocol import ModelVersion  # noqa: E402
-from lmms_engine.rl.training_engine.weight_sync import RayActorWeightSyncClient  # noqa: E402
+from lmms_engine.rl.training_engine.weight_sync import (  # noqa: E402
+    RayActorWeightSyncClient,
+)
 
 
 def main() -> None:
