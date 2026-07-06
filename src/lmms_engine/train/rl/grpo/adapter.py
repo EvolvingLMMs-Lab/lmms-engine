@@ -32,6 +32,8 @@ class GRPOConfig:
     system_message: str = "You are a helpful agent."
     add_system_prompt: bool = True
     processor_kwargs: dict[str, Any] = field(default_factory=dict)
+    max_steps_per_trajectory: int | None = None
+    step_sampling_strategy: str = "uniform"
     extra_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -48,7 +50,9 @@ class GRPOPayload:
 class GRPOBatchAdapter(TrainBatchAdapter):
     """Convert engine TrainBatch into a GRPO trainer payload."""
 
-    def __init__(self, config: GRPOConfig | None = None, processor: Any | None = None) -> None:
+    def __init__(
+        self, config: GRPOConfig | None = None, processor: Any | None = None
+    ) -> None:
         self.config = config or GRPOConfig()
         self.processor = processor
         self.collator = VisionCollator(processor) if processor is not None else None
@@ -63,7 +67,9 @@ class GRPOBatchAdapter(TrainBatchAdapter):
                 **batch.metadata,
                 "algorithm": "grpo",
                 "batch_id": batch.batch_id,
-                "model_version": batch.model_version.version_id if batch.model_version else None,
+                "model_version": batch.model_version.version_id
+                if batch.model_version
+                else None,
             },
         )
 
@@ -74,7 +80,7 @@ class GRPOBatchAdapter(TrainBatchAdapter):
 
         for trajectory in batch.trajectories:
             trajectory_reward = self._trajectory_reward(trajectory)
-            for step_idx, step in enumerate(trajectory.steps):
+            for step_idx, step in self._selected_steps(trajectory):
                 sample = self._step_to_processor_sample(step)
                 if sample is None:
                     continue
@@ -89,7 +95,9 @@ class GRPOBatchAdapter(TrainBatchAdapter):
                 )
 
         if not samples:
-            raise ValueError("GRPOBatchAdapter could not build any train samples from the rollout trajectories.")
+            raise ValueError(
+                "GRPOBatchAdapter could not build any train samples from the rollout trajectories."
+            )
 
         advantages = self._advantages(rewards)
         for sample, reward, advantage in zip(samples, rewards, advantages, strict=True):
@@ -112,18 +120,53 @@ class GRPOBatchAdapter(TrainBatchAdapter):
         if not user_content:
             return None
 
-        hf_messages = [
-            {"role": "user", "content": user_content},
-            {"role": "assistant", "content": [{"type": "text", "text": response_text}]},
-        ]
+        request_metadata = getattr(request, "metadata", None) or {}
+        hf_messages, history_images, history_videos = _history_to_hf_messages(
+            request_metadata.get("conversation_history")
+        )
+        hf_messages.extend(
+            [
+                {"role": "user", "content": user_content},
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": response_text}],
+                },
+            ]
+        )
         return self.processor.process(
-            images=images or None,
+            images=[*history_images, *images] or None,
             hf_messages=hf_messages,
-            videos=videos or None,
+            videos=[*history_videos, *videos] or None,
             system_message=self.config.system_message,
             add_system_prompt=self.config.add_system_prompt,
             **self.config.processor_kwargs,
         )
+
+    def _selected_steps(
+        self, trajectory: RewardedTrajectory
+    ) -> list[tuple[int, TrajectoryStep]]:
+        indexed_steps = list(enumerate(trajectory.steps))
+        limit = self.config.max_steps_per_trajectory
+        if limit is None or int(limit) <= 0 or len(indexed_steps) <= int(limit):
+            return indexed_steps
+
+        limit = int(limit)
+        strategy = self.config.step_sampling_strategy.lower()
+        if strategy == "first":
+            return indexed_steps[:limit]
+        if strategy == "last":
+            return indexed_steps[-limit:]
+        if strategy != "uniform":
+            raise ValueError(
+                "GRPOConfig.step_sampling_strategy must be one of "
+                f"'uniform', 'first', or 'last', got {self.config.step_sampling_strategy!r}."
+            )
+
+        if limit == 1:
+            return [indexed_steps[-1]]
+        last = len(indexed_steps) - 1
+        indices = [round(position * last / (limit - 1)) for position in range(limit)]
+        return [indexed_steps[index] for index in indices]
 
     def _trajectory_reward(self, trajectory: RewardedTrajectory) -> float:
         if self.config.reward_key in trajectory.metrics:
@@ -163,12 +206,20 @@ def _first_text(value: Any) -> str | None:
     return str(value)
 
 
-def _agent_input_to_hf_content(request: Any) -> tuple[list[dict[str, Any]], list[Any], list[Any]]:
+def _agent_input_to_hf_content(
+    request: Any,
+) -> tuple[list[dict[str, Any]], list[Any], list[Any]]:
+    return _content_blocks_to_hf_content(getattr(request, "content", []) or [])
+
+
+def _content_blocks_to_hf_content(
+    blocks: Any,
+) -> tuple[list[dict[str, Any]], list[Any], list[Any]]:
     content: list[dict[str, Any]] = []
     images: list[Any] = []
     videos: list[Any] = []
 
-    for block in getattr(request, "content", []) or []:
+    for block in blocks or []:
         block_type = getattr(block, "type", None)
         data = getattr(block, "data", None)
         if block_type == "text" and data is not None:
@@ -181,6 +232,88 @@ def _agent_input_to_hf_content(request: Any) -> tuple[list[dict[str, Any]], list
             content.append({"type": "video"})
 
     return content, images, videos
+
+
+def _history_to_hf_messages(
+    history: Any,
+) -> tuple[list[dict[str, Any]], list[Any], list[Any]]:
+    messages: list[dict[str, Any]] = []
+    images: list[Any] = []
+    videos: list[Any] = []
+    if not isinstance(history, list):
+        return messages, images, videos
+
+    for turn in history:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", "user"))
+        turn_content = turn.get("content", "")
+        if role == "assistant":
+            messages.append(
+                {
+                    "role": role,
+                    "content": [{"type": "text", "text": _history_text(turn_content)}],
+                }
+            )
+            continue
+        if hasattr(turn_content, "content"):
+            content, turn_images, turn_videos = _content_blocks_to_hf_content(
+                turn_content.content
+            )
+        elif _is_content_block_list(turn_content):
+            content, turn_images, turn_videos = _content_blocks_to_hf_content(
+                turn_content
+            )
+        elif isinstance(turn_content, str):
+            content, turn_images, turn_videos = (
+                [{"type": "text", "text": turn_content}],
+                [],
+                [],
+            )
+        elif isinstance(turn_content, list):
+            content, turn_images, turn_videos = turn_content, [], []
+        else:
+            content, turn_images, turn_videos = (
+                [{"type": "text", "text": str(turn_content)}],
+                [],
+                [],
+            )
+        messages.append({"role": role, "content": content})
+        images.extend(turn_images)
+        videos.extend(turn_videos)
+
+    return messages, images, videos
+
+
+def _is_content_block_list(value: Any) -> bool:
+    return isinstance(value, list) and all(
+        hasattr(item, "type") and hasattr(item, "data") for item in value
+    )
+
+
+def _history_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if hasattr(content, "first_text"):
+        text = content.first_text()
+        return "" if text is None else str(text)
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if (
+                hasattr(item, "type")
+                and getattr(item, "type") == "text"
+                and getattr(item, "data", None) is not None
+            ):
+                parts.append(str(item.data))
+            elif (
+                isinstance(item, dict)
+                and item.get("type") == "text"
+                and item.get("text") is not None
+            ):
+                parts.append(str(item["text"]))
+        return "\n".join(parts)
+    return "" if content is None else str(content)
 
 
 def _media_payload(data: Any, nested_key: str) -> Any:

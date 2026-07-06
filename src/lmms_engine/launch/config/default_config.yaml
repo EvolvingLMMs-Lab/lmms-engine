@@ -202,10 +202,21 @@ trainer_args:
   eval_config: null
   rl_config:
     save_final_checkpoint: true
-    sync_policy_weights: false
+    sync_policy_weights: true
+    sync_initial_policy_weights: true
+    sync_drain_inflight_rollouts: true
+    sync_drain_timeout_s: 1800.0
+    sync_drain_poll_s: 0.1
+    policy_sync_merge_to_hf: true
+    policy_sync_keep_last: 2
+    policy_sync_dir: null
+    update_weight_mode: full
+    update_weight_transport: disk
+    update_weight_disk_dir: null
     rollout_seed: 42
     rollout_poll_s: 0.1
     rollout_sleep_s: 0.05
+    train_shard_log_steps: 3
     task:
       task_name: null
       task_yaml: null
@@ -217,12 +228,19 @@ trainer_args:
       limit: null
       offset: 0
       repeats: 1
+      game_env: null
+      observation_parser: null
+      action_parser: null
       model_output_parser: null
-      loop_worker: simple
+      loop_worker:
+        name: simple
+        multiturn: false
+        history_turns: 6
       max_steps: null
       seed: null
       generation_kwargs:
         max_new_tokens: null
+        max_game_steps: null
         temperature: null
         top_p: null
         do_sample: null
@@ -297,6 +315,8 @@ trainer_args:
       system_message: You are a helpful agent.
       add_system_prompt: true
       processor_kwargs: {}
+      max_steps_per_trajectory: null
+      step_sampling_strategy: uniform
       extra_kwargs: {}
     vllm:
       backend: vllm_http
@@ -307,6 +327,11 @@ trainer_args:
       logprobs_endpoint: /v1/completions
       timeout_s: 600.0
       extra_kwargs: {}
+    weight_sync:
+      reset_prefix_cache: true
+      sleep_level: null
+      preflight_weight_path: true
+      require_hf_checkpoint: true
     ray_init_kwargs: {}
     extra_kwargs: {}
 ray_train:

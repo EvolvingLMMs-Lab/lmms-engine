@@ -7,30 +7,37 @@ PYTHON_BIN="${PYTHON_BIN_DIR}/$(basename "${PYTHON_BIN}")"
 export PATH="$(dirname "${PYTHON_BIN}"):${PATH}"
 
 RUNTIME_ARGS=()
-NNODES="${NNODES:-${WORLD_SIZE:-1}}"
-GPUS_PER_NODE="${NUM_GPUS_PER_NODE:-${GPUS_PER_NODE:-8}}"
+NNODES_VALUE="${NNODES:-${WORLD_SIZE:-}}"
+GPUS_PER_NODE_VALUE="${NUM_GPUS_PER_NODE:-${GPUS_PER_NODE:-}}"
 
-RUNTIME_ARGS+=("--nnodes=${NNODES}")
-RUNTIME_ARGS+=("--gpus-per-node=${GPUS_PER_NODE}")
+if [[ -n "${NNODES_VALUE}" ]]; then
+  RUNTIME_ARGS+=("--nnodes=${NNODES_VALUE}")
+fi
+if [[ -n "${GPUS_PER_NODE_VALUE}" ]]; then
+  RUNTIME_ARGS+=("--gpus-per-node=${GPUS_PER_NODE_VALUE}")
+fi
 
-if (( NNODES > 1 )); then
-  MASTER_ADDR_VALUE="${MASTER_ADDR:-}"
-  if [[ -z "${MASTER_ADDR_VALUE}" ]]; then
-    echo "MASTER_ADDR must be set when NNODES/WORLD_SIZE > 1" >&2
-    exit 2
-  fi
-  NODE_RANK_VALUE="${NODE_RANK:-${RANK:-${SLURM_NODEID:-0}}}"
-  RAY_PORT_VALUE="${RAY_PORT:-${MASTER_PORT:-6379}}"
-  TRAIN_NODE_RANK_VALUE="${TRAIN_NODE_RANK:-0}"
-  HEAD_NODE_IP_VALUE="${HEAD_NODE_IP:-${MASTER_ADDR_VALUE}}"
-  RAY_WAIT_TIMEOUT_VALUE="${RAY_WAIT_TIMEOUT:-300}"
-
-  RUNTIME_ARGS+=("--master-addr=${MASTER_ADDR_VALUE}")
-  RUNTIME_ARGS+=("--ray-port=${RAY_PORT_VALUE}")
+if [[ -n "${MASTER_ADDR:-}" ]]; then
+  RUNTIME_ARGS+=("--master-addr=${MASTER_ADDR}")
+  RUNTIME_ARGS+=("--head-node-ip=${HEAD_NODE_IP:-${MASTER_ADDR}}")
+fi
+if [[ -n "${RAY_PORT:-}" || -n "${MASTER_PORT:-}" ]]; then
+  RUNTIME_ARGS+=("--ray-port=${RAY_PORT:-${MASTER_PORT:-6379}}")
+fi
+NODE_RANK_VALUE="${NODE_RANK:-${RANK:-${SLURM_NODEID:-}}}"
+if [[ -n "${NODE_RANK_VALUE}" ]]; then
   RUNTIME_ARGS+=("--node-rank=${NODE_RANK_VALUE}")
-  RUNTIME_ARGS+=("--train-node-rank=${TRAIN_NODE_RANK_VALUE}")
-  RUNTIME_ARGS+=("--head-node-ip=${HEAD_NODE_IP_VALUE}")
-  RUNTIME_ARGS+=("--ray-wait-timeout=${RAY_WAIT_TIMEOUT_VALUE}")
+fi
+if [[ -n "${TRAIN_NODE_RANK:-}" ]]; then
+  RUNTIME_ARGS+=("--train-node-rank=${TRAIN_NODE_RANK}")
+fi
+if [[ -n "${RAY_WAIT_TIMEOUT:-}" ]]; then
+  RUNTIME_ARGS+=("--ray-wait-timeout=${RAY_WAIT_TIMEOUT}")
+fi
+
+if [[ -n "${NNODES_VALUE}" ]] && (( NNODES_VALUE > 1 )) && [[ -z "${MASTER_ADDR:-}" ]]; then
+  echo "MASTER_ADDR must be set when NNODES/WORLD_SIZE > 1" >&2
+  exit 2
 fi
 
 exec "${PYTHON_BIN}" -m lmms_engine.launch.rl \

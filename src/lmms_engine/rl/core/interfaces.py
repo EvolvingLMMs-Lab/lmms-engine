@@ -60,7 +60,11 @@ class RolloutManager(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def poll_completed(self, timeout_s: float | None = None) -> list[RewardedTrajectory]:
+    def poll_completed(
+        self,
+        timeout_s: float | None = None,
+        max_trajectories: int | None = None,
+    ) -> list[RewardedTrajectory]:
         raise NotImplementedError
 
     @property

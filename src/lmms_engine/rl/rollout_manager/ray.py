@@ -134,14 +134,21 @@ class RayRolloutManager(RolloutManager):
     async def submit_async(self, task: RolloutTask) -> bool:
         return await asyncio.to_thread(self.submit, task)
 
-    def poll_completed(self, timeout_s: float | None = None) -> list[RewardedTrajectory]:
+    def poll_completed(
+        self,
+        timeout_s: float | None = None,
+        max_trajectories: int | None = None,
+    ) -> list[RewardedTrajectory]:
+        if max_trajectories is not None and max_trajectories <= 0:
+            return []
         self._flush_pending()
         if not self._inflight:
             return []
         ray = _require_ray()
         timeout = self.config.poll_timeout_s if timeout_s is None else timeout_s
         refs = [ref for ref, _count in self._inflight]
-        ready, remaining = ray.wait(refs, num_returns=len(refs), timeout=timeout)
+        num_returns = self._max_ready_refs(max_trajectories)
+        ready, remaining = ray.wait(refs, num_returns=num_returns, timeout=timeout)
         remaining_ids = set(remaining)
         self._inflight = [(ref, count) for ref, count in self._inflight if ref in remaining_ids]
         if not ready:
@@ -149,8 +156,12 @@ class RayRolloutManager(RolloutManager):
         completed = ray.get(ready)
         return [trajectory for batch in completed for trajectory in batch]
 
-    async def poll_completed_async(self, timeout_s: float | None = None) -> list[RewardedTrajectory]:
-        return await asyncio.to_thread(self.poll_completed, timeout_s)
+    async def poll_completed_async(
+        self,
+        timeout_s: float | None = None,
+        max_trajectories: int | None = None,
+    ) -> list[RewardedTrajectory]:
+        return await asyncio.to_thread(self.poll_completed, timeout_s, max_trajectories)
 
     @property
     def inflight(self) -> int:
@@ -168,6 +179,21 @@ class RayRolloutManager(RolloutManager):
             actor = self._actors[self._next_actor]
             self._next_actor = (self._next_actor + 1) % len(self._actors)
             self._inflight.append((actor.run_batch.remote(batch), len(batch)))
+
+    def _max_ready_refs(self, max_trajectories: int | None) -> int:
+        if max_trajectories is None:
+            return len(self._inflight)
+
+        selected_refs = 0
+        selected_trajectories = 0
+        for _ref, count in self._inflight:
+            if selected_refs > 0 and selected_trajectories + count > max_trajectories:
+                break
+            selected_refs += 1
+            selected_trajectories += count
+            if selected_trajectories >= max_trajectories:
+                break
+        return max(1, selected_refs)
 
 
 def _build_trajectory_adapter(spec: Any):

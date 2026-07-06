@@ -3,6 +3,17 @@
 # rollout nodes. For a local 8-GPU smoke run, override train/vLLM counts from
 # the CLI to split the single node explicitly.
 
+rl_runtime:
+  enabled: true
+  nnodes: 4
+  gpus_per_node: 8
+  master_addr: null
+  ray_port: "6379"
+  node_rank: "0"
+  train_node_rank: "0"
+  head_node_ip: null
+  wait_timeout: 300
+
 trainer_type: fsdp2_grpo_rl_trainer
 
 dataset_config:
@@ -69,10 +80,20 @@ trainer_args:
 
   rl_config:
     save_final_checkpoint: false
-    sync_policy_weights: false
+    sync_policy_weights: true
+    sync_initial_policy_weights: true
+    sync_drain_inflight_rollouts: true
+    sync_drain_timeout_s: 1800.0
+    sync_drain_poll_s: 0.1
+    policy_sync_merge_to_hf: true
+    policy_sync_keep_last: 2
+    update_weight_mode: full
+    update_weight_transport: disk
+    update_weight_disk_dir: /mnt/umm/users/pufanyi/workspace/lmms-engine/output/qwen3_5_4b_vizdoom_rl_100k/policy-sync
     rollout_seed: 42
     rollout_poll_s: 0.1
     rollout_sleep_s: 0.05
+    train_shard_log_steps: 3
 
     task:
       task_name: vizdoom
@@ -80,11 +101,21 @@ trainer_args:
       data_format: jsonl
       limit: 100
       repeats: 1000 # 100 base docs x 1000 repeats = 100k rollout episode specs.
+      observation_parser:
+        name: vizdoom
+        human_view: true
+        video: false
+        image_buffers: ["screen"]
+        require_thinking: true
       model_output_parser: qwen
-      max_steps: 10
+      loop_worker:
+        name: simple
+        multiturn: true
+        history_turns: 2
+      max_steps: 64 # VizDoom basic uses tics_per_action=12; 64 decisions covers 280-315 tic episodes.
       seed: 42
       generation_kwargs:
-        max_new_tokens: 32
+        max_new_tokens: 64
         temperature: 1.0
         top_p: 0.9
         do_sample: true
@@ -101,27 +132,27 @@ trainer_args:
         dtype: bfloat16
         trust_remote_code: true
         gpu_memory_utilization: 0.85
-        max_model_len: 8192
+        max_model_len: 32768
         max_num_seqs: 8
         system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
         generation_kwargs:
-          max_new_tokens: 32
+          max_new_tokens: 64
           temperature: 1.0
           top_p: 0.9
           do_sample: true
 
     rollout:
       backend: ray
-      num_workers: 24
+      num_workers: 96
       max_inflight_per_worker: 1
-      batch_size: 2
+      batch_size: 8
       poll_timeout_s: 0.0
 
     data_buffer:
       backend: in_memory
-      max_trajectories: 256
-      high_watermark: 192
-      low_watermark: 64
+      max_trajectories: 4096
+      high_watermark: 3072
+      low_watermark: 1024
       train_batch_size_per_gpu: 1
       global_train_batch_size: null
       min_trajectories_per_batch: null
@@ -137,6 +168,8 @@ trainer_args:
       fallback_to_total_reward: true
       use_step_rewards: false
       normalize_advantages: true
+      max_steps_per_trajectory: 8
+      step_sampling_strategy: uniform
       beta: 0.0
       system_message: "You are a careful VizDoom agent. Choose one valid action for the current frame."
       processor_kwargs: {}
@@ -144,8 +177,14 @@ trainer_args:
     ray_init_kwargs:
       ignore_reinit_error: true
 
+    weight_sync:
+      reset_prefix_cache: true
+      sleep_level: null
+      preflight_weight_path: true
+      require_hf_checkpoint: true
+
 ray_train:
-  num_workers: 4
+  num_workers: 8
   use_gpu: true
   resources_per_worker:
     GPU: 1
