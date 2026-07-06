@@ -63,11 +63,15 @@ class TestRayResourcePlan(unittest.TestCase):
         self.assertEqual(plan.model_server_role_resources["policy"], (16, 1.0))
         self.assertEqual(plan.model_server_role_resources["reference"], (8, 1.0))
         self.assertEqual(
-            config["trainer_args"]["rl_config"]["model_servers"]["policy"]["actor_options"]["resources"]["rollout_node"],
+            config["trainer_args"]["rl_config"]["model_servers"]["policy"]["actor_options"]["resources"][
+                "rollout_node"
+            ],
             0.001,
         )
         self.assertEqual(
-            config["trainer_args"]["rl_config"]["model_servers"]["reference"]["actor_options"]["resources"]["rollout_node"],
+            config["trainer_args"]["rl_config"]["model_servers"]["reference"]["actor_options"]["resources"][
+                "rollout_node"
+            ],
             0.001,
         )
         self.assertEqual(
@@ -77,9 +81,9 @@ class TestRayResourcePlan(unittest.TestCase):
             0.001,
         )
         self.assertEqual(
-            config["trainer_args"]["rl_config"]["model_servers"]["reference"]["load_balancer_actor_options"]["resources"][
-                "rollout_node"
-            ],
+            config["trainer_args"]["rl_config"]["model_servers"]["reference"]["load_balancer_actor_options"][
+                "resources"
+            ]["rollout_node"],
             0.001,
         )
 

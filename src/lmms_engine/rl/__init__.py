@@ -18,8 +18,8 @@ from lmms_engine.rl.core.interfaces import DataBuffer, RolloutManager
 from lmms_engine.rl.core.interfaces import TrainBatchAdapter as TrainBatchAdapterBase
 from lmms_engine.rl.core.interfaces import (
     TrainerBridge,
-    TrajectoryAnnotator,
     TrajectoryAdapter,
+    TrajectoryAnnotator,
     WeightSyncClient,
 )
 from lmms_engine.rl.core.orchestrator import RLOrchestrator
@@ -53,11 +53,11 @@ from lmms_engine.rl.rollout_manager import (
     RayRolloutManager,
     make_ray_rollout_actor,
 )
-from lmms_engine.rl.trajectory_annotation import ReferenceLogprobAnnotator
 from lmms_engine.rl.training_engine import (
     RayActorWeightSyncClient,
     VLLMWeightSyncClient,
 )
+from lmms_engine.rl.trajectory_annotation import ReferenceLogprobAnnotator
 
 __all__ = [
     "BatchBuilder",

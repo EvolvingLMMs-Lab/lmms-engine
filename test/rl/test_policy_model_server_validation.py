@@ -1,8 +1,10 @@
 import unittest
 
-from lmms_engine.rl.model_server import ModelServerManager, normalize_model_server_configs
+from lmms_engine.rl.model_server import (
+    ModelServerManager,
+    normalize_model_server_configs,
+)
 from lmms_engine.train.rl.runner import _validate_policy_model_server
-
 
 _RAY_POLICY_SPEC = {
     "name": "ray_actor_pool",

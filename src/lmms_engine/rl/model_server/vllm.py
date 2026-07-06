@@ -83,7 +83,9 @@ class VLLMChatModelServer(ModelServer):
         **_: Any,
     ) -> list[dict[str, Any]]:
         if len(requests) != len(responses):
-            raise ValueError(f"score_logprobs requires equal requests/responses lengths, got {len(requests)} and {len(responses)}.")
+            raise ValueError(
+                f"score_logprobs requires equal requests/responses lengths, got {len(requests)} and {len(responses)}."
+            )
         if not requests:
             return []
         for request in requests:
@@ -122,8 +124,7 @@ class VLLMChatModelServer(ModelServer):
         )
         token_id_hints = response_token_ids or [_response_token_ids(response) for response in responses]
         return [
-            _score_prompt_tail(output, token_ids)
-            for output, token_ids in zip(outputs, token_id_hints, strict=True)
+            _score_prompt_tail(output, token_ids) for output, token_ids in zip(outputs, token_id_hints, strict=True)
         ]
 
     def update_weights(
@@ -256,7 +257,9 @@ class VLLMChatModelServer(ModelServer):
         delta_initial: bool | None,
     ) -> str:
         if update_weight_transport != "disk":
-            raise NotImplementedError(f"vLLM delta weight update only supports disk transport, got {update_weight_transport!r}.")
+            raise NotImplementedError(
+                f"vLLM delta weight update only supports disk transport, got {update_weight_transport!r}."
+            )
 
         local_dir = _resolve_delta_local_checkpoint_dir(
             update_weight_local_checkpoint_dir
@@ -284,7 +287,11 @@ class VLLMChatModelServer(ModelServer):
             reset_if_newer=initial,
         )
         if not initial:
-            root = delta_root or metadata.get("delta_root") or (str(Path(checkpoint_path).expanduser().resolve().parent) if checkpoint_path else None)
+            root = (
+                delta_root
+                or metadata.get("delta_root")
+                or (str(Path(checkpoint_path).expanduser().resolve().parent) if checkpoint_path else None)
+            )
             if root is None:
                 raise ValueError("Delta weight update requires metadata.delta_root or checkpoint_path.")
             if version_id is None:
@@ -319,7 +326,9 @@ class VLLMChatModelServer(ModelServer):
         if not initial:
             if not checkpoint_path:
                 raise ValueError("Delta weight update requires checkpoint_path.")
-            from lmms_engine.rl.training_engine.disk_delta import validate_delta_checkpoint
+            from lmms_engine.rl.training_engine.disk_delta import (
+                validate_delta_checkpoint,
+            )
 
             result["delta"] = validate_delta_checkpoint(checkpoint_path)
         return result

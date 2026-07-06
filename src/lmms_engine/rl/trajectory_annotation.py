@@ -19,10 +19,7 @@ class ReferenceLogprobAnnotator(TrajectoryAnnotator):
 
     def annotate(self, trajectories: list[RewardedTrajectory]) -> list[RewardedTrajectory]:
         items = [
-            (trajectory, step)
-            for trajectory in trajectories
-            for step in trajectory.steps
-            if _has_scoreable_pair(step)
+            (trajectory, step) for trajectory in trajectories for step in trajectory.steps if _has_scoreable_pair(step)
         ]
         if not items:
             return trajectories

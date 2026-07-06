@@ -107,8 +107,7 @@ class RayResourcePlan:
             next(iter(model_server_role_resources.values()))[1] if model_server_role_resources else 1.0
         )
         model_server_gpu_total = sum(
-            replicas * gpus_per_replica
-            for replicas, gpus_per_replica in model_server_role_resources.values()
+            replicas * gpus_per_replica for replicas, gpus_per_replica in model_server_role_resources.values()
         )
         rollout_workers = int(rollout_config.get("num_workers") or model_server_replicas or 1)
         train_workers = int(ray_train_config.get("num_workers") or train_gpus)

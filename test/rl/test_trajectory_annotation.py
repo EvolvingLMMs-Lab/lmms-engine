@@ -1,10 +1,20 @@
 import unittest
 
+from lmms_engine.rl.config import DataBufferConfig, RLRunConfig
+from lmms_engine.rl.core.interfaces import (
+    BatchBuilder,
+    RolloutManager,
+    WeightSyncClient,
+)
 from lmms_engine.rl.core.orchestrator import RLOrchestrator
 from lmms_engine.rl.data_buffer import InMemoryDataBuffer
-from lmms_engine.rl.config import DataBufferConfig, RLRunConfig
-from lmms_engine.rl.core.interfaces import BatchBuilder, RolloutManager, WeightSyncClient
-from lmms_engine.rl.protocol import ModelVersion, RewardedTrajectory, RolloutTask, TrainBatch, TrajectoryStep
+from lmms_engine.rl.protocol import (
+    ModelVersion,
+    RewardedTrajectory,
+    RolloutTask,
+    TrainBatch,
+    TrajectoryStep,
+)
 from lmms_engine.rl.trajectory_annotation import ReferenceLogprobAnnotator
 
 
@@ -70,10 +80,7 @@ def _trajectory(num_steps=2):
         trajectory_id="trajectory",
         task_id="task",
         model_version=ModelVersion(version_id=0),
-        steps=[
-            TrajectoryStep(request=f"prompt-{index}", response=f"response-{index}")
-            for index in range(num_steps)
-        ],
+        steps=[TrajectoryStep(request=f"prompt-{index}", response=f"response-{index}") for index in range(num_steps)],
     )
 
 

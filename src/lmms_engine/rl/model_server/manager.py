@@ -5,7 +5,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from lmms_engine.rl.model_server.ray import RayModelServerPool, start_ray_model_server_pool
+from lmms_engine.rl.model_server.ray import (
+    RayModelServerPool,
+    start_ray_model_server_pool,
+)
 
 POLICY_ROLE = "policy"
 OPENAI_COMPATIBLE_BACKENDS = {"openai"}
@@ -41,10 +44,7 @@ class ModelServerManager:
     def __init__(self, role_specs: Mapping[str, Mapping[str, Any]]) -> None:
         normalized = normalize_model_server_configs({"model_servers": role_specs})
         validate_model_server_configs(normalized)
-        self._servers = {
-            role: ManagedModelServer(role=role, spec=dict(spec))
-            for role, spec in normalized.items()
-        }
+        self._servers = {role: ManagedModelServer(role=role, spec=dict(spec)) for role, spec in normalized.items()}
 
     @classmethod
     def from_rl_config(
@@ -113,7 +113,9 @@ def normalize_model_server_configs(
         role_specs[POLICY_ROLE] = _coerce_model_server_spec(legacy, role=POLICY_ROLE)
 
     if not role_specs:
-        raise ValueError("RL requires at least a policy model server. Set rl_config.model_server or rl_config.model_servers.policy.")
+        raise ValueError(
+            "RL requires at least a policy model server. Set rl_config.model_server or rl_config.model_servers.policy."
+        )
     if POLICY_ROLE not in role_specs:
         raise ValueError("rl_config.model_servers must include a 'policy' role.")
     return role_specs
@@ -131,7 +133,11 @@ def validate_model_server_configs(
         if backend not in SUPPORTED_MODEL_SERVER_BACKENDS:
             supported = ", ".join(sorted(SUPPORTED_MODEL_SERVER_BACKENDS))
             raise ValueError(f"model_servers.{role}.name must be one of {{{supported}}}, got {backend!r}.")
-        if role == POLICY_ROLE and backend in OPENAI_COMPATIBLE_BACKENDS and policy_weight_sync_backend == "ray_actor_pool":
+        if (
+            role == POLICY_ROLE
+            and backend in OPENAI_COMPATIBLE_BACKENDS
+            and policy_weight_sync_backend == "ray_actor_pool"
+        ):
             raise ValueError(
                 "model_servers.policy.name='openai' uses an external OpenAI-compatible endpoint. "
                 "Set rl_config.vllm.backend='vllm_http' or a native vLLM HTTP weight-sync backend, not 'ray_actor_pool'."
@@ -153,9 +159,7 @@ def _validate_ray_actor_pool_spec(role: str, spec: Mapping[str, Any]) -> None:
     factory = server.get("factory")
     expected = "lmms_engine.rl.model_server.vllm:VLLMChatModelServer"
     if factory != expected:
-        raise ValueError(
-            f"model_servers.{role}.server.factory must be {expected!r}; got {factory!r}."
-        )
+        raise ValueError(f"model_servers.{role}.server.factory must be {expected!r}; got {factory!r}.")
 
 
 def _external_client_spec(spec: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:

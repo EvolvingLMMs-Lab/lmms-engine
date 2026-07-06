@@ -16,7 +16,9 @@ for path in (REPO_ROOT / "src", REPO_ROOT / "src" / "lmms-eval"):
 import ray  # noqa: E402
 
 from lmms_engine.rl.protocol import ModelVersion  # noqa: E402
-from lmms_engine.rl.training_engine.disk_delta import publish_delta_checkpoint  # noqa: E402
+from lmms_engine.rl.training_engine.disk_delta import (  # noqa: E402
+    publish_delta_checkpoint,
+)
 from lmms_engine.rl.training_engine.weight_sync import (  # noqa: E402
     RayActorWeightSyncClient,
 )
@@ -108,11 +110,15 @@ def _write_hf_checkpoint_stub(path: Path) -> None:
 def _prepare_full_smoke_checkpoint(sync_root: Path) -> tuple[Path, dict[str, Any], int]:
     checkpoint_path = sync_root / "weight_v000000"
     _write_hf_checkpoint_stub(checkpoint_path)
-    return checkpoint_path, {
-        "update_weight_mode": "full",
-        "update_weight_transport": "disk",
-        "update_weight_path": str(checkpoint_path),
-    }, 0
+    return (
+        checkpoint_path,
+        {
+            "update_weight_mode": "full",
+            "update_weight_transport": "disk",
+            "update_weight_path": str(checkpoint_path),
+        },
+        0,
+    )
 
 
 def _prepare_delta_smoke_checkpoint(sync_root: Path) -> tuple[Path, dict[str, Any], int]:
@@ -132,16 +138,20 @@ def _prepare_delta_smoke_checkpoint(sync_root: Path) -> tuple[Path, dict[str, An
         target_version=1,
         block_size=8,
     )
-    return delta, {
-        "update_weight_mode": "delta",
-        "update_weight_transport": "disk",
-        "update_weight_path": str(delta),
-        "delta_root": str(sync_root),
-        "delta_initial": False,
-        "base_checkpoint_path": str(base),
-        "base_version_id": 0,
-        "update_weight_local_checkpoint_dir": str(sync_root / "local-checkpoint"),
-    }, 1
+    return (
+        delta,
+        {
+            "update_weight_mode": "delta",
+            "update_weight_transport": "disk",
+            "update_weight_path": str(delta),
+            "delta_root": str(sync_root),
+            "delta_initial": False,
+            "base_checkpoint_path": str(base),
+            "base_version_id": 0,
+            "update_weight_local_checkpoint_dir": str(sync_root / "local-checkpoint"),
+        },
+        1,
+    )
 
 
 def _assert_eight_gpu_placement(statuses: list[dict[str, Any]], expected: int) -> None:
@@ -214,7 +224,9 @@ class WeightSyncSmokeActor:
     def validate_weight_update(self, **payload: Any) -> dict[str, Any]:
         metadata = dict(payload.get("metadata") or {})
         if metadata.get("update_weight_mode") == "delta":
-            from lmms_engine.rl.training_engine.disk_delta import validate_delta_checkpoint
+            from lmms_engine.rl.training_engine.disk_delta import (
+                validate_delta_checkpoint,
+            )
 
             return {
                 "actor_index": self.index,

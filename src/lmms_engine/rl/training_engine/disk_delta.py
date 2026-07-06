@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
-import errno
 import json
 import os
 import shutil

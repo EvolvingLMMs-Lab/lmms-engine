@@ -63,7 +63,9 @@ class RLTrainRunner(TrainRunner):
                 "model_server": self.rl_config.get("model_server", self.rl_config.get("task", {}).get("model_server")),
             },
         )
-        self.model_server_configs = _normalize_policy_model_servers(self.rl_config, self.rollout_task_config.model_server)
+        self.model_server_configs = _normalize_policy_model_servers(
+            self.rl_config, self.rollout_task_config.model_server
+        )
         _validate_policy_model_servers(
             self.model_server_configs,
             weight_sync_backend=self.rl_run_config.vllm.backend,
