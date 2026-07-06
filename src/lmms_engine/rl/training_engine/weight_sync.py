@@ -68,15 +68,16 @@ class RayActorWeightSyncClient(WeightSyncClient):
         if not actors:
             raise RuntimeError("No Ray model-server actors are available for policy weight sync.")
 
+        payload = {
+            "checkpoint_path": model_version.checkpoint_path,
+            "version_id": model_version.version_id,
+            "metadata": model_version.metadata,
+            "require_hf_checkpoint": self.require_hf_checkpoint,
+            **self.extra_kwargs,
+        }
         preflight_results = []
         if self.preflight_weight_path:
-            refs = [
-                actor.validate_weight_path.remote(
-                    model_version.checkpoint_path,
-                    require_hf_checkpoint=self.require_hf_checkpoint,
-                )
-                for actor in actors
-            ]
+            refs = [actor.validate_weight_update.remote(**payload) for actor in actors]
             try:
                 preflight_results = list(ray.get(refs, timeout=self.timeout_s))
             except Exception as exc:
@@ -86,13 +87,6 @@ class RayActorWeightSyncClient(WeightSyncClient):
                     f"from train and rollout nodes. checkpoint_path={model_version.checkpoint_path}"
                 ) from exc
 
-        payload = {
-            "checkpoint_path": model_version.checkpoint_path,
-            "version_id": model_version.version_id,
-            "metadata": model_version.metadata,
-            "require_hf_checkpoint": self.require_hf_checkpoint,
-            **self.extra_kwargs,
-        }
         refs = [actor.update_weights.remote(**payload) for actor in actors]
         results = ray.get(refs, timeout=self.timeout_s)
         return {

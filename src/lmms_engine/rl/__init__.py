@@ -18,6 +18,7 @@ from lmms_engine.rl.core.interfaces import DataBuffer, RolloutManager
 from lmms_engine.rl.core.interfaces import TrainBatchAdapter as TrainBatchAdapterBase
 from lmms_engine.rl.core.interfaces import (
     TrainerBridge,
+    TrajectoryAnnotator,
     TrajectoryAdapter,
     WeightSyncClient,
 )
@@ -31,9 +32,13 @@ from lmms_engine.rl.lmms_eval import (
     trajectory_from_lmms_eval_episode,
 )
 from lmms_engine.rl.model_server import (
+    ManagedModelServer,
+    ModelServerManager,
     RayModelServerPool,
     VLLMChatModelServer,
+    normalize_model_server_configs,
     start_ray_model_server_pool,
+    validate_model_server_configs,
 )
 from lmms_engine.rl.protocol import (
     BufferStats,
@@ -48,6 +53,7 @@ from lmms_engine.rl.rollout_manager import (
     RayRolloutManager,
     make_ray_rollout_actor,
 )
+from lmms_engine.rl.trajectory_annotation import ReferenceLogprobAnnotator
 from lmms_engine.rl.training_engine import (
     RayActorWeightSyncClient,
     VLLMWeightSyncClient,
@@ -68,13 +74,16 @@ __all__ = [
     "InMemoryDataBuffer",
     "LMMSEvalTrajectoryAdapter",
     "LMMSEvalRolloutTaskConfig",
+    "ManagedModelServer",
     "ModelVersion",
+    "ModelServerManager",
     "PassthroughTrainBatchAdapter",
     "RLRunConfig",
     "RayRolloutActor",
     "RayRolloutManager",
     "RayModelServerPool",
     "RayActorWeightSyncClient",
+    "ReferenceLogprobAnnotator",
     "RLComponentFactory",
     "RLOrchestrator",
     "RewardedTrajectory",
@@ -85,6 +94,7 @@ __all__ = [
     "TrainBatchAdapter",
     "TrainBatchAdapterBase",
     "TrajectoryAdapter",
+    "TrajectoryAnnotator",
     "TrainerBridge",
     "TrainingEngineConfig",
     "TrajectoryStep",
@@ -95,8 +105,10 @@ __all__ = [
     "build_rollout_episode_specs",
     "clone_rollout_spec",
     "make_ray_rollout_actor",
+    "normalize_model_server_configs",
     "start_ray_model_server_pool",
     "trajectory_from_lmms_eval_episode",
+    "validate_model_server_configs",
     "resolve_train_batch_size_per_gpu",
 ]
 

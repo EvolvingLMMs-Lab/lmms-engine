@@ -82,6 +82,12 @@ class GRPOBatchAdapter(TrainBatchAdapter):
                     continue
                 samples.append(sample)
                 rewards.append(self._step_reward(step, trajectory_reward))
+                ref_logprob = _step_mean_logprob(step, "reference")
+                if ref_logprob is not None:
+                    sample["ref_logprobs"] = torch.tensor([ref_logprob], dtype=torch.float32)
+                old_logprob = _step_mean_logprob(step, "policy_old")
+                if old_logprob is not None:
+                    sample["old_logprobs"] = torch.tensor([old_logprob], dtype=torch.float32)
                 sample_metadata.append(
                     {
                         "trajectory_id": trajectory.trajectory_id,
@@ -101,6 +107,10 @@ class GRPOBatchAdapter(TrainBatchAdapter):
         tensors = self.collator(samples)
         tensors["sample_rewards"] = tensors.pop("rewards")
         tensors["sample_advantages"] = tensors.pop("advantages")
+        if "ref_logprobs" in tensors:
+            tensors["sample_ref_logprobs"] = tensors.pop("ref_logprobs")
+        if "old_logprobs" in tensors:
+            tensors["sample_old_logprobs"] = tensors.pop("old_logprobs")
         tensors["sample_metadata"] = sample_metadata
         return tensors
 
@@ -292,6 +302,31 @@ def _history_text(content: Any) -> str:
                 parts.append(str(item["text"]))
         return "\n".join(parts)
     return "" if content is None else str(content)
+
+
+def _step_mean_logprob(step: TrajectoryStep, role: str) -> float | None:
+    metadata = step.metadata or {}
+    direct_keys = (
+        f"{role}_logprob_mean",
+        f"{role}_mean_logprob",
+        f"{role}_avg_logprob",
+    )
+    for key in direct_keys:
+        if key in metadata:
+            return float(metadata[key])
+
+    logprobs = metadata.get("logprobs")
+    if not isinstance(logprobs, dict):
+        return None
+    value = logprobs.get(role)
+    if isinstance(value, (float, int)):
+        return float(value)
+    if not isinstance(value, dict):
+        return None
+    for key in ("mean_logprob", "logprob_mean", "avg_logprob", "sequence_logprob"):
+        if key in value and value[key] is not None:
+            return float(value[key])
+    return None
 
 
 def _media_payload(data: Any, nested_key: str) -> Any:

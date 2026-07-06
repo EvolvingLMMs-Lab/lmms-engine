@@ -213,6 +213,7 @@ trainer_args:
     update_weight_mode: full
     update_weight_transport: disk
     update_weight_disk_dir: null
+    update_weight_local_checkpoint_dir: null
     rollout_seed: 42
     rollout_poll_s: 0.1
     rollout_sleep_s: 0.05
@@ -273,6 +274,7 @@ trainer_args:
       lifetime: null
       get_if_exists: false
       factory_components: {}
+    model_servers: {}
     rollout:
       backend: ray
       num_workers: 1
@@ -300,6 +302,10 @@ trainer_args:
       batch_builder: fixed_global
       batch_adapter: {}
       extra_kwargs: {}
+    trajectory_annotation:
+      reference_logprobs: false
+      reference_batch_size: null
+      reference_max_workers: 1
     algorithm:
       name: grpo
       group_size: 1

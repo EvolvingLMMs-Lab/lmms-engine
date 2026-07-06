@@ -72,7 +72,15 @@ class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
         model_inputs = {
             key: value
             for key, value in batch.items()
-            if key not in {"labels", "sample_advantages", "sample_rewards", "sample_metadata"}
+            if key
+            not in {
+                "labels",
+                "sample_advantages",
+                "sample_rewards",
+                "sample_metadata",
+                "sample_ref_logprobs",
+                "sample_old_logprobs",
+            }
         }
 
         cast_dtype = torch.bfloat16 if self.args.bf16 else torch.float16
@@ -93,7 +101,25 @@ class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
 
         token_counts = response_mask.sum(dim=-1).clamp_min(1)
         sample_log_probs = token_log_probs.sum(dim=-1) / token_counts
+        beta = float((self.rl_config.get("algorithm") or {}).get("beta", 0.0))
         loss = -(advantages * sample_log_probs).mean()
+        kl_mean = None
+        if "sample_ref_logprobs" in batch:
+            ref_log_probs = batch["sample_ref_logprobs"].to(dtype=torch.float32, device=labels.device).view(-1)
+            if ref_log_probs.numel() != sample_log_probs.numel():
+                raise ValueError(
+                    "sample_ref_logprobs must have one value per GRPO sample: "
+                    f"got {ref_log_probs.numel()} ref logprobs for {sample_log_probs.numel()} samples."
+                )
+            kl = sample_log_probs.float() - ref_log_probs
+            kl_mean = kl.mean()
+            if beta:
+                loss = loss + beta * kl_mean
+        elif beta:
+            raise RuntimeError(
+                "GRPO beta > 0 requires reference logprob annotations, but batch has no sample_ref_logprobs. "
+                "Start a reference model role and annotate trajectories before training, or set algorithm.beta=0."
+            )
 
         reward = batch["sample_rewards"].to(dtype=torch.float32, device=labels.device).view(-1)
         metrics = {
@@ -102,6 +128,8 @@ class FSDP2GRPORLTrainer(FSDP2RLPolicyStepMixin, FSDP2SFTTrainer):
             "rl/response_tokens_mean": _distributed_mean(token_counts.float().mean()),
             "rl/policy_logprob_mean": _distributed_mean(sample_log_probs.detach().mean()),
         }
+        if kl_mean is not None:
+            metrics["rl/ref_kl_mean"] = _distributed_mean(kl_mean.detach())
         return loss, metrics
 
     def prepare_and_validate_rl_config(self) -> None:

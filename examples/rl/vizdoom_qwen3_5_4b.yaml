@@ -1,7 +1,9 @@
 # Qwen3.5-4B + VizDoom RL config.
 # Four-node defaults: one 8-GPU FSDP2 train node plus three 8-GPU Ray vLLM
-# rollout nodes. For a local 8-GPU smoke run, override train/vLLM counts from
-# the CLI to split the single node explicitly.
+# rollout nodes. The rollout nodes are split into policy/reference GRPO roles:
+# 16 policy replicas for generation and 8 reference replicas for KL/logprob
+# scoring. For a local 8-GPU smoke run, override train/vLLM counts from the CLI
+# to split the single node explicitly.
 
 rl_runtime:
   enabled: true
@@ -100,7 +102,7 @@ trainer_args:
       data_path: examples/rl/data/vizdoom_train.jsonl
       data_format: jsonl
       limit: 100
-      repeats: 1000 # 100 base docs x 1000 repeats = 100k rollout episode specs.
+      repeats: 1000 # Same-doc repeats are contiguous; every 8 repeats form one GRPO group.
       observation_parser:
         name: vizdoom
         human_view: true
@@ -120,26 +122,55 @@ trainer_args:
         top_p: 0.9
         do_sample: true
 
-    model_server:
-      name: ray_actor_pool
-      actor_name_prefix: qwen3-5-4b-vizdoom-policy
-      num_replicas: 24
-      actor_options:
-        num_gpus: 1
-      server:
-        factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
-        model: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
-        dtype: bfloat16
-        trust_remote_code: true
-        gpu_memory_utilization: 0.85
-        max_model_len: 32768
-        max_num_seqs: 8
-        system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
-        generation_kwargs:
-          max_new_tokens: 64
-          temperature: 1.0
-          top_p: 0.9
-          do_sample: true
+    model_servers:
+      policy:
+        # For production serving where vLLM owns continuous batching and replica
+        # routing, this role can be changed to:
+        #   name: openai
+        #   model: policy
+        #   base_url: http://127.0.0.1:8000/v1
+        #   api_key: EMPTY
+        #   timeout: 600
+        #   max_concurrent_requests: 64
+        name: ray_actor_pool
+        actor_name_prefix: qwen3-5-4b-vizdoom-policy
+        num_replicas: 16
+        actor_options:
+          num_gpus: 1
+        server:
+          factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
+          model: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
+          dtype: bfloat16
+          trust_remote_code: true
+          gpu_memory_utilization: 0.85
+          max_model_len: 32768
+          max_num_seqs: 8
+          system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
+          generation_kwargs:
+            max_new_tokens: 64
+            temperature: 1.0
+            top_p: 0.9
+            do_sample: true
+      reference:
+        name: ray_actor_pool
+        actor_name_prefix: qwen3-5-4b-vizdoom-reference
+        num_replicas: 8
+        actor_options:
+          num_gpus: 1
+        server:
+          factory: lmms_engine.rl.model_server.vllm:VLLMChatModelServer
+          model: /mnt/umm/users/pufanyi/workspace/lmms-engine/data/checkpoints/Qwen3.5-4B
+          dtype: bfloat16
+          trust_remote_code: true
+          gpu_memory_utilization: 0.85
+          max_model_len: 32768
+          max_num_seqs: 8
+          system_prompt: "You are a careful VizDoom agent. Choose one valid action for the current frame."
+          generation_kwargs:
+            max_new_tokens: 64
+            temperature: 0.0
+            top_p: 1.0
+            do_sample: false
 
     rollout:
       backend: ray
@@ -155,7 +186,8 @@ trainer_args:
       low_watermark: 1024
       train_batch_size_per_gpu: 1
       global_train_batch_size: null
-      min_trajectories_per_batch: null
+      min_trajectories_per_batch: 8
+      preserve_model_version: true
 
     training:
       trainer_type: fsdp2_grpo_rl_trainer
@@ -163,14 +195,25 @@ trainer_args:
       update_weights_every_steps: 10
       batch_builder: fixed_global
 
+    trajectory_annotation:
+      reference_logprobs: true
+      reference_batch_size: 8
+      reference_max_workers: 8
+
     algorithm:
+      name: grpo
+      group_size: 8
+      beta: 0.04
+      clip_range_low: 0.2
+      clip_range_high: 0.2
       reward_key: vizdoom_total_reward
       fallback_to_total_reward: true
       use_step_rewards: false
       normalize_advantages: true
+      advantage_clip: null
+      advantage_epsilon: 1.0e-6
       max_steps_per_trajectory: 8
       step_sampling_strategy: uniform
-      beta: 0.0
       system_message: "You are a careful VizDoom agent. Choose one valid action for the current frame."
       processor_kwargs: {}
 

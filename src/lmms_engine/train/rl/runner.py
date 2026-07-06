@@ -63,7 +63,11 @@ class RLTrainRunner(TrainRunner):
                 "model_server": self.rl_config.get("model_server", self.rl_config.get("task", {}).get("model_server")),
             },
         )
-        _validate_ray_vllm_model_server(self.rollout_task_config.model_server)
+        self.model_server_configs = _normalize_policy_model_servers(self.rl_config, self.rollout_task_config.model_server)
+        _validate_policy_model_servers(
+            self.model_server_configs,
+            weight_sync_backend=self.rl_run_config.vllm.backend,
+        )
         self.sync_policy_weights = bool(self.rl_config.get("sync_policy_weights", True))
         self.rollout_poll_s = float(self.rl_config.get("rollout_poll_s", 0.1))
         self.rollout_sleep_s = float(self.rl_config.get("rollout_sleep_s", 0.05))
@@ -95,7 +99,13 @@ class RLTrainRunner(TrainRunner):
         self.save_final_checkpoint = bool(self.rl_config.get("save_final_checkpoint", True))
         self.submitted_rollouts = 0
         self.ray_model_server_pool = None
+        self.model_server_manager = None
         self.batch_adapter = None
+        self._delta_base_checkpoint_dir: Path | None = None
+        self._delta_base_version_id: int | None = None
+        self._last_delta_full_checkpoint_dir: Path | None = None
+        self._last_delta_full_version_id: int | None = None
+        self._prepared_weight_update_metadata: dict[str, Any] = {}
 
     def build(self):
         if dist.is_initialized():
@@ -162,11 +172,15 @@ class RLTrainRunner(TrainRunner):
         rollout_specs = None
         if rank == 0:
             self._maybe_init_ray()
-            self._maybe_start_ray_model_server_pool()
+            self._maybe_start_model_server_manager()
             rollout_specs = build_rollout_episode_specs(self.rollout_task_config)
             if not rollout_specs:
                 raise ValueError("No rollout specs were built from the lmms-eval task config.")
-            orchestrator = RLOrchestrator(config=self.rl_run_config, weight_sync=self._build_weight_sync_client())
+            orchestrator = RLOrchestrator(
+                config=self.rl_run_config,
+                trajectory_annotator=self._build_trajectory_annotator(),
+                weight_sync=self._build_weight_sync_client(),
+            )
             orchestrator.start()
             logger.info(f"Built {len(rollout_specs)} rollout episode spec(s) for RL training.")
 
@@ -448,6 +462,11 @@ class RLTrainRunner(TrainRunner):
         extra_kwargs.pop("update_weight_mode", None)
         extra_kwargs.pop("update_weight_transport", None)
         extra_kwargs.pop("update_weight_disk_dir", None)
+        if self.rl_config.get("update_weight_local_checkpoint_dir") is not None:
+            extra_kwargs.setdefault(
+                "update_weight_local_checkpoint_dir",
+                self.rl_config.get("update_weight_local_checkpoint_dir"),
+            )
         if timeout_s is not None:
             extra_kwargs.setdefault("timeout_s", timeout_s)
         return RayActorWeightSyncClient(
@@ -458,6 +477,38 @@ class RLTrainRunner(TrainRunner):
             preflight_weight_path=preflight_weight_path,
             require_hf_checkpoint=require_hf_checkpoint,
             extra_kwargs=extra_kwargs,
+        )
+
+    def _build_trajectory_annotator(self):
+        algorithm_config = dict(self.rl_config.get("algorithm", {}) or {})
+        beta = float(algorithm_config.get("beta", 0.0) or 0.0)
+        annotation_config = dict(self.rl_config.get("trajectory_annotation", {}) or {})
+        force_reference = _as_bool(annotation_config.get("reference_logprobs"), default=False)
+        if beta <= 0 and not force_reference:
+            return None
+        if self.model_server_manager is None:
+            raise RuntimeError("ModelServerManager must be started before building trajectory annotators.")
+        if "reference" not in self.model_server_manager.roles():
+            raise ValueError(
+                "GRPO beta > 0 requires rl_config.model_servers.reference so completed trajectories can be "
+                "annotated with reference logprobs before training."
+            )
+
+        ensure_lmms_eval_importable()
+        from lmms_eval.agentic.factory import DEFAULT_AGENTIC_FACTORY
+
+        from lmms_engine.rl import ReferenceLogprobAnnotator
+
+        reference_server = DEFAULT_AGENTIC_FACTORY.build_model_server(
+            self.model_server_manager.client_spec("reference")
+        )
+        max_batch_size = int(annotation_config.get("reference_batch_size", self.rl_run_config.rollout.batch_size))
+        max_workers = int(annotation_config.get("reference_max_workers", 1) or 1)
+        return ReferenceLogprobAnnotator(
+            model_server=reference_server,
+            role="reference",
+            max_batch_size=max_batch_size,
+            max_workers=max_workers,
         )
 
     def _should_sync_policy_weights(self) -> bool:
@@ -489,6 +540,7 @@ class RLTrainRunner(TrainRunner):
                         "update_weight_mode": self.update_weight_mode,
                         "update_weight_transport": self.update_weight_transport,
                         "update_weight_path": str(checkpoint_path.resolve()),
+                        **self._prepared_weight_update_metadata,
                     },
                 )
                 result = orchestrator.reload_policy_weights(model_version)
@@ -532,6 +584,9 @@ class RLTrainRunner(TrainRunner):
         )
 
     def _prepare_policy_sync_checkpoint(self, fsdp_checkpoint_dir: Path) -> Path:
+        if self.update_weight_mode == "delta":
+            return self._prepare_delta_disk_checkpoint(fsdp_checkpoint_dir)
+
         if not self.policy_sync_merge_to_hf:
             return fsdp_checkpoint_dir
 
@@ -552,6 +607,63 @@ class RLTrainRunner(TrainRunner):
             encoding="utf-8",
         )
         return output_dir
+
+    def _prepare_delta_disk_checkpoint(self, fsdp_checkpoint_dir: Path) -> Path:
+        from lmms_engine.merger.fsdp2 import FSDP2Merger
+        from lmms_engine.rl.training_engine.disk_delta import publish_delta_checkpoint
+
+        step = int(self.trainer.global_step)
+        full_dir = self._policy_sync_root() / "full" / _weight_sync_version_name(step)
+        if full_dir.exists():
+            shutil.rmtree(full_dir)
+
+        model_general_type = getattr(self.config.model_config, "model_general_type", None)
+        FSDP2Merger().merge(
+            fsdp_checkpoint_dir,
+            output_path=full_dir,
+            model_general_type=model_general_type,
+        )
+        (full_dir / ".lmms_weight_sync_ready").write_text(
+            f"version_id={step}\n",
+            encoding="utf-8",
+        )
+
+        if self._delta_base_checkpoint_dir is None or self._last_delta_full_checkpoint_dir is None:
+            self._delta_base_checkpoint_dir = full_dir
+            self._delta_base_version_id = step
+            self._last_delta_full_checkpoint_dir = full_dir
+            self._last_delta_full_version_id = step
+            self._prepared_weight_update_metadata = {
+                "delta_initial": True,
+                "base_checkpoint_path": str(full_dir.resolve()),
+                "base_version_id": step,
+                "delta_root": str(self._policy_sync_root().resolve()),
+                "local_checkpoint_required": True,
+            }
+            return full_dir
+
+        assert self._delta_base_checkpoint_dir is not None
+        assert self._delta_base_version_id is not None
+        assert self._last_delta_full_checkpoint_dir is not None
+        assert self._last_delta_full_version_id is not None
+        delta_dir = self._policy_sync_root() / _weight_sync_version_name(step)
+        publish_delta_checkpoint(
+            base_dir=self._last_delta_full_checkpoint_dir,
+            target_dir=full_dir,
+            delta_dir=delta_dir,
+            base_version=self._last_delta_full_version_id,
+            target_version=step,
+        )
+        self._last_delta_full_checkpoint_dir = full_dir
+        self._last_delta_full_version_id = step
+        self._prepared_weight_update_metadata = {
+            "delta_initial": False,
+            "base_checkpoint_path": str(self._delta_base_checkpoint_dir.resolve()),
+            "base_version_id": self._delta_base_version_id,
+            "delta_root": str(self._policy_sync_root().resolve()),
+            "local_checkpoint_required": True,
+        }
+        return delta_dir
 
     def _policy_sync_fsdp_checkpoint_dir(self, step: int) -> Path:
         root = self._policy_sync_root()
@@ -597,16 +709,16 @@ class RLTrainRunner(TrainRunner):
                 "trainer_args.rl_config.update_weight_transport must be one of {'disk', 'nccl'}, "
                 f"got {self.update_weight_transport!r}."
             )
-        if (self.update_weight_mode, self.update_weight_transport) != ("full", "disk"):
+        if self.update_weight_transport == "nccl":
             raise NotImplementedError(
-                "Only slime-style full/disk weight update is implemented in lmms-engine today. "
+                "slime-style NCCL weight update is not implemented in lmms-engine today. "
                 f"Requested update_weight_mode={self.update_weight_mode!r}, "
                 f"update_weight_transport={self.update_weight_transport!r}. "
-                "NCCL and delta disk support require a tensor/delta sender and are intentionally not silently emulated."
+                "NCCL support requires a trainer/vLLM tensor sender and is intentionally not silently emulated."
             )
         if not self.policy_sync_merge_to_hf:
             raise ValueError(
-                "slime-style full/disk weight update requires policy_sync_merge_to_hf=true so vLLM reloads "
+                "slime-style disk weight update requires policy_sync_merge_to_hf=true so vLLM reloads "
                 "a complete Hugging Face checkpoint."
             )
 
@@ -616,6 +728,10 @@ class RLTrainRunner(TrainRunner):
             return
 
         output_dir = self._policy_sync_root()
+        if self.update_weight_mode == "delta":
+            self._cleanup_delta_disk_checkpoints(output_dir)
+            return
+
         sync_dirs = [path for path in output_dir.iterdir() if path.is_dir() and _is_weight_sync_source_dir(path)]
         sync_dirs.sort(key=_policy_sync_step)
         stale = sync_dirs[: max(0, len(sync_dirs) - keep_last)]
@@ -623,6 +739,30 @@ class RLTrainRunner(TrainRunner):
             hf_dir = _weight_sync_output_dir_for_source(fsdp_dir)
             shutil.rmtree(fsdp_dir, ignore_errors=True)
             shutil.rmtree(hf_dir, ignore_errors=True)
+
+    def _cleanup_delta_disk_checkpoints(self, output_dir: Path) -> None:
+        keep_last = self.policy_sync_keep_last
+        fsdp_dirs = [
+            path
+            for path in output_dir.iterdir()
+            if path.is_dir() and path.name.startswith("weight_v") and path.name.endswith("-fsdp")
+        ]
+        fsdp_dirs.sort(key=_policy_sync_step)
+        for fsdp_dir in fsdp_dirs[: max(0, len(fsdp_dirs) - keep_last)]:
+            shutil.rmtree(fsdp_dir, ignore_errors=True)
+
+        full_root = output_dir / "full"
+        if not full_root.exists():
+            return
+        keep_full = {
+            path.resolve()
+            for path in (self._delta_base_checkpoint_dir, self._last_delta_full_checkpoint_dir)
+            if path is not None
+        }
+        full_dirs = [path for path in full_root.iterdir() if path.is_dir() and path.name.startswith("weight_v")]
+        for full_dir in full_dirs:
+            if full_dir.resolve() not in keep_full:
+                shutil.rmtree(full_dir, ignore_errors=True)
 
     def _maybe_init_ray(self) -> None:
         if self.rl_run_config.rollout.backend != "ray":
@@ -633,25 +773,17 @@ class RLTrainRunner(TrainRunner):
         if not ray.is_initialized():
             ray.init(**ray_init_kwargs)
 
-    def _maybe_start_ray_model_server_pool(self) -> None:
-        model_server = self.rollout_task_config.model_server
-        if not isinstance(model_server, dict):
-            return
-        backend = model_server.get("name") or model_server.get("backend")
-        if backend != "ray_actor_pool":
+    def _maybe_start_model_server_manager(self) -> None:
+        if self.model_server_manager is not None:
             return
 
-        from lmms_engine.rl.model_server import start_ray_model_server_pool
+        from lmms_engine.rl.model_server import ModelServerManager
 
-        self.ray_model_server_pool = start_ray_model_server_pool(model_server)
-        self.rollout_task_config.model_server = self.ray_model_server_pool.client_spec(
-            **dict(model_server.get("client", {}) or {})
-        )
-        logger.info(
-            "Started Ray model server pool with "
-            f"{len(self.ray_model_server_pool.actor_names)} replica(s); "
-            f"load_balancer={self.ray_model_server_pool.load_balancer_name}"
-        )
+        self.model_server_manager = ModelServerManager(self.model_server_configs)
+        self.model_server_manager.start()
+        self.rollout_task_config.model_server = self.model_server_manager.client_spec("policy")
+        self.ray_model_server_pool = self.model_server_manager.pool("policy")
+        logger.info(f"Started RL model servers: {self.model_server_manager.summary()}")
 
     def _rl_perf_metrics(self, batch: dict[str, Any], delta_time: float, world_size: int) -> tuple[dict, int]:
         seq_len = (
@@ -924,19 +1056,26 @@ def _payload_metrics(payload: GRPOPayload) -> dict[str, float]:
     }
 
 
-def _validate_ray_vllm_model_server(model_server: Any) -> None:
-    if not isinstance(model_server, dict):
-        raise ValueError("rl_config.model_server must be a Ray actor pool hosting vLLM.")
-    backend = model_server.get("name") or model_server.get("backend")
-    if backend != "ray_actor_pool":
-        raise ValueError(f"rl_config.model_server.name must be 'ray_actor_pool', got {backend!r}.")
+def _normalize_policy_model_servers(rl_config: dict[str, Any], legacy_model_server: Any) -> dict[str, dict[str, Any]]:
+    from lmms_engine.rl.model_server import normalize_model_server_configs
 
-    server = model_server.get("server") or model_server.get("server_spec")
-    if not isinstance(server, dict):
-        raise ValueError("rl_config.model_server.server must be a dict vLLM server spec.")
-    factory = server.get("factory")
-    if factory != _VLLM_SERVER_FACTORY:
-        raise ValueError(
-            "rl_config.model_server.server.factory must be "
-            f"{_VLLM_SERVER_FACTORY!r}; no non-vLLM rollout backend is allowed."
-        )
+    return normalize_model_server_configs(rl_config, legacy_model_server=legacy_model_server)
+
+
+def _validate_policy_model_servers(
+    model_servers: dict[str, dict[str, Any]],
+    *,
+    weight_sync_backend: str | None = None,
+) -> None:
+    from lmms_engine.rl.model_server import validate_model_server_configs
+
+    validate_model_server_configs(model_servers, policy_weight_sync_backend=weight_sync_backend)
+
+
+def _validate_policy_model_server(model_server: Any, *, weight_sync_backend: str | None = None) -> None:
+    """Compatibility wrapper for tests and external callers."""
+
+    _validate_policy_model_servers(
+        {"policy": model_server},
+        weight_sync_backend=weight_sync_backend,
+    )

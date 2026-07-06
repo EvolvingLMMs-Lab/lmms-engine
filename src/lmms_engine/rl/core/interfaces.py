@@ -81,6 +81,14 @@ class BatchBuilder(ABC):
         raise NotImplementedError
 
 
+class TrajectoryAnnotator(ABC):
+    """Adds trainer-side signals to completed rollout trajectories."""
+
+    @abstractmethod
+    def annotate(self, trajectories: list[RewardedTrajectory]) -> list[RewardedTrajectory]:
+        raise NotImplementedError
+
+
 class TrainBatchAdapter(ABC):
     """Converts TrainBatch into tensors consumed by a trainer implementation."""
 

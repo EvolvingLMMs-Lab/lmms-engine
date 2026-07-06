@@ -9,6 +9,7 @@ from lmms_engine.rl.core.interfaces import (
     BatchBuilder,
     DataBuffer,
     RolloutManager,
+    TrajectoryAnnotator,
     WeightSyncClient,
 )
 from lmms_engine.rl.protocol import (
@@ -34,6 +35,7 @@ class RLOrchestrator:
         rollout_manager: RolloutManager | None = None,
         data_buffer: DataBuffer | None = None,
         batch_builder: BatchBuilder | None = None,
+        trajectory_annotator: TrajectoryAnnotator | None = None,
         weight_sync: WeightSyncClient | None = None,
     ) -> None:
         self.config = config or RLRunConfig()
@@ -41,6 +43,7 @@ class RLOrchestrator:
         self.rollout_manager = rollout_manager or self.component_factory.build_rollout_manager(self.config.rollout)
         self.data_buffer = data_buffer or self.component_factory.build_data_buffer(self.config.data_buffer)
         self.batch_builder = batch_builder or self.component_factory.build_batch_builder(self.config.training)
+        self.trajectory_annotator = trajectory_annotator
         self.weight_sync = weight_sync or self.component_factory.build_weight_sync(self.config.vllm)
         self._completed_backlog: Deque[RewardedTrajectory] = deque()
 
@@ -61,6 +64,8 @@ class RLOrchestrator:
                 timeout_s=timeout_s,
                 max_trajectories=free_capacity,
             )
+            if self.trajectory_annotator is not None and completed:
+                completed = self.trajectory_annotator.annotate(completed)
             self._completed_backlog.extend(completed)
             accepted += self._drain_completed_backlog()
         self._apply_backpressure()

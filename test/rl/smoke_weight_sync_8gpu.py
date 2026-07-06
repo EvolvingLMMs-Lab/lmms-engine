@@ -16,6 +16,7 @@ for path in (REPO_ROOT / "src", REPO_ROOT / "src" / "lmms-eval"):
 import ray  # noqa: E402
 
 from lmms_engine.rl.protocol import ModelVersion  # noqa: E402
+from lmms_engine.rl.training_engine.disk_delta import publish_delta_checkpoint  # noqa: E402
 from lmms_engine.rl.training_engine.weight_sync import (  # noqa: E402
     RayActorWeightSyncClient,
 )
@@ -27,8 +28,10 @@ def main() -> None:
     sync_root = Path(args.sync_dir).expanduser().resolve() if args.sync_dir else _default_sync_root()
     if sync_root.exists() and args.clean:
         shutil.rmtree(sync_root)
-    checkpoint_path = sync_root / "weight_v000000"
-    _write_hf_checkpoint_stub(checkpoint_path)
+    if args.mode == "full":
+        checkpoint_path, metadata, version_id = _prepare_full_smoke_checkpoint(sync_root)
+    else:
+        checkpoint_path, metadata, version_id = _prepare_delta_smoke_checkpoint(sync_root)
 
     ray.shutdown()
     ray.init(
@@ -56,13 +59,9 @@ def main() -> None:
         )
         result = client.reload_weights(
             ModelVersion(
-                version_id=0,
+                version_id=version_id,
                 checkpoint_path=str(checkpoint_path),
-                metadata={
-                    "update_weight_mode": "full",
-                    "update_weight_transport": "disk",
-                    "update_weight_path": str(checkpoint_path),
-                },
+                metadata=metadata,
             )
         )
         _assert_update_result(result, args.num_gpus)
@@ -70,6 +69,7 @@ def main() -> None:
             json.dumps(
                 {
                     "status": "passed",
+                    "mode": args.mode,
                     "num_gpus": args.num_gpus,
                     "checkpoint_path": str(checkpoint_path),
                     "actor_statuses": statuses,
@@ -87,6 +87,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run an 8-GPU Ray weight-sync smoke test.")
     parser.add_argument("--num-gpus", type=int, default=8)
     parser.add_argument("--sync-dir", type=str, default=None)
+    parser.add_argument("--mode", choices=["full", "delta"], default="full")
     parser.add_argument("--timeout-s", type=float, default=300.0)
     parser.add_argument("--clean", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
@@ -102,6 +103,45 @@ def _write_hf_checkpoint_stub(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "config.json").write_text("{}", encoding="utf-8")
     (path / "model.safetensors").write_bytes(b"stub")
+
+
+def _prepare_full_smoke_checkpoint(sync_root: Path) -> tuple[Path, dict[str, Any], int]:
+    checkpoint_path = sync_root / "weight_v000000"
+    _write_hf_checkpoint_stub(checkpoint_path)
+    return checkpoint_path, {
+        "update_weight_mode": "full",
+        "update_weight_transport": "disk",
+        "update_weight_path": str(checkpoint_path),
+    }, 0
+
+
+def _prepare_delta_smoke_checkpoint(sync_root: Path) -> tuple[Path, dict[str, Any], int]:
+    full_root = sync_root / "full"
+    base = full_root / "weight_v000000"
+    target = full_root / "weight_v000001"
+    delta = sync_root / "weight_v000001"
+    _write_hf_checkpoint_stub(base)
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "config.json").write_text("{}", encoding="utf-8")
+    (target / "model.safetensors").write_bytes(b"updated-smoke-weight")
+    publish_delta_checkpoint(
+        base_dir=base,
+        target_dir=target,
+        delta_dir=delta,
+        base_version=0,
+        target_version=1,
+        block_size=8,
+    )
+    return delta, {
+        "update_weight_mode": "delta",
+        "update_weight_transport": "disk",
+        "update_weight_path": str(delta),
+        "delta_root": str(sync_root),
+        "delta_initial": False,
+        "base_checkpoint_path": str(base),
+        "base_version_id": 0,
+        "update_weight_local_checkpoint_dir": str(sync_root / "local-checkpoint"),
+    }, 1
 
 
 def _assert_eight_gpu_placement(statuses: list[dict[str, Any]], expected: int) -> None:
@@ -171,11 +211,50 @@ class WeightSyncSmokeActor:
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         }
 
-    def update_weights(self, **payload: Any) -> dict[str, Any]:
-        validation = self.validate_weight_path(
+    def validate_weight_update(self, **payload: Any) -> dict[str, Any]:
+        metadata = dict(payload.get("metadata") or {})
+        if metadata.get("update_weight_mode") == "delta":
+            from lmms_engine.rl.training_engine.disk_delta import validate_delta_checkpoint
+
+            return {
+                "actor_index": self.index,
+                "pid": self.pid,
+                "mode": "delta",
+                "base": self.validate_weight_path(metadata["base_checkpoint_path"], require_hf_checkpoint=True),
+                "delta": validate_delta_checkpoint(payload["checkpoint_path"]),
+            }
+        return self.validate_weight_path(
             payload["checkpoint_path"],
             require_hf_checkpoint=payload.get("require_hf_checkpoint", True),
         )
+
+    def update_weights(self, **payload: Any) -> dict[str, Any]:
+        metadata = dict(payload.get("metadata") or {})
+        if metadata.get("update_weight_mode") == "delta":
+            from lmms_engine.rl.training_engine.disk_delta import (
+                apply_delta_checkpoints,
+                init_local_checkpoint,
+                local_checkpoint_state,
+            )
+
+            local_dir = metadata["update_weight_local_checkpoint_dir"]
+            init_local_checkpoint(
+                local_dir=local_dir,
+                base_dir=metadata["base_checkpoint_path"],
+                base_version=int(metadata["base_version_id"]),
+            )
+            apply_delta_checkpoints(
+                local_dir=local_dir,
+                delta_root=metadata["delta_root"],
+                target_version=int(payload["version_id"]),
+            )
+            validation = self.validate_weight_path(local_dir, require_hf_checkpoint=True)
+            validation["local_state"] = local_checkpoint_state(local_dir)
+        else:
+            validation = self.validate_weight_path(
+                payload["checkpoint_path"],
+                require_hf_checkpoint=payload.get("require_hf_checkpoint", True),
+            )
         return {
             "actor_index": self.index,
             "pid": self.pid,

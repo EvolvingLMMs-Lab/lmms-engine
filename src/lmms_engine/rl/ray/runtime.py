@@ -9,7 +9,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import ray
 from loguru import logger
@@ -67,6 +67,7 @@ class RayResourcePlan:
     train_gpus: int
     model_server_replicas: int
     model_server_gpus_per_replica: float
+    model_server_role_resources: dict[str, tuple[int, float]]
     rollout_workers: int
     rollout_max_inflight_per_worker: int
     rollout_batch_size: int
@@ -96,21 +97,34 @@ class RayResourcePlan:
 
         rollout_gpus = max(0, spec.num_nodes - 1) * spec.gpus_per_node
         train_gpus = spec.gpus_per_node
-        actor_options = dict(model_server_config.get("actor_options", {}) or {})
-        model_server_gpus_per_replica = float(actor_options.get("num_gpus") or 1.0)
-        default_model_server_replicas = max(1, int(rollout_gpus / model_server_gpus_per_replica))
-        model_server_replicas = int(model_server_config.get("num_replicas") or default_model_server_replicas)
-        rollout_workers = int(rollout_config.get("num_workers") or model_server_replicas)
+        model_server_role_resources = _model_server_role_resources(
+            rl_config,
+            rollout_gpus=rollout_gpus,
+            legacy_model_server_config=model_server_config,
+        )
+        model_server_replicas = sum(replicas for replicas, _gpus in model_server_role_resources.values())
+        model_server_gpus_per_replica = (
+            next(iter(model_server_role_resources.values()))[1] if model_server_role_resources else 1.0
+        )
+        model_server_gpu_total = sum(
+            replicas * gpus_per_replica
+            for replicas, gpus_per_replica in model_server_role_resources.values()
+        )
+        rollout_workers = int(rollout_config.get("num_workers") or model_server_replicas or 1)
         train_workers = int(ray_train_config.get("num_workers") or train_gpus)
         resources_per_worker = dict(ray_train_config.get("resources_per_worker", {}) or {})
         train_gpus_per_worker = float(resources_per_worker.get("GPU") or 1.0)
         if train_workers < 1:
             raise ValueError(f"ray_train.num_workers must be >= 1, got {train_workers}.")
-        if rollout_gpus < model_server_replicas * model_server_gpus_per_replica:
+        if rollout_gpus < model_server_gpu_total:
+            role_details = ", ".join(
+                f"{role}={replicas}x{gpus_per_replica:g}"
+                for role, (replicas, gpus_per_replica) in model_server_role_resources.items()
+            )
             raise ValueError(
                 "Not enough rollout GPUs for vLLM replicas: "
-                f"rollout_gpus={rollout_gpus}, model_server_replicas={model_server_replicas}, "
-                f"gpus_per_replica={model_server_gpus_per_replica}. "
+                f"rollout_gpus={rollout_gpus}, requested={model_server_gpu_total:g} "
+                f"({role_details}). "
                 "Check NUM_GPUS_PER_NODE and Ray node GPU registration."
             )
         if train_gpus < train_workers * train_gpus_per_worker:
@@ -126,6 +140,7 @@ class RayResourcePlan:
             train_gpus=train_gpus,
             model_server_replicas=model_server_replicas,
             model_server_gpus_per_replica=model_server_gpus_per_replica,
+            model_server_role_resources=model_server_role_resources,
             rollout_workers=rollout_workers,
             rollout_max_inflight_per_worker=int(rollout_config.get("max_inflight_per_worker") or 1),
             rollout_batch_size=int(rollout_config.get("batch_size") or 2),
@@ -143,12 +158,30 @@ class RayResourcePlan:
         self._apply_ray_train(config)
 
     def _apply_model_server(self, rl_config: dict[str, Any]) -> None:
+        model_servers = rl_config.get("model_servers")
+        if isinstance(model_servers, dict) and model_servers:
+            for server in model_servers.values():
+                if not isinstance(server, dict):
+                    continue
+                if (server.get("name") or server.get("backend")) != "ray_actor_pool":
+                    continue
+                actor_options = server.setdefault("actor_options", {})
+                actor_options.setdefault("scheduling_strategy", "DEFAULT")
+                actor_options.setdefault("resources", {})[ROLLOUT_NODE_RESOURCE] = 0.001
+                load_balancer_options = server.setdefault("load_balancer_actor_options", {})
+                load_balancer_options.setdefault("scheduling_strategy", "DEFAULT")
+                load_balancer_options.setdefault("resources", {})[ROLLOUT_NODE_RESOURCE] = 0.001
+            return
+
         model_server = rl_config.setdefault("model_server", {})
         model_server["num_replicas"] = self.model_server_replicas
         actor_options = model_server.setdefault("actor_options", {})
         actor_options["num_gpus"] = self.model_server_gpus_per_replica
         actor_options.setdefault("scheduling_strategy", "DEFAULT")
         actor_options.setdefault("resources", {})[ROLLOUT_NODE_RESOURCE] = 0.001
+        load_balancer_options = model_server.setdefault("load_balancer_actor_options", {})
+        load_balancer_options.setdefault("scheduling_strategy", "DEFAULT")
+        load_balancer_options.setdefault("resources", {})[ROLLOUT_NODE_RESOURCE] = 0.001
 
     def _apply_rollout(self, rl_config: dict[str, Any]) -> None:
         rollout = rl_config.setdefault("rollout", {})
@@ -287,6 +320,34 @@ class RayNodeScheduler:
 
     def stop(self) -> None:
         _ray_stop()
+
+
+def _model_server_role_resources(
+    rl_config: Mapping[str, Any],
+    *,
+    rollout_gpus: int,
+    legacy_model_server_config: Mapping[str, Any],
+) -> dict[str, tuple[int, float]]:
+    configured_roles = rl_config.get("model_servers")
+    if isinstance(configured_roles, Mapping) and configured_roles:
+        role_specs = {
+            str(role): spec
+            for role, spec in configured_roles.items()
+            if isinstance(spec, Mapping) and (spec.get("name") or spec.get("backend")) == "ray_actor_pool"
+        }
+    elif isinstance(legacy_model_server_config, Mapping):
+        role_specs = {"policy": legacy_model_server_config}
+    else:
+        role_specs = {}
+
+    resources: dict[str, tuple[int, float]] = {}
+    for role, spec in role_specs.items():
+        actor_options = dict(spec.get("actor_options", {}) or {})
+        gpus_per_replica = float(actor_options.get("num_gpus") or 1.0)
+        default_replicas = max(1, int(rollout_gpus / gpus_per_replica)) if len(role_specs) == 1 else 1
+        replicas = int(spec.get("num_replicas") or default_replicas)
+        resources[role] = (replicas, gpus_per_replica)
+    return resources
 
 
 class RayRLMultinodeRuntime:
