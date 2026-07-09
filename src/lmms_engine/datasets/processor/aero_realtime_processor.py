@@ -66,6 +66,11 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         self.codec_silence_label_mask_ratio = float(
             (config.extra_kwargs or {}).get("codec_silence_label_mask_ratio", 0.0)
         )
+        # Shift the codec target forward by this many audio_pad frames so the
+        # talker learns to "speak N frames ahead of the transcript". The first
+        # N audio_pad slots get filled with a silence codec (both input and
+        # label). 0 = no shift (original 1:1 alignment).
+        self.codec_shift_frames = int((config.extra_kwargs or {}).get("codec_shift_frames", 0))
 
     def build(self):
         self.processor = self._build_processor()
@@ -407,22 +412,42 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
             codec_labels = np.full((seq_len, G), -100, dtype=np.int64)
             codec_input_ids = np.full((seq_len, G), -100, dtype=np.int64)
             audio_positions = [i for i, t in enumerate(input_ids.tolist()) if t == self.audio_token_id]
-            n = min(len(audio_positions), n_frames)
-            for k in range(n):
-                codec_labels[audio_positions[k]] = codec_arr[k]
-                codec_input_ids[audio_positions[k]] = codec_arr[k]
+
+            shift = self.codec_shift_frames
+            # Silence codec: first is_silence==1 frame from this sample's codec,
+            # fallback to codec_arr[0] if no silence column or no silence frames.
+            if shift > 0:
+                silence_frame = codec_arr[0]
+                if is_silence is not None and n_frames > 0:
+                    silence_idx_arr = np.where(np.asarray(is_silence, dtype=np.uint8) == 1)[0]
+                    if silence_idx_arr.size > 0:
+                        silence_frame = codec_arr[int(silence_idx_arr[0])]
+
+            n_supervised = min(len(audio_positions), n_frames + shift)
+            for k in range(n_supervised):
+                src = k - shift
+                if src < 0:
+                    codec_labels[audio_positions[k]] = silence_frame
+                    codec_input_ids[audio_positions[k]] = silence_frame
+                else:
+                    codec_labels[audio_positions[k]] = codec_arr[src]
+                    codec_input_ids[audio_positions[k]] = codec_arr[src]
+
             # Tail audio_pad positions with no codec frame: fill inputs with the
             # last real codec frame (so embeddings are in-range); labels stay -100
             # (no supervision).
-            if n < len(audio_positions) and n > 0:
-                for k in range(n, len(audio_positions)):
-                    codec_input_ids[audio_positions[k]] = codec_arr[n - 1]
+            if n_supervised < len(audio_positions) and n_frames > 0:
+                for k in range(n_supervised, len(audio_positions)):
+                    codec_input_ids[audio_positions[k]] = codec_arr[n_frames - 1]
 
             if self.codec_silence_label_mask_ratio > 0.0 and is_silence is not None:
                 silence_arr = np.asarray(is_silence, dtype=np.uint8)
-                drop = np.random.rand(n) < self.codec_silence_label_mask_ratio
-                for k in range(n):
-                    if silence_arr[k] == 1 and drop[k]:
+                drop = np.random.rand(n_supervised) < self.codec_silence_label_mask_ratio
+                for k in range(n_supervised):
+                    src = k - shift
+                    if src < 0 or src >= n_frames:
+                        continue
+                    if silence_arr[src] == 1 and drop[k]:
                         codec_labels[audio_positions[k]] = -100
 
             inputs["codec_labels"] = torch.from_numpy(codec_labels)
