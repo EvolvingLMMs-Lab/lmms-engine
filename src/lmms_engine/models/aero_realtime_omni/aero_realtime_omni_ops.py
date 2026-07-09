@@ -264,14 +264,13 @@ def compute_talker_loss(
     packed_last_hidden_state: torch.Tensor,
     packed_input_ids: torch.Tensor,
     codec_labels_flat: torch.Tensor,
+    codec_input_ids_flat: torch.Tensor,
     cu_seq_lens: torch.Tensor,
 ) -> torch.Tensor:
     """Packed teacher-forced talker loss (group-0 + residual).
 
-    Replaces the padded-batch method on ``AeroRealtimeOmniForConditionalGeneration``.
-    Cats every sample's ``[cond(3) + body(n_i)]`` into a single packed sequence
-    and feeds it to the patched ``talker.model`` with matching ``cu_seq_lens``
-    and 3-axis ``position_ids``.
+    ``codec_input_ids_flat`` is the gold codec (for teacher-forced embeddings);
+    ``codec_labels_flat`` may contain ``-100`` at silence frames (CE targets only).
     """
     talker = self.talker
     talker_cfg = self.config.talker_config
@@ -287,7 +286,8 @@ def compute_talker_loss(
     S = cu_seq_lens.numel() - 1
 
     body_hidden_thinker = packed_last_hidden_state[audio_mask]  # [N_body, D_thinker]
-    body_codes = codec_labels_flat[audio_mask]  # [N_body, G]  (keeps -100)
+    body_label_codes = codec_labels_flat[audio_mask]  # [N_body, G]  (may have -100)
+    body_input_codes = codec_input_ids_flat[audio_mask]  # [N_body, G]  (gold)
     N_body = body_hidden_thinker.shape[0]
 
     if N_body == 0:
@@ -308,7 +308,7 @@ def compute_talker_loss(
     is_first_in_sample = torch.zeros_like(sample_body_seg, dtype=torch.bool)
     is_first_in_sample[0] = True
     is_first_in_sample[1:] = sample_body_seg[1:] != sample_body_seg[:-1]
-    prev_group0 = torch.roll(body_codes[:, 0].clamp(min=0), 1)  # [N_body]
+    prev_group0 = torch.roll(body_input_codes[:, 0], 1)  # [N_body]  (gold, no -100)
     prev_group0[is_first_in_sample] = codec_bos_id
     body_emb = text_h + codec_emb(prev_group0)  # [N_body, D_talker]
 
@@ -370,11 +370,11 @@ def compute_talker_loss(
 
     if _HAS_LIGER:
         lce = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)
-        group0_loss = lce(talker.codec_head.weight, trunk_hidden, body_codes[:, 0])
+        group0_loss = lce(talker.codec_head.weight, trunk_hidden, body_label_codes[:, 0])
     else:
         group0_logits = talker.codec_head(trunk_hidden)
-        group0_loss = F.cross_entropy(group0_logits, body_codes[:, 0], ignore_index=-100)
+        group0_loss = F.cross_entropy(group0_logits, body_label_codes[:, 0], ignore_index=-100)
 
-    _, residual_loss = talker.forward_sub_talker_finetune(body_codes, trunk_hidden)
+    _, residual_loss = talker.forward_sub_talker_finetune(body_input_codes, body_label_codes, trunk_hidden)
 
     return group0_loss + residual_loss

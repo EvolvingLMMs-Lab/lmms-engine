@@ -50,12 +50,24 @@ from lmms_engine.utils.train_utils import TrainUtilities
 
 
 def _load_codec_parquet(path):
-    """Return {id: (flat_int64, n_frames)} for one codec parquet."""
+    """Return ``{id: (flat_int64, n_frames, is_silence | None)}`` for one codec parquet.
+
+    ``is_silence`` is a length-``n_frames`` uint8 array (1 = silence frame, 0 = has
+    assistant speech) when the parquet carries the ``is_silence`` column; ``None``
+    for older codec parquets that don't have it.
+    """
     cdf = pq.read_table(path).to_pandas()
+    has_silence = "is_silence" in cdf.columns
     out = {}
     for _, r in cdf.iterrows():
-        out[r["id"]] = (np.asarray(r["codec_flat"], dtype=np.int64), int(r["codec_nframes"]))
-    logger.info(f"aero_realtime: loaded {len(out)} codec rows from {path}")
+        flat = np.asarray(r["codec_flat"], dtype=np.int64)
+        n = int(r["codec_nframes"])
+        mask = np.asarray(r["is_silence"], dtype=np.uint8) if has_silence else None
+        out[r["id"]] = (flat, n, mask)
+    logger.info(
+        f"aero_realtime: loaded {len(out)} codec rows from {path}"
+        + ("  (with is_silence)" if has_silence else "  (no is_silence column)")
+    )
     return out
 
 

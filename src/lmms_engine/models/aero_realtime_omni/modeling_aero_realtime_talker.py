@@ -1218,26 +1218,29 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
     def get_decoder(self):
         return self.model
 
-    def forward_sub_talker_finetune(self, codec_ids, talker_hidden_states):
-        assert len(codec_ids.shape) == 2
+    def forward_sub_talker_finetune(self, codec_input_ids, codec_label_ids, talker_hidden_states):
+        assert len(codec_input_ids.shape) == 2
+        assert len(codec_label_ids.shape) == 2
         assert len(talker_hidden_states.shape) == 2
-        assert codec_ids.shape[0] == talker_hidden_states.shape[0]
+        assert codec_input_ids.shape[0] == talker_hidden_states.shape[0]
+        assert codec_label_ids.shape[0] == talker_hidden_states.shape[0]
         assert talker_hidden_states.shape[1] == self.config.hidden_size
-        assert codec_ids.shape[1] == self.config.num_code_groups
+        assert codec_input_ids.shape[1] == self.config.num_code_groups
+        assert codec_label_ids.shape[1] == self.config.num_code_groups
 
         sub_talker_inputs_embeds = [talker_hidden_states.unsqueeze(1)]
 
         for i in range(self.config.num_code_groups - 1):
             if i == 0:
-                sub_talker_inputs_embeds.append(self.get_input_embeddings()(codec_ids[:, :1]))
+                sub_talker_inputs_embeds.append(self.get_input_embeddings()(codec_input_ids[:, :1]))
             else:
                 sub_talker_inputs_embeds.append(
-                    self.code_predictor.get_input_embeddings()[i - 1](codec_ids[:, i : i + 1])
+                    self.code_predictor.get_input_embeddings()[i - 1](codec_input_ids[:, i : i + 1])
                 )
         sub_talker_inputs_embeds = torch.cat(sub_talker_inputs_embeds, dim=1)
 
         sub_talker_outputs = self.code_predictor.forward_finetune(
-            inputs_embeds=sub_talker_inputs_embeds, labels=codec_ids[:, 1:]
+            inputs_embeds=sub_talker_inputs_embeds, labels=codec_label_ids[:, 1:]
         )
 
         sub_talker_logits = sub_talker_outputs.logits

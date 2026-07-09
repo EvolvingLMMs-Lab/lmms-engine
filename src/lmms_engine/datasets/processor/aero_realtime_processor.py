@@ -60,6 +60,12 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
         # model is not asked to predict silence at every audio_pad slot.
         # 0.0 = supervise all, 1.0 = never supervise rt_pad.
         self.rt_pad_label_mask_ratio = float((config.extra_kwargs or {}).get("rt_pad_label_mask_ratio", 0.0))
+        # Same idea on the codec side: at each silence-marked frame,
+        # drop ALL 16 codec groups' labels to -100 with this probability.
+        # 0.0 = supervise every silence frame, 1.0 = never supervise silence frames.
+        self.codec_silence_label_mask_ratio = float(
+            (config.extra_kwargs or {}).get("codec_silence_label_mask_ratio", 0.0)
+        )
 
     def build(self):
         self.processor = self._build_processor()
@@ -389,17 +395,38 @@ class AeroRealtimeDataProcessor(Qwen3_VLDataProcessor):
                 inputs["audio_attention_mask"] = torch.cat([enc_mask, tail_mask], dim=0)
 
         if assistant_codec is not None:
-            flat, n_frames = assistant_codec
+            if len(assistant_codec) == 3:
+                flat, n_frames, is_silence = assistant_codec
+            else:
+                flat, n_frames = assistant_codec
+                is_silence = None
             G = 16
             codec_arr = np.asarray(flat, dtype=np.int64).reshape(n_frames, G)
             input_ids = inputs["input_ids"]
             seq_len = int(input_ids.shape[0])
             codec_labels = np.full((seq_len, G), -100, dtype=np.int64)
+            codec_input_ids = np.full((seq_len, G), -100, dtype=np.int64)
             audio_positions = [i for i, t in enumerate(input_ids.tolist()) if t == self.audio_token_id]
             n = min(len(audio_positions), n_frames)
             for k in range(n):
                 codec_labels[audio_positions[k]] = codec_arr[k]
+                codec_input_ids[audio_positions[k]] = codec_arr[k]
+            # Tail audio_pad positions with no codec frame: fill inputs with the
+            # last real codec frame (so embeddings are in-range); labels stay -100
+            # (no supervision).
+            if n < len(audio_positions) and n > 0:
+                for k in range(n, len(audio_positions)):
+                    codec_input_ids[audio_positions[k]] = codec_arr[n - 1]
+
+            if self.codec_silence_label_mask_ratio > 0.0 and is_silence is not None:
+                silence_arr = np.asarray(is_silence, dtype=np.uint8)
+                drop = np.random.rand(n) < self.codec_silence_label_mask_ratio
+                for k in range(n):
+                    if silence_arr[k] == 1 and drop[k]:
+                        codec_labels[audio_positions[k]] = -100
+
             inputs["codec_labels"] = torch.from_numpy(codec_labels)
+            inputs["codec_input_ids"] = torch.from_numpy(codec_input_ids)
 
         return inputs
 
