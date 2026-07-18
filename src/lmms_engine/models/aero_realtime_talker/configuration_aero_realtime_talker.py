@@ -1,4 +1,4 @@
-# src/lmms_engine/models/aero_realtime_omni/configuration_aero_realtime_talker.py
+# src/lmms_engine/models/aero_realtime_talker/configuration_aero_realtime_talker.py
 """AeroRealtime talker configs (ported from Qwen3-TTS).
 
 Two-level codebook talker mirroring Qwen3-Omni / Qwen3-TTS:
@@ -91,15 +91,6 @@ class AeroRealtimeTalkerConfig(PretrainedConfig):
         rope_scaling: dict | None = None,
         sliding_window: int | None = None,
         num_code_groups: int = 16,
-        # thinker -> talker bridge
-        thinker_hidden_size: int = 2560,
-        # ``text_hidden_size`` (2048) is the Qwen3-TTS trunk ``text_embedding``
-        # dim -- kept at the real Qwen3-TTS-0.6B value so the pretrained
-        # ``talker.model.text_embedding.weight`` ([151936, 2048]) loads cleanly.
-        # ``thinker_hidden_size`` (2560) is the aero Qwen3-VL-4B backbone hidden,
-        # used ONLY as the input dim of ``text_projection.linear_fc1`` (Task 8).
-        # These two are SEPARATE dims (do not conflate them). ``text_vocab_size``
-        # (151936) sizes the ``text_embedding`` table.
         text_hidden_size: int = 2048,
         text_vocab_size: int = 151936,
         # codec stream special tokens (Qwen3-TTS-12Hz, confirmed)
@@ -111,6 +102,7 @@ class AeroRealtimeTalkerConfig(PretrainedConfig):
         initializer_range: float = 0.02,
         use_cache: bool = True,
         pad_token_id: int = 0,
+        tie_word_embeddings: bool = False,
         code_predictor_config=None,
         **kwargs,
     ):
@@ -142,7 +134,6 @@ class AeroRealtimeTalkerConfig(PretrainedConfig):
         self.rope_scaling = rope_scaling
         self.sliding_window = sliding_window
         self.num_code_groups = num_code_groups
-        self.thinker_hidden_size = thinker_hidden_size
         self.text_hidden_size = text_hidden_size
         self.text_vocab_size = text_vocab_size
         self.codec_bos_id = codec_bos_id
@@ -152,4 +143,8 @@ class AeroRealtimeTalkerConfig(PretrainedConfig):
         self.speaker_id = speaker_id if speaker_id is not None else {"ryan": 3061}
         self.initializer_range = initializer_range
         self.use_cache = use_cache
-        super().__init__(pad_token_id=pad_token_id, **kwargs)
+        super().__init__(
+            pad_token_id=pad_token_id,
+            tie_word_embeddings=tie_word_embeddings,
+            **kwargs,
+        )

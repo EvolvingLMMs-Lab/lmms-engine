@@ -9,9 +9,9 @@ from .aero_realtime import (
     AeroRealtimeProcessor,
     apply_liger_kernel_to_aero_realtime,
 )
-from .aero_realtime_omni import (
-    AeroRealtimeOmniConfig,
-    AeroRealtimeOmniForConditionalGeneration,
+from .aero_realtime_talker import (
+    AeroRealtimeTalkerConfig,
+    AeroRealtimeTalkerForConditionalGeneration,
 )
 from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
@@ -52,8 +52,8 @@ __all__ = [
     "AeroRealtimeConfig",
     "AeroRealtimeForConditionalGeneration",
     "AeroRealtimeProcessor",
-    "AeroRealtimeOmniConfig",
-    "AeroRealtimeOmniForConditionalGeneration",
+    "AeroRealtimeTalkerConfig",
+    "AeroRealtimeTalkerForConditionalGeneration",
     "apply_liger_kernel_to_aero_realtime",
     "Bagel",
     "BagelConfig",

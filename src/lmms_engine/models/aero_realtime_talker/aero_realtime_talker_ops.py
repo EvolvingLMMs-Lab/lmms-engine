@@ -1,4 +1,4 @@
-"""Talker rmpad + Ulysses ops for aero_realtime_omni.
+"""Talker rmpad + Ulysses ops for aero_realtime_talker.
 
 Derived from ``qwen3_vl_ops`` (text_model_forward / decoder_layer_forward /
 attn_forward). The talker is a Qwen-style causal LM with 3-axis mrope; here we:
@@ -33,8 +33,6 @@ from lmms_engine.parallel.sequence_parallel.ulysses import (
     ulysses_pad,
     ulysses_pad_and_slice_inputs,
 )
-
-from ..sequence_packing_utils import _unpad_input
 
 if is_flash_attn_2_available():
     from flash_attn.bert_padding import index_first_axis, rearrange
@@ -260,50 +258,67 @@ def attn_forward(
 
 
 def compute_talker_loss(
-    self,  # AeroRealtimeOmniForConditionalGeneration
-    packed_last_hidden_state: torch.Tensor,
-    packed_input_ids: torch.Tensor,
+    self,  # AeroRealtimeTalkerForConditionalGeneration
+    text_stream_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    codec_input_ids: torch.Tensor,
+    codec_labels: torch.Tensor,
+) -> tuple[torch.Tensor, int]:
+    """Packed teacher-forced talker loss (group-0 + residual)."""
+    valid_mask = attention_mask.bool()
+    indices = torch.nonzero(valid_mask.flatten(), as_tuple=False).flatten()
+    lengths = valid_mask.sum(dim=-1, dtype=torch.int32)
+    cu_seq_lens = F.pad(torch.cumsum(lengths, dim=0, dtype=torch.int32), (1, 0))
+    packed_text_stream_ids = text_stream_ids.reshape(-1)[indices]
+    codec_input_ids_flat = codec_input_ids.reshape(-1, codec_input_ids.shape[-1])[indices]
+    codec_labels_flat = codec_labels.reshape(-1, codec_labels.shape[-1])[indices]
+
+    loss, num_codec_frames = _compute_packed_talker_loss(
+        self,
+        packed_text_stream_ids=packed_text_stream_ids,
+        codec_labels_flat=codec_labels_flat,
+        codec_input_ids_flat=codec_input_ids_flat,
+        cu_seq_lens=cu_seq_lens,
+    )
+    return loss, num_codec_frames
+
+
+def _compute_packed_talker_loss(
+    self,
+    packed_text_stream_ids: torch.Tensor,
     codec_labels_flat: torch.Tensor,
     codec_input_ids_flat: torch.Tensor,
     cu_seq_lens: torch.Tensor,
-) -> torch.Tensor:
-    """Packed teacher-forced talker loss (group-0 + residual).
+) -> tuple[torch.Tensor, int]:
+    speaker_id = next(iter(self.config.speaker_id.values()))
+    codec_bos_id = self.config.codec_bos_id
+    codec_nothink_id = self.config.codec_nothink_id
 
-    ``codec_input_ids_flat`` is the gold codec (for teacher-forced embeddings);
-    ``codec_labels_flat`` may contain ``-100`` at silence frames (CE targets only).
-    """
-    talker = self.talker
-    talker_cfg = self.config.talker_config
-    audio_token_id = self.config.thinker_config.audio_token_index
-    speaker_id = self._default_speaker_id
-    codec_bos_id = talker_cfg.codec_bos_id
-    codec_nothink_id = talker_cfg.codec_nothink_id
+    device = packed_text_stream_ids.device
+    codec_emb = self.get_input_embeddings()
 
-    device = packed_last_hidden_state.device
-    codec_emb = talker.get_input_embeddings()
-
-    audio_mask = packed_input_ids == audio_token_id  # [T]
+    audio_mask = codec_input_ids_flat[:, 0] != -100
     S = cu_seq_lens.numel() - 1
 
-    body_hidden_thinker = packed_last_hidden_state[audio_mask]  # [N_body, D_thinker]
+    body_text_ids = packed_text_stream_ids[audio_mask]
     body_label_codes = codec_labels_flat[audio_mask]  # [N_body, G]  (may have -100)
     body_input_codes = codec_input_ids_flat[audio_mask]  # [N_body, G]  (gold)
-    N_body = body_hidden_thinker.shape[0]
+    N_body = body_text_ids.shape[0]
 
     if N_body == 0:
-        return packed_last_hidden_state.sum() * 0.0
+        return self.get_text_embeddings().weight.sum() * 0.0, 0
 
-    thinker_seg = torch.repeat_interleave(
+    packed_sample_ids = torch.repeat_interleave(
         torch.arange(S, device=device, dtype=cu_seq_lens.dtype),
         torch.diff(cu_seq_lens),
     )  # [T]
     body_lens = torch.zeros(S, dtype=torch.long, device=device).scatter_add_(
         0,
-        thinker_seg[audio_mask].long(),
+        packed_sample_ids[audio_mask].long(),
         torch.ones(N_body, dtype=torch.long, device=device),
     )  # [S]
 
-    text_h = talker.text_projection(body_hidden_thinker)  # [N_body, D_talker]
+    text_h = self.text_projection(self.get_text_embeddings()(body_text_ids))
     sample_body_seg = torch.repeat_interleave(torch.arange(S, device=device, dtype=torch.long), body_lens)  # [N_body]
     is_first_in_sample = torch.zeros_like(sample_body_seg, dtype=torch.bool)
     is_first_in_sample[0] = True
@@ -328,7 +343,7 @@ def compute_talker_loss(
     is_cond_token = local_pos < 3  # [N]
     is_body_token = ~is_cond_token  # [N]
 
-    d_talker = talker.config.hidden_size
+    d_talker = self.config.hidden_size
     packed = body_emb.new_empty(N, d_talker)
     packed[is_cond_token] = cond_emb_all.to(packed.dtype)
     packed[is_body_token] = body_emb
@@ -354,7 +369,7 @@ def compute_talker_loss(
             # from the last real sample.
             cu_seq_lens_talker = torch.cat([cu_seq_lens_talker, cu_seq_lens_talker.new_tensor([N + pad_size])])
 
-    trunk_out = talker.model(
+    trunk_out = self.model(
         inputs_embeds=packed,
         cu_seq_lens=cu_seq_lens_talker,
         position_ids=position_ids,
@@ -368,13 +383,16 @@ def compute_talker_loss(
         trunk_hidden_all = gather_outputs_and_unpad(trunk_hidden_all, gather_dim=0, unpad_dim=0, padding_size=pad_size)
     trunk_hidden = trunk_hidden_all[is_body_token]  # [N_body, D_talker]
 
+    if not torch.any(body_label_codes != -100):
+        return trunk_hidden.sum() * 0.0, N_body
+
     if _HAS_LIGER:
         lce = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)
-        group0_loss = lce(talker.codec_head.weight, trunk_hidden, body_label_codes[:, 0])
+        group0_loss = lce(self.codec_head.weight, trunk_hidden, body_label_codes[:, 0])
     else:
-        group0_logits = talker.codec_head(trunk_hidden)
+        group0_logits = self.codec_head(trunk_hidden)
         group0_loss = F.cross_entropy(group0_logits, body_label_codes[:, 0], ignore_index=-100)
 
-    _, residual_loss = talker.forward_sub_talker_finetune(body_input_codes, body_label_codes, trunk_hidden)
+    _, residual_loss = self.forward_sub_talker_finetune(body_input_codes, body_label_codes, trunk_hidden)
 
-    return group0_loss + residual_loss
+    return group0_loss + residual_loss, N_body

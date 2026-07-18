@@ -956,6 +956,8 @@ class AeroRealtimeTalkerOutputWithPast(ModelOutput):
     generation_step: Optional[int] = None
     trailing_text_hidden: Optional[torch.FloatTensor] = None
     tts_pad_embed: Optional[torch.FloatTensor] = None
+    codec_loss: Optional[torch.FloatTensor] = None
+    num_codec_frames: Optional[int] = None
 
 
 class AeroRealtimeTalkerDecoderLayer(GradientCheckpointingLayer):
@@ -1183,7 +1185,7 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
         self.model = AeroRealtimeTalkerModel(config)
         self.vocab_size = config.vocab_size
         self.text_projection = AeroRealtimeTalkerResizeMLP(
-            config.thinker_hidden_size, config.text_hidden_size, config.hidden_size, config.hidden_act, bias=True
+            config.text_hidden_size, config.text_hidden_size, config.hidden_size, config.hidden_act, bias=True
         )
 
         self.codec_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
@@ -1197,6 +1199,76 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
 
         # TODO: hack, modular cannot inherit multiple classes
 
+    def compute_talker_loss(
+        self,
+        text_stream_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        codec_input_ids: torch.Tensor,
+        codec_labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, int]:
+        frame_mask = codec_input_ids[..., 0] != -100
+        frame_mask &= attention_mask.bool()
+        speaker_id = next(iter(self.config.speaker_id.values()))
+        codec_emb = self.get_input_embeddings()
+        cond_ids = text_stream_ids.new_tensor([self.config.codec_bos_id, self.config.codec_nothink_id, speaker_id])
+
+        sequence_embeddings = []
+        body_lengths = []
+        label_segments = []
+        input_segments = []
+        for sample_idx in range(text_stream_ids.shape[0]):
+            sample_mask = frame_mask[sample_idx]
+            sample_text_ids = text_stream_ids[sample_idx][sample_mask]
+            if sample_text_ids.numel() == 0:
+                continue
+
+            sample_inputs = codec_input_ids[sample_idx][sample_mask]
+            sample_labels = codec_labels[sample_idx][sample_mask]
+            previous_group0 = sample_inputs.new_empty(sample_inputs.shape[0])
+            previous_group0[0] = self.config.codec_bos_id
+            previous_group0[1:] = sample_inputs[:-1, 0]
+
+            text_embeddings = self.text_projection(self.get_text_embeddings()(sample_text_ids))
+            body_embeddings = text_embeddings + codec_emb(previous_group0)
+            sequence_embeddings.append(torch.cat([codec_emb(cond_ids), body_embeddings], dim=0))
+            body_lengths.append(sample_text_ids.shape[0])
+            label_segments.append(sample_labels)
+            input_segments.append(sample_inputs)
+
+        if not sequence_embeddings:
+            return self.get_text_embeddings().weight.sum() * 0.0, 0
+
+        max_length = max(sequence.shape[0] for sequence in sequence_embeddings)
+        batch_embeddings = sequence_embeddings[0].new_zeros(
+            len(sequence_embeddings), max_length, self.config.hidden_size
+        )
+        talker_attention_mask = attention_mask.new_zeros(len(sequence_embeddings), max_length)
+        for sample_idx, sequence in enumerate(sequence_embeddings):
+            batch_embeddings[sample_idx, : sequence.shape[0]] = sequence
+            talker_attention_mask[sample_idx, : sequence.shape[0]] = 1
+
+        trunk_output = self.model(
+            inputs_embeds=batch_embeddings,
+            attention_mask=talker_attention_mask,
+            use_cache=False,
+        )
+        trunk_hidden = torch.cat(
+            [
+                trunk_output.last_hidden_state[sample_idx, 3 : 3 + body_length]
+                for sample_idx, body_length in enumerate(body_lengths)
+            ],
+            dim=0,
+        )
+        label_codes = torch.cat(label_segments, dim=0)
+        input_codes = torch.cat(input_segments, dim=0)
+
+        if not torch.any(label_codes != -100):
+            return trunk_hidden.sum() * 0.0, int(frame_mask.sum().item())
+
+        group0_loss = F.cross_entropy(self.codec_head(trunk_hidden), label_codes[:, 0], ignore_index=-100)
+        _, residual_loss = self.forward_sub_talker_finetune(input_codes, label_codes, trunk_hidden)
+        return group0_loss + residual_loss, int(frame_mask.sum().item())
+
     def get_input_embeddings(self):
         return self.model.get_input_embeddings()
 
@@ -1207,10 +1279,10 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
         self.model.embed_tokens = value
 
     def get_output_embeddings(self):
-        return self.lm_head
+        return self.codec_head
 
     def set_output_embeddings(self, new_embeddings):
-        self.lm_head = new_embeddings
+        self.codec_head = new_embeddings
 
     def set_decoder(self, decoder):
         self.model = decoder
@@ -1251,11 +1323,14 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
     def forward(
         self,
         input_ids=None,
+        text_stream_ids=None,
         attention_mask=None,
         position_ids=None,
         past_key_values=None,
         inputs_embeds=None,
         labels=None,
+        codec_input_ids=None,
+        codec_labels=None,
         use_cache=None,
         output_attentions=None,
         output_hidden_states=None,
@@ -1276,6 +1351,23 @@ class AeroRealtimeTalkerForConditionalGeneration(AeroRealtimeTalkerPreTrainedMod
             config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
             (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
         ```"""
+        if codec_input_ids is not None or codec_labels is not None:
+            if text_stream_ids is None or codec_input_ids is None or codec_labels is None:
+                raise ValueError("text_stream_ids, codec_input_ids, and codec_labels are required for training")
+            if attention_mask is None:
+                attention_mask = torch.ones_like(text_stream_ids)
+            codec_loss, num_codec_frames = self.compute_talker_loss(
+                text_stream_ids=text_stream_ids,
+                attention_mask=attention_mask,
+                codec_input_ids=codec_input_ids,
+                codec_labels=codec_labels,
+            )
+            return AeroRealtimeTalkerOutputWithPast(
+                loss=codec_loss,
+                codec_loss=codec_loss,
+                num_codec_frames=num_codec_frames,
+            )
+
         # Prefill
         if inputs_embeds is not None and inputs_embeds.shape[1] > 1:
             generation_step = -1

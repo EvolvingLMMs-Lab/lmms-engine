@@ -1,4 +1,4 @@
-"""LigerCE ops for aero_realtime_omni talker.
+"""LigerCE ops for aero_realtime_talker.
 
 Replaces the materialized logits path in
 ``AeroRealtimeTalkerForConditionalGeneration.forward_sub_talker_finetune``
