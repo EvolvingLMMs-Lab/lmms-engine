@@ -167,6 +167,9 @@ def main(args):
     vision_text_config = AutoConfig.from_pretrained(args.vision_model_id)
     text_config = vision_text_config.text_config
     vision_config = vision_text_config.vision_config
+    # Backbones declare tying at the top level only; the sub text_config falls
+    # back to its class default, which is wrong for e.g. Qwen3-VL-30B-A3B.
+    text_config.tie_word_embeddings = vision_text_config.tie_word_embeddings
 
     # ----- audio config: Qwen3-Omni layer dims + Qwen2-Audio mel + LayerNorm/GELU -----
     audio_config = AeroRealtimeAudioEncoderConfig(
