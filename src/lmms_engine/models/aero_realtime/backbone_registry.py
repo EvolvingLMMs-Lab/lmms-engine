@@ -208,8 +208,8 @@ def family_rmpad_fn(family: str):
 # ---------------------------------------------------------------------------
 # ViT frame-parallel dispatch (optional per family).
 #
-# ``qwen3_vl`` and ``qwen3_5`` expose frame-parallel ViT wraps today; the
-# other two families fall back to no-op. The wrap is a *class-level* monkey-patch
+# ``qwen3_vl``, ``qwen3_vl_moe`` and ``qwen3_5`` expose frame-parallel ViT wraps
+# today; ``qwen3_5_moe`` falls back to no-op. The wrap is a *class-level* monkey-patch
 # on the family's VisionModel class, so it works for aero out of the box
 # once the right family fn is called.
 # ---------------------------------------------------------------------------
@@ -222,9 +222,13 @@ def _build_family_vit_frame_parallel_dispatch():
     from lmms_engine.models.qwen3_vl.monkey_patch import (
         apply_vit_frame_parallel_to_qwen3_vl,
     )
+    from lmms_engine.models.qwen3_vl_moe.monkey_patch import (
+        apply_vit_frame_parallel_to_qwen3_vl_moe,
+    )
 
     return {
         "qwen3_vl": apply_vit_frame_parallel_to_qwen3_vl,
+        "qwen3_vl_moe": apply_vit_frame_parallel_to_qwen3_vl_moe,
         "qwen3_5": apply_vit_frame_parallel_to_qwen3_5,
     }
 
