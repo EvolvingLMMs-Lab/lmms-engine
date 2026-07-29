@@ -77,6 +77,7 @@ class FlopsCounter:
             "qwen3_vl": self._estimate_qwen2_flops,
             "qwen3_vl_moe": self._estimate_qwen2_moe_flops,
             "aero_realtime": self._estimate_qwen2_flops,
+            "aero_realtime_moe": self._estimate_qwen2_moe_flops,
             "deepseek_v3": self._estimate_deepseek_v3_flops,
             "minicpmv": self._estimate_qwen2_flops,
             "minicpmo": self._estimate_qwen2_flops,
@@ -99,6 +100,13 @@ class FlopsCounter:
         ]:
             self.config = config.text_config
             self.config.model_type = config.model_type
+            if config.model_type == "aero_realtime":
+                from lmms_engine.models.aero_realtime.backbone_registry import (
+                    family_is_moe,
+                )
+
+                if family_is_moe(config.backbone_family):
+                    self.config.model_type = "aero_realtime_moe"
         elif config.model_type == "bagel":
             self.config = config.llm_config
         else:
