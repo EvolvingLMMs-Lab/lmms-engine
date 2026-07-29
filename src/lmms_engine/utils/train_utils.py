@@ -156,6 +156,8 @@ class TrainUtilities:
             flops = 148e12
         elif "910B" in device_name:
             flops = 354e12
+        elif "A6000" in device_name:
+            flops = 154.8e12
         elif "RTX 3070 Ti" in device_name:
             flops = 21.75e12
         flops_unit = unit_convert(flops, unit)
