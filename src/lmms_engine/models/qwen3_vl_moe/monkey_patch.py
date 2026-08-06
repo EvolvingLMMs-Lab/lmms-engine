@@ -1,5 +1,6 @@
 from functools import partial, wraps
 
+from loguru import logger
 from packaging import version
 
 try:
@@ -154,3 +155,39 @@ def apply_liger_kernel_to_qwen3_vl_moe(
 
     # Always patch SparseMoeBlock forward (handles both < 5.0 and >= 5.0 via hasattr gate check)
     modeling_qwen3_vl_moe.Qwen3VLMoeTextSparseMoeBlock.forward = qwen3_vl_moe_moe_sparse_layer_forward
+
+
+@MONKEY_PATCHER.register("qwen3_vl_moe", "vit_frame_parallel")
+def apply_vit_frame_parallel_to_qwen3_vl_moe(model: PreTrainedModel = None, **kwargs) -> None:
+    """Wrap ``Qwen3VLMoeVisionModel.forward`` with DPxCP frame-parallel dispatch.
+
+    The MoE ViT is identical to the dense Qwen3-VL one, so the dense dispatch
+    ops are reused as-is.
+    """
+    from lmms_engine.models.qwen3_vl.qwen3_vl_vit_ops import (
+        input_dispatch,
+        output_dispatch,
+    )
+    from lmms_engine.parallel.vit_parallel.frame_parallel import wrap_vit_forward
+
+    if pgm.process_group_manager is None:
+        logger.info("vit_frame_parallel: process_group_manager not initialized, skipping ViT wrap")
+        return
+
+    dp_cp_world_size = pgm.process_group_manager.dp_cp_world_size
+    if dp_cp_world_size <= 1:
+        logger.info("vit_frame_parallel: dp_cp_world_size <= 1, skipping ViT wrap")
+        return
+
+    dp_cp_group = pgm.process_group_manager.dp_cp_group
+    cp_group = pgm.process_group_manager.cp_group if pgm.process_group_manager.cp_world_size > 1 else None
+
+    modeling_qwen3_vl_moe.Qwen3VLMoeVisionModel.forward = wrap_vit_forward(
+        input_dispatch=partial(input_dispatch, group=dp_cp_group, cp_group=cp_group),
+        orig_forward=modeling_qwen3_vl_moe.Qwen3VLMoeVisionModel.forward,
+        output_dispatch=output_dispatch,
+    )
+    logger.info(
+        f"vit_frame_parallel: wrapped Qwen3VLMoeVisionModel.forward "
+        f"(dp_cp_size={dp_cp_world_size}, cp_size={pgm.process_group_manager.cp_world_size})"
+    )
