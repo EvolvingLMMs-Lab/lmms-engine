@@ -25,12 +25,11 @@ dist/
 develop-eggs/
 .eggs/
 sdist/
-wheels/
 MANIFEST
 
 # Environments
 .env
-.venv
+.venv*
 venv/
 env/
 ENV/

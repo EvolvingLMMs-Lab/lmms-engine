@@ -54,13 +54,13 @@ uv pip install liger-kernel
 ```
 
 ### Docker
-We provide [Docker images](https://hub.docker.com/r/fatbao55/lmms-engine/tags) with pre-built environments including PyTorch, CUDA, and all necessary dependencies.
+We provide [Docker images](https://hub.docker.com/r/kcz358/lmms-engine/tags) with pre-built PyTorch, CUDA, FlashAttention, and training dependencies.
 
 ```bash
 docker run --gpus all -it --rm \
   -v $(pwd):/workspace \
-  -w /workspace \  
-  fatbao55/lmms-engine:v1.0 \
+  -w /workspace \
+  kcz358/lmms-engine:0.1.4 \
   bash
 ```
 
