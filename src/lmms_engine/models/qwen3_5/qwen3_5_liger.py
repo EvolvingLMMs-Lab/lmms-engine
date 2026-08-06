@@ -72,11 +72,12 @@ def qwen3_5_lce_forward(
 
     hidden_states = outputs[0]
 
-    labels_unpad = labels.view(-1)[word_idx.long()]
-    if get_ulysses_sequence_parallel_world_size() > 1:
-        seq_lens = calculate_seq_len_per_rank(seq_lens.tolist()) if seq_lens is not None else None
-        labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
-    labels = labels_unpad
+    if labels is not None and word_idx is not None:
+        labels_unpad = labels.view(-1)[word_idx.long()]
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            seq_lens = calculate_seq_len_per_rank(seq_lens.tolist()) if seq_lens is not None else None
+            labels_unpad = slice_input_tensor(labels_unpad, dim=0, padding=True)
+        labels = labels_unpad
 
     logits = None
     loss = None

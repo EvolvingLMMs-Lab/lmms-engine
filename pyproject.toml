@@ -73,6 +73,13 @@ eval = [
     "httpx",
 ]
 
+rl = [
+    "ray",
+    "openai",
+    "pytz",
+    "vizdoom",
+]
+
 video = [
     "lmms-video-utils[all]>=0.1.0",
 ]
