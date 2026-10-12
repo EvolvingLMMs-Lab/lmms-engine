@@ -15,13 +15,10 @@ from omegaconf import DictConfig, OmegaConf
 from lmms_engine.parallel.process_group_manager import setup_process_group_manager
 from lmms_engine.utils.logging_utils import setup_distributed_logging
 
-from ..datasets import DatasetConfig
-from ..eval import EvalConfig
-from ..models import ModelConfig
-from ..train import TrainerConfig, TrainingArguments, TrainRunner
-
 
 def filter_training_args(kwargs: dict) -> dict:
+    from ..train import TrainingArguments
+
     valid_params = set(inspect.signature(transformers.TrainingArguments.__init__).parameters.keys())
     valid_params.discard("self")
 
@@ -43,6 +40,16 @@ def filter_training_args(kwargs: dict) -> dict:
 
 
 def create_train_task(config):
+    if config.get("trainer_type") == "megatron":
+        from lmms_engine.megatron.runner import MegatronRunner
+
+        return MegatronRunner(config)
+
+    from ..datasets import DatasetConfig
+    from ..eval import EvalConfig
+    from ..models import ModelConfig
+    from ..train import TrainerConfig, TrainingArguments, TrainRunner
+
     dataset_config = config.pop("dataset_config")
     dataset_config = DatasetConfig(**dataset_config)
 
@@ -118,10 +125,7 @@ def create_train_task(config):
 
 
 def save_config(config):
-    if dist.is_initialized():
-        rank = int(os.environ["LOCAL_RANK"])
-    else:
-        rank = 0
+    rank = int(os.environ.get("RANK", "0"))
     if rank == 0:
         data_config = config.get("dataset_config")
         trainer_args = config.get("trainer_args")
@@ -135,7 +139,7 @@ def save_config(config):
         with open(os.path.join(output_dir, "config.yaml"), "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
     if dist.is_initialized():
-        dist.barrier(device_ids=[rank])
+        dist.barrier()
 
 
 @hydra.main(version_base=None, config_path="config", config_name="default_config")
@@ -145,7 +149,7 @@ def main(config: DictConfig):
     config = yaml.safe_load(config)
 
     # If you have a predefined config yaml
-    config_yaml = config.pop("config_yaml")
+    config_yaml = config.pop("config_yaml", None)
     if config_yaml:
         logger.info(
             f"Detected config yaml, merging with the default config. Will use the args in {config_yaml} to override current config."
@@ -153,12 +157,14 @@ def main(config: DictConfig):
         with open(config_yaml, "r") as f:
             config_yaml = yaml.safe_load(f)
         config.update(config_yaml)
+    config = OmegaConf.to_container(OmegaConf.create(config), resolve=True)
     original_config = deepcopy(config)
     task = create_train_task(config)
     save_config(original_config)
     task.build()
     task.run()
-    dist.destroy_process_group()
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

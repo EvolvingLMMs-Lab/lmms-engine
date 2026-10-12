@@ -1,0 +1,47 @@
+trainer_type: megatron
+model_config:
+  load_from_pretrained_path: ${oc.env:CHECKPOINT_ROOT}/Qwen3-VL-8B-Instruct
+dataset_config:
+  dataset_type: qwen3_vl
+  dataset_format: yaml
+  datasets:
+    - path: data/samples.parquet
+      data_folder: data/images
+      data_type: parquet
+  processor_config:
+    processor_type: qwen3_vl
+    processor_name: ${oc.env:CHECKPOINT_ROOT}/Qwen3-VL-8B-Instruct
+    extra_kwargs:
+      image_max_pixels: 262144
+  shuffle: true
+  data_seed: 42
+  filter_overlong: false
+  filter_overlong_workers: 1
+trainer_args:
+  output_dir: output/megatron/qwen3-vl
+  max_steps: 200
+  per_device_train_batch_size: 1 # Microbatch size per DP rank; THD requires 1 pack, possibly containing multiple samples.
+  gradient_accumulation_steps: 1
+  learning_rate: 5.0e-6
+  lr_scheduler_type: cosine
+  warmup_steps: 0
+  logging_steps: 1
+  save_steps: 200
+  seed: 42
+logger_config:
+  wandb_project: lmms-engine
+  wandb_exp_name: qwen3-vl-8b-megatron
+  wandb_mode: offline
+  wandb_entity: null
+megatron_config:
+  tensor_model_parallel_size: 2
+  pipeline_model_parallel_size: 2
+  context_parallel_size: 2
+  sequence_parallel: true
+  seq_length: 32768
+  online_packing: true
+  attention_backend: flash
+  gpu_peak_tflops: null
+  recompute_granularity: full
+  recompute_method: uniform
+  recompute_num_layers: 1
