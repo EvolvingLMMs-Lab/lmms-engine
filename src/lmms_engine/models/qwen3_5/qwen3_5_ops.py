@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
+from packaging.version import Version
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 from transformers.models.qwen3_5.modeling_qwen3_5 import (
@@ -68,12 +69,15 @@ except ImportError:
     _HAS_CAUSAL_CONV1D = False
 
 try:
+    from fla import __version__ as fla_version
     from fla.ops.gated_delta_rule import chunk_gated_delta_rule
 
     _HAS_FLA = True
+    _HAS_FLA_GVA = Version(fla_version) >= Version("0.5.0")
 except ImportError:
     chunk_gated_delta_rule = None
     _HAS_FLA = False
+    _HAS_FLA_GVA = False
 
 try:
     from fla.modules.conv.cp.ops import causal_conv1d_cp
@@ -255,7 +259,7 @@ def linear_attn_forward(
     beta = b.sigmoid()
     # If the model is loaded in fp16, without the .float() here, A might be -inf
     g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
-    if self.num_v_heads // self.num_k_heads > 1:
+    if not _HAS_FLA_GVA and self.num_v_heads // self.num_k_heads > 1:
         query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
         key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
 
