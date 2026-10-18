@@ -68,6 +68,10 @@ pip install flash-linear-attention
 
 Required for the packed path; raises at runtime if missing.
 
+FLA >= 0.5.0 uses native grouped value attention (GVA), avoiding explicit
+Q/K head replication in both packed and context-parallel training. Older
+versions retain the explicit replication path for compatibility.
+
 ### Optional but recommended: `causal_conv1d`
 
 ```bash
