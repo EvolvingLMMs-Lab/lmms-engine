@@ -46,6 +46,14 @@ class VisionCollator:
                 padding_value=-100,
             )
             batched_inputs["labels"] = labels
+        if "mm_token_type_ids" in inputs.keys():
+            mm_token_type_ids = inputs.pop("mm_token_type_ids")
+            mm_token_type_ids = self.pad_sequence(
+                mm_token_type_ids,
+                batch_first=True,
+                padding_value=0,
+            )
+            batched_inputs["mm_token_type_ids"] = mm_token_type_ids
 
         if "attention_mask" in inputs.keys():
             inputs.pop("attention_mask")

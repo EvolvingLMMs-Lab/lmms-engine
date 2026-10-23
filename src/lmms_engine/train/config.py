@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 import transformers
 
@@ -49,6 +49,9 @@ class TrainingArguments(transformers.TrainingArguments):
     # --- Eval Server Configuration ---
     eval_config: Optional[Dict[str, Any]] = None
 
+    # --- RL orchestration configuration ---
+    rl_config: Optional[Dict[str, Any]] = None
+
     # --- Compute / CO2 Tracking ---
     carbon_intensity: Optional[float] = 0.475  # kgCO2/kWh, global average
 
@@ -58,7 +61,7 @@ class TrainingArguments(transformers.TrainingArguments):
 
 @dataclass
 class TrainerConfig:
-    trainer_type: Literal["hf_trainer", "fsdp2_trainer"]
+    trainer_type: str
     dataset_config: DatasetConfig
     trainer_args: TrainingArguments
     model_config: ModelConfig
