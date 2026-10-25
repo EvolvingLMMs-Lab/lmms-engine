@@ -74,6 +74,7 @@ class FlopsCounter:
             "qwen3_moe": self._estimate_qwen2_moe_flops,
             "qwen3_omni_moe": self._estimate_qwen2_moe_flops,
             "qwen3_omni_moe_thinker": self._estimate_qwen2_moe_flops,
+            "qwen3_5": self._estimate_qwen3_5_flops,
             "qwen3_vl": self._estimate_qwen2_flops,
             "qwen3_vl_moe": self._estimate_qwen2_moe_flops,
             "aero_realtime": self._estimate_qwen2_flops,
@@ -151,6 +152,73 @@ class FlopsCounter:
 
         # all_layer & all_token fwd & bwd flops
         flops_all_token = dense_N_flops + attn_qkv_flops
+        flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+        return flops_achieved, flops_all_token
+
+    def _estimate_qwen3_5_flops(self, tokens_sum, batch_seqlens, delta_time):
+        # Qwen3.5 is a hybrid model: most layers are Gated DeltaNet (linear attention),
+        # every full_attention_interval-th layer is gated full attention. Same accounting as
+        # verl's _estimate_qwen3_5_flops, with this file's full-attention factor (12).
+        config = self.config
+        hidden_size = config.hidden_size
+        vocab_size = config.vocab_size
+        num_hidden_layers = config.num_hidden_layers
+        num_key_value_heads = config.num_key_value_heads
+        num_attention_heads = config.num_attention_heads
+        intermediate_size = config.intermediate_size
+
+        head_dim = getattr(
+            config,
+            "head_dim",
+            config.hidden_size // config.num_attention_heads,
+        )
+        q_size = num_attention_heads * head_dim
+        k_size = num_key_value_heads * head_dim
+        v_size = num_key_value_heads * head_dim
+
+        layer_types = getattr(config, "layer_types", None)
+        if layer_types:
+            num_full_attn_layers = sum(layer_type == "full_attention" for layer_type in layer_types)
+        else:
+            interval = getattr(config, "full_attention_interval", 4)
+            num_full_attn_layers = num_hidden_layers // interval
+        num_linear_attn_layers = num_hidden_layers - num_full_attn_layers
+
+        # full attention: q_proj also emits the output gate (2x query size), plus k, v, o
+        full_attn_linear_N = hidden_size * (2 * q_size + k_size + v_size + q_size)
+        # Gated DeltaNet: in_proj_qkvz (2k + 2v), in_proj_ba (2 * value heads), out_proj (v), short conv over q, k, v
+        linear_k_size = config.linear_num_key_heads * config.linear_key_head_dim
+        linear_v_size = config.linear_num_value_heads * config.linear_value_head_dim
+        linear_attn_linear_N = hidden_size * (2 * linear_k_size + 3 * linear_v_size + 2 * config.linear_num_value_heads)
+        conv_N = config.linear_conv_kernel_dim * (2 * linear_k_size + linear_v_size)
+
+        mlp_N = hidden_size * intermediate_size * 3
+        emd_and_lm_head_N = vocab_size * hidden_size * 2
+        dense_N = (
+            mlp_N * num_hidden_layers
+            + full_attn_linear_N * num_full_attn_layers
+            + (linear_attn_linear_N + conv_N) * num_linear_attn_layers
+            + emd_and_lm_head_N
+        )
+        dense_N_flops = 6 * dense_N * tokens_sum
+
+        # quadratic attention only in the full-attention layers
+        seqlen_square_sum = 0
+        for seqlen in batch_seqlens:
+            seqlen_square_sum += seqlen * seqlen
+        attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_full_attn_layers
+
+        # DeltaNet recurrence is linear in the sequence length
+        gdn_recurrence_flops = (
+            15
+            * config.linear_key_head_dim
+            * config.linear_value_head_dim
+            * config.linear_num_value_heads
+            * tokens_sum
+            * num_linear_attn_layers
+        )
+
+        flops_all_token = dense_N_flops + attn_qkv_flops + gdn_recurrence_flops
         flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
         return flops_achieved, flops_all_token
 
