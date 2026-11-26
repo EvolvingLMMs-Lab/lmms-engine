@@ -2027,6 +2027,10 @@ class MiniCPMOForTraining(MiniCPMO):
     part of this training path).
     """
 
+    # Sensible default for FSDP2 wrapping when the user does not configure
+    # ``fsdp_config.transformer_layer_cls_to_wrap`` explicitly.
+    _no_split_modules = ["Qwen3DecoderLayer"]
+
     def __init__(self, config):
         super().__init__(config)
         # Keep the Whisper positional table out of the FSDP2 embedding wrap

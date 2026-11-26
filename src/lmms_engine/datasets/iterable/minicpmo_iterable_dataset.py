@@ -51,6 +51,13 @@ class MiniCPMOIterableDataset(MultiModalIterableDataset):
                 self.data_folder = [None] * len(self.data_list)
 
     def load_from_json(self, data, data_folder=None) -> Dict[str, torch.Tensor]:
+        # With the plain json format no data_folder is threaded through by
+        # the base class; resolve relative media paths next to the dataset
+        # file so they work regardless of the launch working directory.
+        if data_folder is None:
+            dataset_dir = os.path.dirname(os.path.abspath(self.config.dataset_path or ""))
+            data_folder = dataset_dir or None
+
         images: List[Image.Image] = []
         audios: List[np.ndarray] = []
         messages = data["messages"]
