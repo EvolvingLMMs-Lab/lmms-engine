@@ -4,6 +4,7 @@ from .bagel_processor import BagelDataProcessor
 from .base_qwen2_5_processor import BaseQwen2_5_DataProcessor
 from .config import ProcessorConfig
 from .llava_onevision2_processor import LlavaOnevision2DataProcessor
+from .minicpmo_processor import MiniCPMODataProcessor
 from .llava_processor import LLaVADataProcessor
 from .llava_video_processor import LLaVAVideoDataProcessor
 from .nanovlm_processor import NanovlmDataProcessor
@@ -38,4 +39,5 @@ __all__ = [
     "SitDataProcessor",
     "Qwen3_VLDataProcessor",
     "LlavaOnevision2DataProcessor",
+    "MiniCPMODataProcessor",
 ]

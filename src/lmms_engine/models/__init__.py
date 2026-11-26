@@ -13,6 +13,9 @@ from .bagel import Bagel, BagelConfig
 from .config import ModelConfig
 from .llava_onevision import apply_liger_kernel_to_llava_onevision
 from .llava_onevision2 import apply_liger_kernel_to_llava_onevision2
+from .minicpmo import MiniCPMOConfig
+from .minicpmo import MiniCPMOForTraining
+from .minicpmo import MiniCPMOProcessor
 from .monkey_patch import MONKEY_PATCHER
 from .nanovlm import NanovlmConfig, NanovlmForConditionalGeneration
 from .qwen2 import apply_liger_kernel_to_qwen2
@@ -74,6 +77,9 @@ __all__ = [
     "WanVideoForConditionalGeneration",
     "WanVideoProcessor",
     "MONKEY_PATCHER",
+    "MiniCPMOConfig",
+    "MiniCPMOForTraining",
+    "MiniCPMOProcessor",
     "NanovlmConfig",
     "NanovlmForConditionalGeneration",
     "RaeSiglipConfig",

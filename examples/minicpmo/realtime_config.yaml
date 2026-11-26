@@ -1,0 +1,103 @@
+# MiniCPM-o 4.5 Duplex (Realtime) Training Configuration
+#
+# Trains the full-duplex behaviour: a continuous audio (optionally video)
+# stream is split into 1-second units and the model learns, per unit, to
+# either keep listening (`<|listen|>`) or speak (`<|speak|> text
+# <|chunk_tts_eos|>`).  Only the text stream is supervised — the TTS head is
+# frozen.
+#
+# Realtime sample format (see docs/models/minicpmo.md):
+#   {"messages": [
+#      {"role": "user", "content": [
+#        {"type": "audio_url", "audio_url": {"url": "stream.wav"}},
+#        {"type": "text", "text": "optional instruction"}]},
+#      {"role": "assistant", "content": [
+#        {"type": "realtime_text", "start_sec": 3.2, "end_sec": 5.8, "text": "OK."}]}]}
+
+trainer_type: fsdp2_trainer
+
+dataset_config:
+  dataset_type: minicpmo_realtime_iterable
+  dataset_format: yaml
+  dataset_path: null
+  processor_config:
+    processor_name: openbmb/MiniCPM-o-4_5   # Override: local checkpoint path
+    processor_type: minicpmo
+    extra_kwargs:
+      unit_duration: 1.0        # duplex unit length in seconds
+      frames_per_unit: 1        # video frames consumed per unit
+
+  datasets:
+    - path: null                 # Override: path to parquet/json/jsonl
+      data_folder: null           # Override: root folder for media files
+      data_type: parquet
+
+  shuffle: true
+  eval_dataset_path: null
+  object_storage: none
+  bucket_name: null
+
+  packing: false
+  packing_strategy: first_fit
+  packing_length: 8192
+  filter_overlong: true
+  filter_overlong_workers: 8
+  max_length: null
+
+  video_sampling_strategy: fps
+  video_max_pixels: 602112
+  video_max_frames: 64
+  frame_num: 32
+  fps: 1.0
+  video_backend: av
+
+trainer_args:
+  output_dir: ./output/minicpmo_realtime
+  do_train: true
+  do_eval: false
+  eval_strategy: 'no'
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-05
+  weight_decay: 0.0
+  num_train_epochs: 1
+  max_steps: -1
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  logging_steps: 1
+  save_strategy: steps
+  save_steps: 500
+  save_total_limit: 2
+  bf16: true
+  tf32: true
+  seed: 42
+  dataloader_num_workers: 4
+  dataloader_drop_last: true
+  remove_unused_columns: false
+  report_to: []
+  gradient_checkpointing: true
+
+  fsdp2: true
+  sp_ulysses_degree: 1
+  reduce_dtype: bfloat16
+  output_dtype: bfloat16
+  fsdp_config:
+    transformer_layer_cls_to_wrap:
+    - Qwen3DecoderLayer
+    reshard_after_forward: false
+
+  freeze_modules:
+  - tts
+  use_rmpad: false
+  use_liger_kernel: false
+  print_batch_input_steps: 5
+
+model_config:
+  extra_kwargs: {}
+  load_from_pretrained_path: openbmb/MiniCPM-o-4_5   # Override: local checkpoint path
+  load_from_config: null
+  attn_implementation: flash_attention_2
+  model_type: minicpmo
+  torch_dtype: bfloat16
+  overwrite_config: null
+  monkey_patch_kwargs: null
