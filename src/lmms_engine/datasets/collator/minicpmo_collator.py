@@ -72,10 +72,13 @@ class MiniCPMOCollator:
         audio_features = inputs.pop("audio_features", [])
 
         if pixel_values:
-            batched_inputs["pixel_values"] = [list(per_sample) for per_sample in pixel_values]
+            # Each instance carries the (bs == 1) batched structure from
+            # ``process_image``: [sample][image] tensors / [sample] sizes.
+            # Flatten one level so the batch is [sample][image] overall.
+            batched_inputs["pixel_values"] = [imgs for inst in pixel_values for imgs in inst]
             # Flat list across the batch (get_vision_embedding vstacks it).
             batched_inputs["tgt_sizes"] = [t for per_sample in tgt_sizes for t in per_sample]
-            batched_inputs["image_sizes"] = [list(per_sample) for per_sample in image_sizes]
+            batched_inputs["image_sizes"] = [sizes for inst in image_sizes for sizes in inst]
             batched_inputs["image_bound"] = [self._as_bound_tensor(b) for b in image_bound]
         if audio_features:
             batched_inputs["audio_features"] = self._collate_audio(audio_features)

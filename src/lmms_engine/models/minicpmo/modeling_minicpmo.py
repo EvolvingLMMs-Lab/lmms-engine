@@ -22,6 +22,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import math
 import os
 import types
@@ -116,6 +117,10 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
         self.CHUNK_MS = 1000  # regular chunk length (ms)
         self.FIRST_CHUNK_MS = 1035  # first chunk length (ms)
         self.CNN_REDUNDANCY_MS = 0  # CNN redundancy (ms)
+
+        # lmms-engine addition: upstream never calls post_init(); newer
+        # transformers (>=5) require the tied-weights registry it sets up.
+        self.post_init()
 
     def init_vision_module(self):
         if self.config._attn_implementation == "flash_attention_2":
@@ -715,13 +720,21 @@ class MiniCPMWhisperEncoderLayer(nn.Module):
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
-        hidden_states, attn_weights, past_key_values = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            layer_head_mask=layer_head_mask,
-            output_attentions=output_attentions,
-            past_key_value=past_key_values,
-        )
+        # lmms-engine fix: the upstream 3-tuple unpacking breaks on newer
+        # transformers, whose attention returns 2 values and dropped
+        # layer_head_mask.  Adapt to the installed signature.
+        attn_kwargs = {
+            "hidden_states": hidden_states,
+            "attention_mask": attention_mask,
+            "output_attentions": output_attentions,
+        }
+        attn_params = inspect.signature(self.self_attn.forward).parameters
+        if "layer_head_mask" in attn_params:
+            attn_kwargs["layer_head_mask"] = layer_head_mask
+        if "past_key_value" in attn_params:
+            attn_kwargs["past_key_value"] = past_key_values
+        attn_outputs = self.self_attn(**attn_kwargs)
+        hidden_states = attn_outputs[0]
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
         hidden_states = residual + hidden_states
 

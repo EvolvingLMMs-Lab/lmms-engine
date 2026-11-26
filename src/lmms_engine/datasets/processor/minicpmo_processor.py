@@ -165,7 +165,10 @@ class MiniCPMODataProcessor:
                 audio_phs = list(phs_list[0])
 
         # ---- image features ----
-        pixel_values, image_sizes, tgt_sizes = [], [], []
+        # batched (bs == 1) structures: [sample][image] tensors /
+        # [sample] [n_slices, 2] tensors; keep one (empty) sample entry when
+        # the conversation has no images so the batch dimension survives.
+        pixel_values, image_sizes, tgt_sizes = [[]], [[]], []
         if images:
             image_inputs = self.processor.process_image(
                 images, do_pad=True, max_slice_nums=self.max_slice_nums or 9
@@ -375,7 +378,8 @@ class MiniCPMODataProcessor:
                 audio_phs = list(phs_list[0])
 
         # ---- image features (frames_per_unit frames per unit) ----
-        pixel_values, image_sizes, tgt_sizes = [], [], []
+        # keep one (empty) sample entry when the stream has no video
+        pixel_values, image_sizes, tgt_sizes = [[]], [[]], []
         fpu = self.frames_per_unit
         unit_frames = [frames[u * fpu : (u + 1) * fpu] for u in range(total_units)] if frames else [[] for _ in range(total_units)]
         flat_frames = [f for fs in unit_frames for f in fs]
