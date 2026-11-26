@@ -2,6 +2,7 @@ import inspect
 from functools import partial, wraps
 from typing import Callable
 
+from loguru import logger
 from packaging import version
 
 try:
