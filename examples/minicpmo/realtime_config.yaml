@@ -44,6 +44,8 @@ dataset_config:
   filter_overlong_workers: 8
   max_length: null
 
+  video_min_pixels: 28800
+  extra_kwargs: {}
   video_sampling_strategy: fps
   video_max_pixels: 602112
   video_max_frames: 64
@@ -101,3 +103,6 @@ model_config:
   torch_dtype: bfloat16
   overwrite_config: null
   monkey_patch_kwargs: null
+
+config_yaml: null
+extra_kwargs: null

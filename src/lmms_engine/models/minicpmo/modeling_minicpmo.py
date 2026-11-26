@@ -38,6 +38,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
+
+try:
+    from torch.distributed.tensor import DTensor
+except ImportError:  # older torch / non-distributed builds
+    DTensor = ()
 from torch.nn.init import trunc_normal_
 from torch.nn.utils.parametrizations import weight_norm
 from tqdm import tqdm
@@ -312,6 +317,11 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
         else:
             vllm_embedding = self.llm.model.embed_tokens(data["input_ids"])
 
+        # lmms-engine fix: under FSDP2 the (sharded) embedding may return a
+        # DTensor; the scatter / dummy-add below require plain tensors.
+        if isinstance(vllm_embedding, DTensor):
+            vllm_embedding = vllm_embedding.full_tensor()
+
         vision_hidden_states = [
             i.type(vllm_embedding.dtype) if isinstance(i, torch.Tensor) else i for i in vision_hidden_states
         ]
@@ -432,6 +442,10 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
             audio_embeddings = self.get_audio_embedding_streaming(data)
         else:
             audio_embeddings = self.get_audio_embedding(data, chunk_length)
+
+        # lmms-engine fix: keep everything on plain tensors under FSDP2.
+        if isinstance(input_embeddings, DTensor):
+            input_embeddings = input_embeddings.full_tensor()
 
         bs = len(input_embeddings)
         if len(data.get("audio_features", [])) > 0:
@@ -1977,6 +1991,31 @@ def prepare_inputs_for_generation(
     return model_inputs
 
 
+class _PlainPositionalEmbedding(nn.Module):
+    """Drop-in replacement that turns a (possibly sinusoidal) ``nn.Embedding``
+    positional table into a plain buffer-backed module.
+
+    ``apply_fsdp2`` shards every ``nn.Embedding`` when the word embeddings are
+    untied; a sharded Whisper positional table returns a ``DTensor`` whose
+    addition with the plain conv activations breaks the stock
+    ``WhisperEncoder.forward``.  The positional table is small and constant,
+    so a buffer avoids the sharding entirely while keeping the same
+    ``<prefix>.weight`` state-dict key.
+    """
+
+    def __init__(self, embedding: nn.Embedding):
+        super().__init__()
+        self.num_embeddings = embedding.num_embeddings
+        self.embedding_dim = embedding.embedding_dim
+        self.register_buffer("weight", embedding.weight.detach().clone(), persistent=True)
+
+    def forward(self, input_ids):
+        return nn.functional.embedding(input_ids, self.weight)
+
+    def extra_repr(self):
+        return f"num_embeddings={self.num_embeddings}, embedding_dim={self.embedding_dim}"
+
+
 class MiniCPMOForTraining(MiniCPMO):
     """``MiniCPMO`` with a Hugging Face ``Trainer``-compatible forward.
 
@@ -1992,6 +2031,13 @@ class MiniCPMOForTraining(MiniCPMO):
     with ``trainer_args.freeze_modules=["tts"]`` (speech generation is not
     part of this training path).
     """
+
+    def __init__(self, config):
+        super().__init__(config)
+        # Keep the Whisper positional table out of the FSDP2 embedding wrap
+        # (see _PlainPositionalEmbedding).  The state-dict key is unchanged.
+        if self.config.init_audio:
+            self.apm.embed_positions = _PlainPositionalEmbedding(self.apm.embed_positions)
 
     def forward(
         self,
