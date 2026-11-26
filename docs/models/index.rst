@@ -22,3 +22,4 @@ Documentation for available models and model architectures.
    sit
    llava_onevision1_5
    llava_onevision2
+   minicpmo
