@@ -28,11 +28,7 @@ import os
 import types
 from dataclasses import dataclass
 from functools import partial
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -43,33 +39,33 @@ try:
     from torch.distributed.tensor import DTensor
 except ImportError:  # older torch / non-distributed builds
     DTensor = ()
+import logging
+
 from torch.nn.init import trunc_normal_
 from torch.nn.utils.parametrizations import weight_norm
 from tqdm import tqdm
-
-from transformers import LlamaConfig
-from transformers import LlamaModel
-from transformers import PreTrainedModel
-from transformers import Qwen3ForCausalLM
-from transformers import Qwen3PreTrainedModel
+from transformers import (
+    LlamaConfig,
+    LlamaModel,
+    PreTrainedModel,
+    Qwen3ForCausalLM,
+    Qwen3PreTrainedModel,
+)
 from transformers.activations import ACT2FN
-from transformers.cache_utils import Cache
-from transformers.cache_utils import DynamicCache
-from transformers.cache_utils import EncoderDecoderCache
-from transformers.cache_utils import StaticCache
-from transformers.generation.logits_process import TopKLogitsWarper
-from transformers.generation.logits_process import TopPLogitsWarper
+from transformers.cache_utils import (
+    Cache,
+    DynamicCache,
+    EncoderDecoderCache,
+    StaticCache,
+)
+from transformers.generation.logits_process import TopKLogitsWarper, TopPLogitsWarper
 from transformers.integrations import is_deepspeed_zero3_enabled
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.modeling_outputs import ModelOutput
+from transformers.modeling_outputs import BaseModelOutputWithPast, ModelOutput
 from transformers.models.whisper.configuration_whisper import WhisperConfig
 from transformers.models.whisper.modeling_whisper import WhisperEncoder
 
-from .configuration_minicpmo import MiniCPMOConfig
-from .configuration_minicpmo import MiniCPMTTSConfig
+from .configuration_minicpmo import MiniCPMOConfig, MiniCPMTTSConfig
 from .modeling_navit_siglip import SiglipVisionTransformer
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +79,6 @@ class TTSSamplingParams:
     temperature: float = 0.8
     win_size: int = 16
     tau_r: float = 0.1
-
 
 
 class MiniCPMOPreTrainedModel(Qwen3PreTrainedModel):
@@ -473,8 +468,7 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
                         bounds = audio_bounds[i]
 
                     one_to_one_match = len(audio_embs) == len(bounds) and all(
-                        embs.shape[0] == int(bound[1] - bound[0])
-                        for embs, bound in zip(audio_embs, bounds)
+                        embs.shape[0] == int(bound[1] - bound[0]) for embs, bound in zip(audio_embs, bounds)
                     )
 
                     if one_to_one_match:
@@ -488,22 +482,20 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
                             device=input_embeddings.device,
                             dtype=input_embeddings.dtype,
                         )
-            
+
                         total_bound_len = sum(int(bound[1] - bound[0]) for bound in bounds)
-            
+
                         if flat_audio_embs.shape[0] != total_bound_len:
                             raise ValueError(
                                 f"Audio total length mismatch: {flat_audio_embs.shape[0]} != {total_bound_len}"
                             )
-            
+
                         offset = 0
                         for bound in bounds:
                             audio_len = int(bound[1] - bound[0])
-                            input_embeddings[i, bound[0] : bound[1]] = flat_audio_embs[
-                                offset : offset + audio_len
-                            ]
+                            input_embeddings[i, bound[0] : bound[1]] = flat_audio_embs[offset : offset + audio_len]
                             offset += audio_len
-                            
+
         elif self.training:
             for i in range(bs):
                 # dummy audio_embedings
@@ -529,6 +521,8 @@ class MiniCPMO(MiniCPMOPreTrainedModel):
             inputs_embeds=vllm_embedding,
             **kwargs,
         )
+
+
 def get_2d_sincos_pos_embed(embed_dim, image_size):
     """
     image_size: image_size or (image_height, image_width)
@@ -695,7 +689,9 @@ class MiniCPMWhisperEncoderLayer(nn.Module):
         self.embed_dim = config.d_model
         try:
             # compatible old transformers
-            from transformers.models.whisper.modeling_whisper import WHISPER_ATTENTION_CLASSES
+            from transformers.models.whisper.modeling_whisper import (
+                WHISPER_ATTENTION_CLASSES,
+            )
 
             self.self_attn = WHISPER_ATTENTION_CLASSES[config._attn_implementation](
                 embed_dim=self.embed_dim,
@@ -779,7 +775,6 @@ class MiniCPMWhisperEncoderLayer(nn.Module):
 
 # Copied from from transformers.models.whisper.modeling_whisper.WhisperEncoder and add use_cache for streaming inference
 class MiniCPMWhisperEncoder(WhisperEncoder):
-
     def __init__(self, config: WhisperConfig):
         super().__init__(config)
         self.layers = nn.ModuleList(
@@ -2083,8 +2078,8 @@ class MiniCPMOForTraining(MiniCPMO):
         )
 
         if position_ids is None:
-            position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0).expand(
-                input_ids.shape[0], -1
+            position_ids = (
+                torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0).expand(input_ids.shape[0], -1)
             )
         if position_ids.dtype != torch.int64:
             position_ids = position_ids.long()
@@ -2101,4 +2096,3 @@ class MiniCPMOForTraining(MiniCPMO):
             return_dict=return_dict,
             **kwargs,
         )
-

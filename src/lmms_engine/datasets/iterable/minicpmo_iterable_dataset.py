@@ -32,7 +32,9 @@ from datasets import Dataset as HFDataset
 from loguru import logger
 from PIL import Image
 
-from lmms_engine.datasets.iterable.multimodal_iterable_dataset import MultiModalIterableDataset
+from lmms_engine.datasets.iterable.multimodal_iterable_dataset import (
+    MultiModalIterableDataset,
+)
 from lmms_engine.mapping_func import register_dataset
 from lmms_engine.utils.train_utils import TrainUtilities
 
@@ -138,7 +140,11 @@ class MiniCPMOIterableDataset(MultiModalIterableDataset):
                     frames.append(image)
                     next_t += frame_period
 
-            audio = self._extract_audio(container, start=start, end=None if end == float("inf") else end) if use_audio else None
+            audio = (
+                self._extract_audio(container, start=start, end=None if end == float("inf") else end)
+                if use_audio
+                else None
+            )
 
         if not frames:
             logger.warning(f"No frames decoded from {video_path}; inserting a black frame.")

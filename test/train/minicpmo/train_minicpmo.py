@@ -30,7 +30,7 @@ def build_tiny_dataset(data_dir):
     write_wav(audio_path, (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32), 16000)
 
     samples = []
-    for i in range(4):
+    for i in range(32):
         samples.append(
             {
                 "id": i,
@@ -38,8 +38,8 @@ def build_tiny_dataset(data_dir):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "image_url", "image_url": {"url": "tiny.jpg"}},
-                            {"type": "audio_url", "audio_url": {"url": "tiny.wav"}},
+                            {"type": "image_url", "image_url": {"url": image_path}},
+                            {"type": "audio_url", "audio_url": {"url": audio_path}},
                             {"type": "text", "text": f"Describe sample {i}."},
                         ],
                     },
@@ -80,8 +80,10 @@ def main():
     # fast while exercising registration, the data pipeline, the collator,
     # the forward and the loss.
     tiny_llm_config = {
-        "hidden_size": 64,
-        "intermediate_size": 128,
+        # hidden_size must be >= 128: the Resampler derives its attention
+        # head count as hidden_size // 128.
+        "hidden_size": 128,
+        "intermediate_size": 256,
         "num_hidden_layers": 2,
         "num_attention_heads": 4,
         "num_key_value_heads": 2,
@@ -140,8 +142,9 @@ def main():
             "load_from_config": {
                 "model_type": "minicpmo",
                 "config": {
-                    "query_num": 32,
-                    "image_size": 56,
+                    # NOTE: keep query_num / image_size at their defaults —
+                    # the real processor's placeholders emit query_num tokens
+                    # per image; only the depths are shrunk.
                     "vision_batch_size": 4,
                     "vision_config": tiny_vision_config,
                     "audio_config": tiny_audio_config,
@@ -163,6 +166,10 @@ def main():
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 1,
             "learning_rate": 1e-4,
+            "lr_scheduler_type": "cosine",
+            "warmup_ratio": 0.0,
+            "warmup_steps": 0,
+            "eval_strategy": "no",
             "num_train_epochs": 1,
             "max_steps": 5,
             "logging_steps": 1,

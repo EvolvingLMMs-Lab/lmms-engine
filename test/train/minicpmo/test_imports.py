@@ -29,15 +29,23 @@ def test_file_structure() -> bool:
 
 def test_lmms_engine_imports() -> bool:
     try:
-        from lmms_engine.datasets.collator.minicpmo_collator import MiniCPMOCollator  # noqa: F401
+        from lmms_engine.datasets.collator.minicpmo_collator import (  # noqa: F401
+            MiniCPMOCollator,
+        )
         from lmms_engine.datasets.iterable.minicpmo_iterable_dataset import (  # noqa: F401
             MiniCPMOIterableDataset,
         )
         from lmms_engine.datasets.iterable.minicpmo_realtime_iterable_dataset import (  # noqa: F401
             MiniCPMORealtimeIterableDataset,
         )
-        from lmms_engine.datasets.processor.minicpmo_processor import MiniCPMODataProcessor  # noqa: F401
-        from lmms_engine.models.minicpmo import MiniCPMOConfig, MiniCPMOForTraining, MiniCPMOProcessor  # noqa: F401
+        from lmms_engine.datasets.processor.minicpmo_processor import (  # noqa: F401
+            MiniCPMODataProcessor,
+        )
+        from lmms_engine.models.minicpmo import (  # noqa: F401
+            MiniCPMOConfig,
+            MiniCPMOForTraining,
+            MiniCPMOProcessor,
+        )
     except ImportError as e:
         print(f"❌ lmms_engine import failed: {e}")
         return False
@@ -46,8 +54,9 @@ def test_lmms_engine_imports() -> bool:
 
 
 def test_model_registration() -> bool:
-    from lmms_engine.models.minicpmo import MiniCPMOConfig
     from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+    from lmms_engine.models.minicpmo import MiniCPMOConfig
 
     if "minicpmo" not in CONFIG_MAPPING:
         print("❌ minicpmo not registered in AutoConfig")
@@ -62,7 +71,7 @@ def test_model_registration() -> bool:
 
 
 def test_dataset_registration() -> bool:
-    from lmms_engine.mapping_func import DATASET_MAPPING, DATAPROCESSOR_MAPPING
+    from lmms_engine.mapping_func import DATAPROCESSOR_MAPPING, DATASET_MAPPING
 
     ok = True
     for name in ("minicpmo_iterable", "minicpmo_realtime_iterable"):
@@ -78,7 +87,12 @@ def test_dataset_registration() -> bool:
 
 
 def main() -> bool:
-    results = [test_file_structure(), test_lmms_engine_imports(), test_model_registration(), test_dataset_registration()]
+    results = [
+        test_file_structure(),
+        test_lmms_engine_imports(),
+        test_model_registration(),
+        test_dataset_registration(),
+    ]
     print(f"\n{'✅ ALL PASSED' if all(results) else '❌ SOME FAILED'} ({sum(results)}/{len(results)})")
     return all(results)
 

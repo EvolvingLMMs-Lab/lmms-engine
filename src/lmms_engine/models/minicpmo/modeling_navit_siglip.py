@@ -20,9 +20,7 @@ import math
 import os
 import warnings
 from dataclasses import dataclass
-from typing import Optional
-from typing import Tuple
-from typing import Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -33,15 +31,16 @@ from torch.nn.init import _calculate_fan_in_and_fan_out
 from transformers.activations import ACT2FN
 from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_attn_mask_utils import _prepare_4d_attention_mask
-from transformers.modeling_outputs import BaseModelOutput
-from transformers.modeling_outputs import BaseModelOutputWithPooling
+from transformers.modeling_outputs import BaseModelOutput, BaseModelOutputWithPooling
 from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import add_start_docstrings
-from transformers.utils import add_start_docstrings_to_model_forward
-from transformers.utils import is_flash_attn_2_available
-from transformers.utils import logging
-from transformers.utils import ModelOutput
-from transformers.utils import replace_return_docstrings
+from transformers.utils import (
+    ModelOutput,
+    add_start_docstrings,
+    add_start_docstrings_to_model_forward,
+    is_flash_attn_2_available,
+    logging,
+    replace_return_docstrings,
+)
 
 logger = logging.get_logger(__name__)
 
@@ -143,11 +142,9 @@ SIGLIP_PRETRAINED_MODEL_ARCHIVE_LIST = [
 ]
 
 if is_flash_attn_2_available():
-    from flash_attn import flash_attn_func
-    from flash_attn import flash_attn_varlen_func
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
     from flash_attn.bert_padding import index_first_axis  # noqa
-    from flash_attn.bert_padding import pad_input
-    from flash_attn.bert_padding import unpad_input
+    from flash_attn.bert_padding import pad_input, unpad_input
 
 
 # Copied from transformers.models.llama.modeling_llama._get_unpad_data

@@ -17,9 +17,7 @@
 import os
 from typing import Union
 
-from transformers import PretrainedConfig
-from transformers import Qwen3Config
-from transformers import WhisperConfig
+from transformers import PretrainedConfig, Qwen3Config, WhisperConfig
 from transformers.utils import logging
 
 from .modeling_navit_siglip import SiglipVisionConfig

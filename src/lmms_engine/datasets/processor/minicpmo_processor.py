@@ -170,9 +170,7 @@ class MiniCPMODataProcessor:
         # the conversation has no images so the batch dimension survives.
         pixel_values, image_sizes, tgt_sizes = [[]], [[]], []
         if images:
-            image_inputs = self.processor.process_image(
-                images, do_pad=True, max_slice_nums=self.max_slice_nums or 9
-            )
+            image_inputs = self.processor.process_image(images, do_pad=True, max_slice_nums=self.max_slice_nums or 9)
             pixel_values = image_inputs["pixel_values"]
             image_sizes = image_inputs["image_sizes"]
             tgt_sizes = image_inputs["tgt_sizes"]
@@ -381,7 +379,11 @@ class MiniCPMODataProcessor:
         # keep one (empty) sample entry when the stream has no video
         pixel_values, image_sizes, tgt_sizes = [[]], [[]], []
         fpu = self.frames_per_unit
-        unit_frames = [frames[u * fpu : (u + 1) * fpu] for u in range(total_units)] if frames else [[] for _ in range(total_units)]
+        unit_frames = (
+            [frames[u * fpu : (u + 1) * fpu] for u in range(total_units)]
+            if frames
+            else [[] for _ in range(total_units)]
+        )
         flat_frames = [f for fs in unit_frames for f in fs]
         if flat_frames:
             image_inputs = self.processor.process_image(flat_frames, do_pad=True, max_slice_nums=1)
@@ -491,9 +493,11 @@ class MiniCPMODataProcessor:
         image_start_idx = torch.where(start_cond)[0] + 1
         image_end_idx = torch.where(end_cond)[0]
         valid = max(len(image_start_idx), len(image_end_idx))
-        image_bounds = torch.hstack(
-            [image_start_idx[:valid].unsqueeze(-1), image_end_idx[:valid].unsqueeze(-1)]
-        ) if valid else torch.zeros(0, 2, dtype=torch.long)
+        image_bounds = (
+            torch.hstack([image_start_idx[:valid].unsqueeze(-1), image_end_idx[:valid].unsqueeze(-1)])
+            if valid
+            else torch.zeros(0, 2, dtype=torch.long)
+        )
 
         audio_start_idx = torch.where(input_ids == tokenizer.audio_start_id)[0]
         audio_end_idx = torch.where(input_ids == tokenizer.audio_end_id)[0]

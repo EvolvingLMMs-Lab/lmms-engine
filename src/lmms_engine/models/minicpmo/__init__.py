@@ -1,8 +1,7 @@
 from lmms_engine.mapping_func import register_model
 
 from .configuration_minicpmo import MiniCPMOConfig
-from .modeling_minicpmo import MiniCPMO
-from .modeling_minicpmo import MiniCPMOForTraining
+from .modeling_minicpmo import MiniCPMO, MiniCPMOForTraining
 from .processing_minicpmo import MiniCPMOProcessor
 
 register_model(

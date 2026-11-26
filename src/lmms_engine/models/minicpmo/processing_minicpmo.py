@@ -17,36 +17,34 @@
 import copy
 import math
 import re
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor
-from transformers.audio_utils import spectrogram
-from transformers.audio_utils import window_function
-from transformers.image_processing_utils import BaseImageProcessor
-from transformers.image_processing_utils import BatchFeature
+from transformers.audio_utils import spectrogram, window_function
+from transformers.image_processing_utils import BaseImageProcessor, BatchFeature
 from transformers.image_transforms import to_channel_dimension_format
-from transformers.image_utils import ChannelDimension
-from transformers.image_utils import ImageInput
-from transformers.image_utils import infer_channel_dimension_format
-from transformers.image_utils import is_torch_tensor
-from transformers.image_utils import to_numpy_array
-from transformers.image_utils import valid_images
-from transformers.models.whisper.feature_extraction_whisper import WhisperFeatureExtractor
+from transformers.image_utils import (
+    ChannelDimension,
+    ImageInput,
+    infer_channel_dimension_format,
+    is_torch_tensor,
+    to_numpy_array,
+    valid_images,
+)
+from transformers.models.whisper.feature_extraction_whisper import (
+    WhisperFeatureExtractor,
+)
 from transformers.processing_utils import ProcessorMixin
-from transformers.tokenization_utils_base import PreTokenizedInput
-from transformers.tokenization_utils_base import TextInput
-from transformers.utils import is_torch_device
-from transformers.utils import is_torch_dtype
-from transformers.utils import requires_backends
-from transformers.utils import TensorType
+from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
+from transformers.utils import (
+    TensorType,
+    is_torch_device,
+    is_torch_dtype,
+    requires_backends,
+)
 
 
 def recursive_converter(converter, value):

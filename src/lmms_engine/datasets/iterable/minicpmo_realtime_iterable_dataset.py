@@ -52,7 +52,9 @@ import torch
 from datasets import Dataset as HFDataset
 from PIL import Image
 
-from lmms_engine.datasets.iterable.multimodal_iterable_dataset import MultiModalIterableDataset
+from lmms_engine.datasets.iterable.multimodal_iterable_dataset import (
+    MultiModalIterableDataset,
+)
 from lmms_engine.mapping_func import register_dataset
 
 
