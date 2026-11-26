@@ -65,6 +65,8 @@ def main():
     parser.add_argument("--dataset", default=None, help="Optional existing dataset JSON.")
     parser.add_argument("--dataset_folder", default=None)
     parser.add_argument("--model", default="openbmb/MiniCPM-o-4_5", help="Processor/tokenizer source.")
+    parser.add_argument("--trainer", default="fsdp2_trainer", help="Trainer type (fsdp2_trainer / hf_trainer).")
+    parser.add_argument("--cpu", action="store_true", help="CPU debug mode (fp32, no fsdp).")
     args = parser.parse_args()
 
     from lmms_engine.launch.cli import create_train_task
@@ -105,7 +107,7 @@ def main():
     }
 
     cfg = {
-        "trainer_type": "fsdp2_trainer",
+        "trainer_type": args.trainer,
         "dataset_config": {
             "dataset_type": "minicpmo_iterable",
             "dataset_format": "json",
@@ -131,7 +133,7 @@ def main():
             "video_max_frames": 8,
             "frame_num": 4,
             "fps": 1.0,
-            "video_backend": "av",
+            "video_backend": "decord",  # minicpmo decodes videos with PyAV internally
         },
         "model_config": {
             "load_from_pretrained_path": None,
@@ -148,8 +150,8 @@ def main():
                     **tiny_llm_config,
                 },
             },
-            "attn_implementation": "sdpa",
-            "torch_dtype": "bfloat16",
+            "attn_implementation": "eager" if args.cpu else "sdpa",
+            "torch_dtype": "float32" if args.cpu else "bfloat16",
             "overwrite_config": None,
             "monkey_patch_kwargs": None,
         },
@@ -166,19 +168,20 @@ def main():
             "logging_steps": 1,
             "save_strategy": "no",
             "report_to": "none",
-            "bf16": True,
+            "bf16": not args.cpu,
             "seed": 42,
             "dataloader_num_workers": 0,
             "remove_unused_columns": False,
             "gradient_checkpointing": True,
-            "fsdp2": True,
+            "fsdp2": args.trainer == "fsdp2_trainer",
             "sp_ulysses_degree": 1,
             "reduce_dtype": "bfloat16",
             "output_dtype": "bfloat16",
-            "fsdp_config": {
-                "transformer_layer_cls_to_wrap": ["Qwen3DecoderLayer"],
-                "reshard_after_forward": False,
-            },
+            "fsdp_config": (
+                {"transformer_layer_cls_to_wrap": ["Qwen3DecoderLayer"], "reshard_after_forward": False}
+                if args.trainer == "fsdp2_trainer"
+                else None
+            ),
             "freeze_modules": None,
             "use_rmpad": False,
             "use_liger_kernel": False,

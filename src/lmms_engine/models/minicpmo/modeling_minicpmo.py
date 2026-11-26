@@ -33,6 +33,7 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -46,8 +47,12 @@ from transformers import PreTrainedModel
 from transformers import Qwen3ForCausalLM
 from transformers import Qwen3PreTrainedModel
 from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache
+from transformers.cache_utils import DynamicCache
 from transformers.cache_utils import EncoderDecoderCache
+from transformers.cache_utils import StaticCache
 from transformers.generation.logits_process import TopKLogitsWarper
+from transformers.generation.logits_process import TopPLogitsWarper
 from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_outputs import ModelOutput

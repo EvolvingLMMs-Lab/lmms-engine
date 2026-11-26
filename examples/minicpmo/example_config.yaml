@@ -45,7 +45,7 @@ dataset_config:
   video_max_frames: 64
   frame_num: 32
   fps: 1.0
-  video_backend: av
+  video_backend: decord  # minicpmo decodes videos with PyAV internally
 
 trainer_args:
   output_dir: ./output/minicpmo_simplex
