@@ -168,12 +168,19 @@ class Qwen3_VLDataProcessor(BaseQwen2_5_DataProcessor):
             if encode_id == self.video_token_id:
                 target[idx] = -100
 
+        mm_token_type_ids = [
+            1 if token_id == self.image_token_id else 2 if token_id == self.video_token_id else 0
+            for token_id in input_id
+        ]
+
         input_id = torch.tensor(input_id, dtype=torch.long)
         target = torch.tensor(target, dtype=torch.long)
+        mm_token_type_ids = torch.tensor(mm_token_type_ids, dtype=torch.long)
 
         return dict(
             input_ids=input_id,
             labels=target,
+            mm_token_type_ids=mm_token_type_ids,
         )
 
     def _expand_encode_id_video_tokens(

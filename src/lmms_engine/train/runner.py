@@ -262,3 +262,11 @@ class TrainRunner:
             cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
             del state_dict
             trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
+
+
+def __getattr__(name):
+    if name == "RLTrainRunner":
+        from lmms_engine.train.rl.runner import RLTrainRunner
+
+        return RLTrainRunner
+    raise AttributeError(name)
